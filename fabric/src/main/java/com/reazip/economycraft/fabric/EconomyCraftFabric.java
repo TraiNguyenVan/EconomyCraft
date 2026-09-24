@@ -15,7 +15,9 @@ public final class EconomyCraftFabric implements ModInitializer {
             if (level.isClientSide() || !(player instanceof net.minecraft.server.level.ServerPlayer serverPlayer))
                 return net.minecraft.world.InteractionResult.PASS;
             String dimension = level.dimension().identifier().toString();
-            return TollManager.of(level.getServer()).enter(level.getServer(), serverPlayer, dimension, hit.getBlockPos())
+            TollManager.InteractionResult result = TollManager.of(level.getServer())
+                    .interact(level.getServer(), serverPlayer, dimension, hit.getBlockPos());
+            return result == TollManager.InteractionResult.DENIED
                     ? net.minecraft.world.InteractionResult.SUCCESS : net.minecraft.world.InteractionResult.PASS;
         });
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {

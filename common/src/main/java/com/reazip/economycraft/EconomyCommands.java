@@ -199,6 +199,9 @@ public final class EconomyCommands {
         TollManager.Toll toll = tolls.get(dimension,pos);
         switch (action) {
             case "create" -> {
+                if (!player.mayInteract(player.level(), pos)) {
+                    source.sendFailure(Component.literal("You don't have permission to modify that block.")); return 0;
+                }
                 if (toll != null) { source.sendFailure(Component.literal("That block is already registered as a toll.")); return 0; }
                 int cap = EconomyConfig.get().maxActiveTollsPerPlayer;
                 if (cap > 0 && tolls.count(player.getUUID()) >= cap) { source.sendFailure(Component.literal("You have reached your active toll limit ("+cap+").")); return 0; }
@@ -206,6 +209,9 @@ public final class EconomyCommands {
                 source.sendSuccess(() -> Component.literal("Toll created at "+pos.toShortString()+" for "+EconomyCraft.formatMoney(fee)+" net."), false);
             }
             case "set" -> {
+                if (!player.mayInteract(player.level(), pos)) {
+                    source.sendFailure(Component.literal("You don't have permission to modify that block.")); return 0;
+                }
                 if (toll == null || !toll.owner.equals(player.getUUID().toString())) { source.sendFailure(Component.literal("You do not own a toll at that block.")); return 0; }
                 tolls.put(dimension,pos,player.getUUID(),fee);
                 source.sendSuccess(() -> Component.literal("Toll fee set to "+EconomyCraft.formatMoney(fee)+" net."), false);
