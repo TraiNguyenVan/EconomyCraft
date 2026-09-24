@@ -60,7 +60,23 @@ public final class OrderFulfillment {
         request.createdAt = System.currentTimeMillis();
         request.expiresAt = ExpirationUtil.expiresAt(request.createdAt, EconomyConfig.get().orderExpirationHours);
         eco.getOrders().addRequest(request);
+        broadcastNewOrder(eco.getServer(), requester, item, amount, price);
         return request;
+    }
+
+    private static void broadcastNewOrder(MinecraftServer server, UUID requester, ItemStack item, int amount, long price) {
+        ServerPlayer requesterPlayer = server.getPlayerList().getPlayer(requester);
+        String requesterName = requesterPlayer == null ? "A player" : requesterPlayer.getName().getString();
+        Component message = Component.literal("[Orders] " + requesterName + " placed an order for "
+                + amount + "x " + item.getHoverName().getString() + " (total "
+                + EconomyCraft.formatMoney(price) + "). Type /orders to view.")
+                .withStyle(ChatFormatting.GOLD);
+
+        for (ServerPlayer online : server.getPlayerList().getPlayers()) {
+            if (!online.getUUID().equals(requester)) {
+                online.sendSystemMessage(message);
+            }
+        }
     }
 
     public static Result fulfill(EconomyManager eco, ServerPlayer fulfiller, int orderId, int requestedAmount) {
