@@ -28,7 +28,12 @@ import java.util.function.Consumer;
 public final class PlayerPickerUi {
     private PlayerPickerUi() {}
 
-    public record Target(UUID id, String name, long balance) {}
+    public record Target(UUID id, String name, long balance, boolean duplicateName) {
+        public Target(UUID id, String name, long balance) { this(id, name, balance, false); }
+        public String displayName() {
+            return duplicateName ? name + " [" + id.toString().substring(0, 8) + "]" : name;
+        }
+    }
 
     public static void open(ServerPlayer player, String title, boolean includeSelf,
                             BiConsumer<ServerPlayer, Target> onPick, Consumer<ServerPlayer> onCancel) {
@@ -100,17 +105,23 @@ public final class PlayerPickerUi {
             for (UUID id : eco.getBalances().keySet()) {
                 if (known.containsKey(id)) continue;
                 String name = eco.getBestName(id);
-                if (name != null && !name.isBlank()) known.put(id, name);
+                if (name == null || name.isBlank()) name = "Offline account " + id.toString().substring(0, 8);
+                known.put(id, name);
             }
 
             String needle = query == null || query.isBlank() ? null : query.trim().toLowerCase(Locale.ROOT);
+            Map<String, Integer> nameCounts = new LinkedHashMap<>();
+            known.values().forEach(name -> nameCounts.merge(name.toLowerCase(Locale.ROOT), 1, Integer::sum));
             List<Target> out = new ArrayList<>();
             for (Map.Entry<UUID, String> entry : known.entrySet()) {
                 if (!includeSelf && entry.getKey().equals(viewer.getUUID())) continue;
                 String name = entry.getValue();
                 if (name == null || name.isBlank()) continue;
                 if (needle != null && !name.toLowerCase(Locale.ROOT).contains(needle)) continue;
-                out.add(new Target(entry.getKey(), name, eco.getBalance(entry.getKey(), true)));
+                Long balance = eco.getBalance(entry.getKey(), false);
+                out.add(new Target(entry.getKey(), name,
+                        balance == null ? com.reazip.economycraft.EconomyConfig.get().startingBalance : balance,
+                        nameCounts.getOrDefault(name.toLowerCase(Locale.ROOT), 0) > 1));
             }
             out.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.name(), b.name()));
             return out;
@@ -133,7 +144,7 @@ public final class PlayerPickerUi {
 
                 Target target = targets.get(index);
                 ServerPlayer online = server.getPlayerList().getPlayer(target.id());
-                ItemStack head = MenuUiSupport.createBalanceItem(eco, target.id(), online, target.name());
+                ItemStack head = MenuUiSupport.createBalanceItem(eco, target.id(), online, target.displayName());
                 List<Component> lore = new ArrayList<>();
                 lore.add(MenuUiSupport.balanceLore(target.balance()));
                 lore.add(MenuUiSupport.labeledValue("Status", online != null ? "Online" : "Offline",

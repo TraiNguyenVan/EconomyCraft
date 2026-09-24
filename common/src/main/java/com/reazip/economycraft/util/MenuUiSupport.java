@@ -1,6 +1,7 @@
 package com.reazip.economycraft.util;
 
 import com.reazip.economycraft.EconomyCraft;
+import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyManager;
 import it.unimi.dsi.fastutil.objects.Object2IntMap;
 import net.minecraft.ChatFormatting;
@@ -236,7 +237,9 @@ public final class MenuUiSupport {
                 ? ProfileComponentCompat.tryResolvedOrUnresolved(player.getGameProfile())
                 : ProfileComponentCompat.tryUnresolved(name);
         profile.ifPresent(resolvable -> head.set(DataComponents.PROFILE, resolvable));
-        long balance = eco.getBalance(playerId, true);
+        // This is a display helper. Rendering a picker/menu must never create a new account.
+        Long storedBalance = eco.getBalance(playerId, false);
+        long balance = storedBalance != null ? storedBalance : EconomyConfig.get().startingBalance;
         String displayName = player != null ? IdentityCompat.of(player).name() : name;
         head.set(DataComponents.CUSTOM_NAME, Component.literal(displayName).withStyle(s -> s.withItalic(false).withBold(true).withColor(BALANCE_NAME_COLOR)));
         head.set(DataComponents.LORE, new ItemLore(List.of(balanceLore(balance))));

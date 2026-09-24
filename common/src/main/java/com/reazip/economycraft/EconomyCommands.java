@@ -230,7 +230,7 @@ public final class EconomyCommands {
         return 1;
     }
 
-    private static boolean canModifyTollAt(ServerPlayer player, net.minecraft.core.BlockPos pos) {
+    static boolean canModifyTollAt(ServerPlayer player, net.minecraft.core.BlockPos pos) {
         return player.mayInteract(player.level(), pos)
                 && !player.blockActionRestricted(player.level(), pos, player.gameMode.getGameModeForPlayer());
     }
@@ -241,6 +241,11 @@ public final class EconomyCommands {
         if (targets.size() != 1) { source.sendFailure(Component.literal("Choose exactly one player.")); return 0; }
         IdentityCompat.PlayerRef target = targets.iterator().next();
         if (target.id().equals(player.getUUID())) { source.sendFailure(Component.literal("You already own this toll.")); return 0; }
+        EconomyManager economy = EconomyCraft.getManager(source.getServer());
+        if (!knownTollRecipient(source.getServer(), economy, target)) {
+            source.sendFailure(Component.literal("That player account is not known to EconomyCraft. Choose an online player or an existing account."));
+            return 0;
+        }
         var hit = player.pick(5.0, 1.0f, false);
         if (!(hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) || hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
             source.sendFailure(Component.literal("Look at a block within five blocks.")); return 0;
@@ -262,6 +267,16 @@ public final class EconomyCommands {
         String targetName = target.name() == null || target.name().isBlank() ? target.id().toString() : target.name();
         source.sendSuccess(() -> Component.literal("Toll ownership transferred to " + targetName + "."), false);
         return 1;
+    }
+
+    static boolean knownTollRecipient(MinecraftServer server, EconomyManager economy, IdentityCompat.PlayerRef target) {
+        boolean knownId = server.getPlayerList().getPlayer(target.id()) != null
+                || economy.getBalances().containsKey(target.id());
+        if (!knownId) return false;
+        String name = target.name();
+        if (name == null || name.isBlank()) return true;
+        UUID resolved = economy.tryResolveUuidByName(name);
+        return target.id().equals(resolved);
     }
 
     private static int importSharedFolder(CommandSourceStack source) {

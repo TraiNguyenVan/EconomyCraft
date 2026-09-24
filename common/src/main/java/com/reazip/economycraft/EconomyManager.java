@@ -51,6 +51,7 @@ public class EconomyManager {
     private static final Type TYPE = new TypeToken<Map<UUID, Long>>(){}.getType();
     private static final Type DAILY_SELL_TYPE = new TypeToken<Map<UUID, DailySellData>>(){}.getType();
     private static final Type STATS_TYPE = new TypeToken<Map<UUID, PlayerStats>>(){}.getType();
+    private static final Type PLAYER_NAMES_TYPE = new TypeToken<Map<UUID, String>>(){}.getType();
     private static final Set<String> TRADE_SOURCES = Set.of(
             EconomySources.SHOP_PURCHASE.asString(),
             EconomySources.SHOP_SALE.asString(),
@@ -73,12 +74,14 @@ public class EconomyManager {
     private final Path dailyFile;
     private final Path dailySellFile;
     private final Path statsFile;
+    private final Path playerNamesFile;
     private final Path logsDir;
 
     private final Map<UUID, Long> balances = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastDaily = new ConcurrentHashMap<>();
     private final Map<UUID, DailySellData> dailySells = new ConcurrentHashMap<>();
     private final Map<UUID, PlayerStats> stats = new ConcurrentHashMap<>();
+    private final Map<UUID, String> playerNames = new ConcurrentHashMap<>();
     private final PriceRegistry prices;
     private final BalanceEventDispatcher balanceEvents;
     private final BalanceMutationEngine balanceMutations;
@@ -106,11 +109,13 @@ public class EconomyManager {
         this.dailyFile = dataDir.resolve("daily.json");
         this.dailySellFile = dataDir.resolve("daily_sells.json");
         this.statsFile = dataDir.resolve("stats.json");
+        this.playerNamesFile = dataDir.resolve("player_names.json");
 
         load();
         loadDaily();
         loadDailySells();
         loadStats();
+        loadPlayerNames();
 
         this.logsDir = EconomyPaths.logsDir(server);
         TransactionLogWriter.cleanup(logsDir, EconomyConfig.get().transactionLogRetentionDays);
@@ -159,10 +164,32 @@ public class EconomyManager {
 
     private @Nullable String resolveName(MinecraftServer server, UUID id) {
         String localName = resolveLocalName(server, id);
-        if (localName != null) return localName;
+        if (localName != null) {
+            rememberPlayerName(id, localName);
+            return localName;
+        }
 
         scheduleProfileLookup(id);
-        return null;
+        return playerNames.get(id);
+    }
+
+    private void loadPlayerNames() {
+        try {
+            if (Files.exists(playerNamesFile)) {
+                Map<UUID, String> loaded = GSON.fromJson(Files.readString(playerNamesFile), PLAYER_NAMES_TYPE);
+                if (loaded != null) loaded.forEach((id, name) -> {
+                    if (id != null && name != null && !name.isBlank()) playerNames.put(id, name);
+                });
+            }
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to load cached player names", e);
+        }
+    }
+
+    public void rememberPlayerName(UUID id, String name) {
+        if (id == null || name == null || name.isBlank()) return;
+        String previous = playerNames.put(id, name);
+        if (!name.equals(previous)) AsyncFileWriter.writeAsync(playerNamesFile, GSON.toJson(playerNames));
     }
 
     private static @Nullable String resolveLocalName(MinecraftServer server, UUID id) {
@@ -201,6 +228,7 @@ public class EconomyManager {
         for (UUID id : balances.keySet()) {
             String resolved = safeResolveCachedName(server, id);
             if (resolved == null) resolved = getNeoForgeCachedName(id);
+            if (resolved == null) resolved = playerNames.get(id);
             if (resolved == null) continue;
             if (!name.equalsIgnoreCase(resolved)) continue;
             if (match != null && !match.equals(id)) return null;
@@ -280,6 +308,7 @@ public class EconomyManager {
                     ServerPlayer online = server.getPlayerList().getPlayer(id);
                     String name = online != null ? IdentityCompat.of(online).name() : entry.getValue();
                     ProfileCompat.cacheName(server, id, name);
+                    rememberPlayerName(id, name);
                     resolved.add(id);
                 } catch (RuntimeException ignored) {}
             }

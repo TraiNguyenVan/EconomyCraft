@@ -48,6 +48,7 @@ public final class HubUi {
     private static final int TRANSACTIONS = 28;
     private static final int DELIVERIES = 30;
     private static final int HELP = 32;
+    private static final int TOLLS = 34;
     private static final int CLOSE = 40;
     private static final int ADMIN = 44;
 
@@ -246,6 +247,12 @@ public final class HubUi {
                                 : "Nothing waiting right now.")));
             }
 
+            if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_TOLL)) {
+                container.setItem(TOLLS, MenuUiSupport.button(Items.OAK_FENCE_GATE, "Tolls", ChatFormatting.GOLD,
+                        MenuUiSupport.hint("Manage the block you are looking at."),
+                        MenuUiSupport.hint("Look at a block within five blocks.")));
+            }
+
             container.setItem(HELP, MenuUiSupport.button(Items.BOOK, "How It Works", ChatFormatting.YELLOW,
                     MenuUiSupport.hint("Claim your daily reward, sell what"),
                     MenuUiSupport.hint("you mine, then buy what you need."),
@@ -269,6 +276,10 @@ public final class HubUi {
 
             EconomyConfig config = EconomyConfig.get();
             switch (slot) {
+                case TOLLS -> {
+                    EconomySounds.click(viewer);
+                    TollUi.open(viewer);
+                }
                 case SHOP -> {
                     if (config.shopEnabled && EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_SHOP)) {
                         EconomySounds.click(viewer);

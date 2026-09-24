@@ -112,8 +112,6 @@ public class AuctionManager {
         if (sellerId == null) return;
 
         ServerPlayer seller = server.getPlayerList().getPlayer(sellerId);
-        if (seller == null) return;
-
         ItemStack stack = listing.item;
         int amount = (stack == null || stack.isEmpty()) ? 0 : stack.getCount();
         String itemName = (stack == null || stack.isEmpty())
@@ -123,14 +121,18 @@ public class AuctionManager {
         String buyerName = IdentityCompat.of(buyer).name();
         long price = listing.price;
 
-        Component msg = Component.literal(
-                "Sold " + amount + "x " + itemName +
-                        " to " + buyerName +
-                        " for " + EconomyCraft.formatMoney(price)
-        ).withStyle(ChatFormatting.GREEN);
+        String message = "Sold " + amount + "x " + itemName + " to " + buyerName
+                + " for " + EconomyCraft.formatMoney(price);
+
+        if (seller == null) {
+            var notifications = EconomyCraft.getManager(server).getNotifications();
+            notifications.notify(sellerId, message);
+            notifications.flush();
+            return;
+        }
 
         EconomySounds.moneyReceived(seller);
-        seller.sendSystemMessage(msg);
+        seller.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.GREEN));
     }
 
     public void addDelivery(UUID player, ItemStack stack) {

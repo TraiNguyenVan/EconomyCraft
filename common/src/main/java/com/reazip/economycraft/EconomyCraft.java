@@ -59,6 +59,7 @@ public final class EconomyCraft {
     }
 
     private static void onServerTick(MinecraftServer server) {
+        TollHud.tick(server);
         if (server.getTickCount() % EXPIRATION_CHECK_INTERVAL_TICKS != 0) return;
 
         EconomyManager eco = getManager(server);
@@ -85,6 +86,7 @@ public final class EconomyCraft {
             ProfileCompat.cacheName(server, player.getUUID(), IdentityCompat.of(player).name());
 
             EconomyManager eco = getManager(server);
+            eco.rememberPlayerName(player.getUUID(), IdentityCompat.of(player).name());
             if (eco.getBalance(player.getUUID(), false) == null) {
                 eco.getBalance(player.getUUID(), true);
             } else {

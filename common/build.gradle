@@ -17,6 +17,10 @@ architectury {
 // e.g. ClickType) and the unobfuscated 26.x line (e.g. ContainerInput). Everything else lives in
 // src/main/java; only the files that actually reference one of those renamed classes live here.
 sourceSets {
+    // These integration tests bootstrap the 26.3 item component registries.
+    if (mcCoord == '26.3') {
+        test.java.srcDir 'src/test26_3/java'
+    }
     main {
         java {
             srcDir "src/${tgt.obfuscated ? 'obfuscated' : 'unobfuscated'}/java"
@@ -26,6 +30,9 @@ sourceSets {
 }
 
 dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.13.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.13.4'
+    testImplementation 'org.mockito:mockito-core:5.18.0'
     // Required Minecraft jar for Loom
     minecraft "com.mojang:minecraft:${mcCoord}"
     implementation project(":api")
@@ -51,4 +58,8 @@ dependencies {
         // gradle.properties fallback, which only fits the default target.
         implementation "dev.architectury:architectury:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
     }
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
 }

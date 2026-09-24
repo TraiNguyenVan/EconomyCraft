@@ -10,7 +10,7 @@ Requires Architectury API.
 | Buttom            | Description                                                                                                              |
 |-------------------|--------------------------------------------------------------------------------------------------------------------------|
 | **Shop**          | Buy and sell at fixed prices with unlimited stock. Left click buys, right click sells, shift-click uses the bulk amount. |
-| **Auction House** | Buy items other players have listed, or list your own.                                                                   |
+| **Auction House** | Buy items other players have listed, or list your own. Offline sellers receive a sale notice when they return.           |
 | **Sell Items**    | Drop items in, check the total, confirm. Unpriced items can not be sold.                                                 |
 | **Orders**        | Request an item, amount and price. Other players fill it and get paid.                                                   |
 | **Daily Reward**  | Claims the daily payout, once per day.                                                                                   |
@@ -19,6 +19,7 @@ Requires Architectury API.
 | **Item Value**    | The buy and sell price of any item.                                                                                      |
 | **Deliveries**    | Items or payouts that couldn't be delivered directly (full inventory/completed while offline).                           |
 | **Transactions**  | Your recent balance history.                                                                                             |
+| **Tolls**         | Manage the block you are looking at within five blocks; its fee appears on the action bar. See [toll management](wiki/Tolls.md). |
 
 Each screen also has a command: `/bal`, `/pay`, `/daily`, `/shop`, `/ah`, `/auction`, `/sell`, `/worth`, `/orders`, `/deliveries`, `/transactions`.
 
@@ -106,6 +107,7 @@ Admin and command access is gated by permission nodes. Any admin node not set by
 | `economycraft.command.daily`        | `/daily`            |
 | `economycraft.command.transactions` | `/transactions`     |
 | `economycraft.command.worth`        | `/worth`            |
+| `economycraft.command.toll`         | `/eco toll`, `/toll`, and the Tolls menu |
 
 ---
 
