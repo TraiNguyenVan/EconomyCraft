@@ -23,6 +23,14 @@ public final class EconomyCraftFabric implements ModInitializer {
             return result == TollManager.InteractionResult.DENIED
                     ? net.minecraft.world.InteractionResult.SUCCESS : net.minecraft.world.InteractionResult.PASS;
         });
+        PlayerBlockBreakEvents.BEFORE.register((level, player, pos, state, blockEntity) -> {
+            if (level.isClientSide()) return true;
+            TollManager.Toll toll = TollManager.of(level.getServer())
+                    .get(level.dimension().identifier().toString(), pos);
+            if (toll == null || toll.owner.equals(player.getUUID().toString())) return true;
+            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Only the toll owner can break this block."));
+            return false;
+        });
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {
             if (!level.isClientSide()) TollManager.of(level.getServer()).broken(level.dimension().identifier().toString(), pos);
         });
