@@ -270,13 +270,8 @@ public final class EconomyCommands {
     }
 
     static boolean knownTollRecipient(MinecraftServer server, EconomyManager economy, IdentityCompat.PlayerRef target) {
-        boolean knownId = server.getPlayerList().getPlayer(target.id()) != null
+        return server.getPlayerList().getPlayer(target.id()) != null
                 || economy.getBalances().containsKey(target.id());
-        if (!knownId) return false;
-        String name = target.name();
-        if (name == null || name.isBlank()) return true;
-        UUID resolved = economy.tryResolveUuidByName(name);
-        return target.id().equals(resolved);
     }
 
     private static int importSharedFolder(CommandSourceStack source) {

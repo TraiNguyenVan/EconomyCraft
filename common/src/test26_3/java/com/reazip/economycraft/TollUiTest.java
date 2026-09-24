@@ -301,14 +301,12 @@ class TollUiTest {
         verify(eco, never()).getBalance(any(UUID.class), eq(true));
     }
 
-    @Test void commandTransferRejectsSyntheticOfflineIdentityAndChecksKnownNameAgainstUuid() {
+    @Test void commandTransferAcceptsKnownUuidDespiteStaleNameAndRejectsSyntheticIdentity() {
         var known = new com.reazip.economycraft.util.IdentityCompat.PlayerRef(RECIPIENT, "Recipient");
-        when(eco.tryResolveUuidByName("Recipient")).thenReturn(RECIPIENT);
         assertTrue(EconomyCommands.knownTollRecipient(server, eco, known));
 
-        var mismatched = new com.reazip.economycraft.util.IdentityCompat.PlayerRef(RECIPIENT, "OtherName");
-        when(eco.tryResolveUuidByName("OtherName")).thenReturn(null);
-        assertFalse(EconomyCommands.knownTollRecipient(server, eco, mismatched));
+        var renamed = new com.reazip.economycraft.util.IdentityCompat.PlayerRef(RECIPIENT, "NewRecipientName");
+        assertTrue(EconomyCommands.knownTollRecipient(server, eco, renamed));
 
         UUID synthetic = UUID.nameUUIDFromBytes("OfflinePlayer:CapCapServer".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         var invented = new com.reazip.economycraft.util.IdentityCompat.PlayerRef(synthetic, "CapCapServer");
@@ -420,7 +418,7 @@ class TollUiTest {
         assertEquals(15, tolls.pressurePlateSignal(level, POS, 15));
     }
 
-    @Test void tollOverlayAppearsOnTargetAndDoesNotClearOtherActionbarMessages() {
+    @Test void tollOverlayAppearsOnTargetAndClearsWhenPlayerLooksAway() {
         tolls.put(DIMENSION, POS, OWNER, 75);
         when(server.getTickCount()).thenReturn(10);
         TollHud.tick(server);
@@ -429,7 +427,7 @@ class TollUiTest {
         when(player.pick(5.0, 1.0f, false)).thenReturn(BlockHitResult.miss(Vec3.ZERO, Direction.UP, POS));
         when(server.getTickCount()).thenReturn(20);
         TollHud.tick(server);
-        verify(player, times(1)).sendSystemMessage(any(Component.class), eq(true));
+        verify(player).sendSystemMessage(argThat(message -> message.getString().isEmpty()), eq(true));
     }
 
     @Test void offlineAuctionSellerGetsPendingSaleNotification() {

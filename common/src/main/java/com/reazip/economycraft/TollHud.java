@@ -36,7 +36,10 @@ public final class TollHud {
             TollManager.Toll toll = aimedToll(player, tolls);
             Displayed previous = displayed.get(id);
             if (toll == null) {
-                if (previous != null) displayed.remove(id);
+                if (previous != null) {
+                    player.sendSystemMessage(Component.empty(), true);
+                    displayed.remove(id);
+                }
                 continue;
             }
 
