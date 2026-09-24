@@ -45,6 +45,11 @@ public final class TollManager {
         String k=key(dimension,pos); Toll t=tolls.get(k); if(t==null || !t.owner.equals(owner.toString())) return false;
         tolls.remove(k); save(); return true;
     }
+    public synchronized boolean transfer(String dimension, BlockPos pos, UUID currentOwner, UUID newOwner) {
+        String k=key(dimension,pos); Toll t=tolls.get(k);
+        if(t==null || !t.owner.equals(currentOwner.toString()) || currentOwner.equals(newOwner)) return false;
+        t.owner=newOwner.toString(); save(); return true;
+    }
     public void broken(String dimension, BlockPos pos) { if(tolls.remove(key(dimension,pos))!=null) save(); }
     public synchronized InteractionResult interact(MinecraftServer server, net.minecraft.server.level.ServerPlayer visitor, String dimension, BlockPos pos) {
         Toll toll=get(dimension,pos); if(toll==null) return InteractionResult.NOT_TOLL;

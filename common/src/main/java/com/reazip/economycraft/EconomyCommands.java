@@ -181,6 +181,8 @@ public final class EconomyCommands {
                 .executes(ctx -> tollCommand(ctx.getSource(), "create", LongArgumentType.getLong(ctx,"fee")))));
         root.then(literal("set").then(argument("fee", LongArgumentType.longArg(1, EconomyManager.MAX))
                 .executes(ctx -> tollCommand(ctx.getSource(), "set", LongArgumentType.getLong(ctx,"fee")))));
+        root.then(literal("transfer").then(argument("player", GameProfileArgument.gameProfile())
+                .executes(ctx -> transferToll(ctx.getSource(), IdentityCompat.getArgAsPlayerRefs(ctx, "player")))));
         root.then(literal("info").executes(ctx -> tollCommand(ctx.getSource(), "info", 0)));
         root.then(literal("remove").executes(ctx -> tollCommand(ctx.getSource(), "remove", 0)));
         return root;
@@ -231,6 +233,35 @@ public final class EconomyCommands {
     private static boolean canModifyTollAt(ServerPlayer player, net.minecraft.core.BlockPos pos) {
         return player.mayInteract(player.level(), pos)
                 && !player.blockActionRestricted(player.level(), pos, player.gameMode.getGameModeForPlayer());
+    }
+
+    private static int transferToll(CommandSourceStack source, Collection<IdentityCompat.PlayerRef> targets) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) { source.sendFailure(Component.literal("Only players can transfer toll ownership.")); return 0; }
+        if (targets.size() != 1) { source.sendFailure(Component.literal("Choose exactly one player.")); return 0; }
+        IdentityCompat.PlayerRef target = targets.iterator().next();
+        if (target.id().equals(player.getUUID())) { source.sendFailure(Component.literal("You already own this toll.")); return 0; }
+        var hit = player.pick(5.0, 1.0f, false);
+        if (!(hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) || hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+            source.sendFailure(Component.literal("Look at a block within five blocks.")); return 0;
+        }
+        var pos = blockHit.getBlockPos();
+        String dimension = player.level().dimension().identifier().toString();
+        TollManager tolls = TollManager.of(source.getServer());
+        TollManager.Toll toll = tolls.get(dimension, pos);
+        if (toll == null || !toll.owner.equals(player.getUUID().toString())) {
+            source.sendFailure(Component.literal("You do not own a toll at that block.")); return 0;
+        }
+        int cap = EconomyConfig.get().maxActiveTollsPerPlayer;
+        if (cap > 0 && tolls.count(target.id()) >= cap) {
+            source.sendFailure(Component.literal("That player has reached their active toll limit (" + cap + ").")); return 0;
+        }
+        if (!tolls.transfer(dimension, pos, player.getUUID(), target.id())) {
+            source.sendFailure(Component.literal("Toll ownership could not be transferred.")); return 0;
+        }
+        String targetName = target.name() == null || target.name().isBlank() ? target.id().toString() : target.name();
+        source.sendSuccess(() -> Component.literal("Toll ownership transferred to " + targetName + "."), false);
+        return 1;
     }
 
     private static int importSharedFolder(CommandSourceStack source) {
