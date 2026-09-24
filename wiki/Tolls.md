@@ -25,6 +25,16 @@ Changes save through the existing `tolls.json` store. The payment, tax, cooldown
 right-click, and pressure plate handling are unchanged. No client mod or data
 migration is needed. Installing the new jar requires a server restart.
 
+## Known limitations
+
+- Tolls are attached to a single block position. A double chest consists of two
+  blocks, so registering one half does not register the other; set a toll on each
+  half if both sides should charge.
+- A hopper under a toll chest can still extract items without paying. Toll charges
+  are triggered by player interaction with the toll block or entering its toll
+  pressure plate area; hopper transfers do not trigger payment. This is a known
+  automation bypass, not chest protection.
+
 ## Verification
 
 With the Java toolchain available:
@@ -45,4 +55,5 @@ and both toll interaction types. These client checks are separate from the
 automated tests and do not require changing a running server during development.
 
 The current toll fee also appears in the vanilla action bar while the crosshair is
-on the toll block within five blocks; it clears when the player looks away.
+on the toll block within five blocks; when the player looks away, the message stops
+refreshing and fades naturally.
