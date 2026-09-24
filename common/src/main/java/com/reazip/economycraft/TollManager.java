@@ -8,8 +8,11 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -24,6 +27,7 @@ public final class TollManager {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Type TYPE = new TypeToken<Map<String, Toll>>() {}.getType();
     private static final Map<MinecraftServer, TollManager> INSTANCES = new WeakHashMap<>();
+    private final MinecraftServer server;
     private final Path file;
     private final Map<String, Toll> tolls = new ConcurrentHashMap<>();
     private final Map<String, Long> cooldowns = new ConcurrentHashMap<>();
@@ -34,6 +38,7 @@ public final class TollManager {
         return INSTANCES.computeIfAbsent(server, TollManager::new);
     }
     private TollManager(MinecraftServer server) {
+        this.server = server;
         file = EconomyPaths.dataDir(server).resolve("tolls.json");
         try {
             if (Files.isRegularFile(file)) {
@@ -43,21 +48,96 @@ public final class TollManager {
         } catch (Exception e) { throw new IllegalStateException("Failed to load tolls at " + file, e); }
     }
     private static String key(String dimension, BlockPos pos) { return dimension + "|" + pos.getX()+","+pos.getY()+","+pos.getZ(); }
-    public Toll get(String dimension, BlockPos pos) { return tolls.get(key(dimension,pos)); }
+    public Toll get(String dimension, BlockPos pos) {
+        for (String candidate : storageKeys(dimension, pos)) {
+            Toll toll = tolls.get(candidate);
+            if (toll != null) return toll;
+        }
+        return null;
+    }
     public int count(UUID owner) { return (int)tolls.values().stream().filter(t -> t.owner.equals(owner.toString())).count(); }
-    public void put(String dimension, BlockPos pos, UUID owner, long fee) { tolls.put(key(dimension,pos), new Toll(dimension,pos.getX(),pos.getY(),pos.getZ(),owner.toString(),fee)); save(); }
+    public void put(String dimension, BlockPos pos, UUID owner, long fee) {
+        BlockPos canonical = canonicalPos(dimension, pos);
+        for (String candidate : storageKeys(dimension, pos)) tolls.remove(candidate);
+        tolls.put(key(dimension, canonical), new Toll(dimension,canonical.getX(),canonical.getY(),canonical.getZ(),owner.toString(),fee));
+        save();
+    }
     public boolean remove(String dimension, BlockPos pos, UUID owner) {
-        String k=key(dimension,pos); Toll t=tolls.get(k); if(t==null || !t.owner.equals(owner.toString())) return false;
-        tolls.remove(k); clearPressurePlateState(k); save(); return true;
+        Toll toll = get(dimension, pos);
+        if (toll == null || !toll.owner.equals(owner.toString())) return false;
+        for (String candidate : storageKeys(dimension, pos)) {
+            tolls.remove(candidate);
+            clearPressurePlateState(candidate);
+        }
+        save();
+        return true;
     }
     public synchronized boolean transfer(String dimension, BlockPos pos, UUID currentOwner, UUID newOwner) {
-        String k=key(dimension,pos); Toll t=tolls.get(k);
-        if(t==null || !t.owner.equals(currentOwner.toString()) || currentOwner.equals(newOwner)) return false;
-        t.owner=newOwner.toString(); save(); return true;
+        Toll toll = get(dimension, pos);
+        if (toll == null || !toll.owner.equals(currentOwner.toString()) || currentOwner.equals(newOwner)) return false;
+        BlockPos canonical = canonicalPos(dimension, pos);
+        for (String candidate : storageKeys(dimension, pos)) tolls.remove(candidate);
+        toll.owner = newOwner.toString();
+        toll.x = canonical.getX(); toll.y = canonical.getY(); toll.z = canonical.getZ();
+        tolls.put(key(dimension, canonical), toll);
+        save();
+        return true;
     }
     public void broken(String dimension, BlockPos pos) {
-        String k = key(dimension, pos);
-        if (tolls.remove(k) != null) { clearPressurePlateState(k); save(); }
+        boolean changed = false;
+        for (String candidate : storageKeys(dimension, pos)) {
+            changed |= tolls.remove(candidate) != null;
+            clearPressurePlateState(candidate);
+        }
+        if (changed) save();
+    }
+
+    /** Hoppers must not extract items from a toll-registered chest without a player payment. */
+    public boolean blocksHopperExtraction(ServerLevel level, BlockPos hopperPos) {
+        BlockPos sourcePos = hopperPos.above();
+        BlockState sourceState = level.getBlockState(sourcePos);
+        if (sourceState == null || !(sourceState.getBlock() instanceof ChestBlock)) return false;
+        return get(level.dimension().identifier().toString(), sourcePos) != null;
+    }
+
+    private List<String> storageKeys(String dimension, BlockPos pos) {
+        LinkedHashSet<String> keys = new LinkedHashSet<>();
+        BlockPos canonical = canonicalPos(dimension, pos);
+        keys.add(key(dimension, canonical));
+        keys.add(key(dimension, pos));
+        BlockPos partner = connectedChest(dimension, pos);
+        if (partner != null) keys.add(key(dimension, partner));
+        return List.copyOf(keys);
+    }
+
+    private BlockPos canonicalPos(String dimension, BlockPos pos) {
+        BlockPos partner = connectedChest(dimension, pos);
+        if (partner == null) return pos;
+        return comparePositions(pos, partner) <= 0 ? pos : partner;
+    }
+
+    private BlockPos connectedChest(String dimension, BlockPos pos) {
+        ServerLevel level = null;
+        for (ServerLevel candidate : server.getAllLevels()) {
+            if (candidate.dimension().identifier().toString().equals(dimension)) {
+                level = candidate;
+                break;
+            }
+        }
+        if (level == null) return null;
+        BlockState state = level.getBlockState(pos);
+        if (state == null || !(state.getBlock() instanceof ChestBlock)
+                || state.getValue(ChestBlock.TYPE) == ChestType.SINGLE) return null;
+        BlockPos partner = ChestBlock.getConnectedBlockPos(pos, state);
+        BlockState partnerState = level.getBlockState(partner);
+        return partnerState != null && partnerState.getBlock() == state.getBlock() ? partner : null;
+    }
+
+    private static int comparePositions(BlockPos a, BlockPos b) {
+        int x = Integer.compare(a.getX(), b.getX());
+        if (x != 0) return x;
+        int y = Integer.compare(a.getY(), b.getY());
+        return y != 0 ? y : Integer.compare(a.getZ(), b.getZ());
     }
     public synchronized InteractionResult interact(MinecraftServer server, net.minecraft.server.level.ServerPlayer visitor, String dimension, BlockPos pos) {
         Toll toll=get(dimension,pos); if(toll==null) return InteractionResult.NOT_TOLL;

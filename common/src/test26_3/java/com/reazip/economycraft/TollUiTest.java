@@ -26,6 +26,8 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.storage.LevelResource;
@@ -87,6 +89,7 @@ class TollUiTest {
         level = mock(ServerLevel.class);
         when(level.getServer()).thenReturn(server);
         when(level.dimension()).thenReturn(Level.OVERWORLD);
+        when(server.getAllLevels()).thenReturn(List.of(level));
         player = mock(ServerPlayer.class);
         when(player.level()).thenReturn(level);
         when(player.getUUID()).thenReturn(ACTOR);
@@ -140,6 +143,29 @@ class TollUiTest {
         var method = menu.getClass().getDeclaredMethod("onClick", int.class, int.class, ClickKind.class, Player.class);
         method.setAccessible(true);
         method.invoke(menu, slot, 0, ClickKind.PICKUP, player);
+    }
+
+    @Test void oneTollCoversBothHalvesOfDoubleChestAndStopsHopperExtraction() {
+        var left = Blocks.CHEST.defaultBlockState()
+                .setValue(ChestBlock.TYPE, net.minecraft.world.level.block.state.properties.ChestType.LEFT)
+                .setValue(ChestBlock.FACING, Direction.NORTH);
+        BlockPos otherHalf = ChestBlock.getConnectedBlockPos(POS, left);
+        var right = Blocks.CHEST.defaultBlockState()
+                .setValue(ChestBlock.TYPE, net.minecraft.world.level.block.state.properties.ChestType.RIGHT)
+                .setValue(ChestBlock.FACING, Direction.NORTH);
+        when(level.getBlockState(POS)).thenReturn(left);
+        when(level.getBlockState(otherHalf)).thenReturn(right);
+
+        tolls.put(DIMENSION, POS, OWNER, 40);
+
+        assertNotNull(tolls.get(DIMENSION, POS));
+        assertNotNull(tolls.get(DIMENSION, otherHalf));
+        assertEquals(1, tolls.count(OWNER));
+        assertTrue(tolls.blocksHopperExtraction(level, POS.below()));
+        assertTrue(tolls.blocksHopperExtraction(level, otherHalf.below()));
+        assertTrue(tolls.remove(DIMENSION, otherHalf, OWNER));
+        assertNull(tolls.get(DIMENSION, POS));
+        assertEquals(0, tolls.count(OWNER));
     }
 
     private String label(int slot) { return menu.getSlot(slot).getItem().getHoverName().getString(); }

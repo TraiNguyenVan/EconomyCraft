@@ -9,9 +9,11 @@ import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.BasePressurePlateBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
 import java.util.LinkedHashSet;
@@ -54,6 +56,10 @@ public final class EconomyCraftFabric implements ModInitializer {
             for (BlockPos tollPos : affectedTollPositions(serverLevel, pos, state, manager, dimension, true)) {
                 if (serverLevel.getBlockState(tollPos).isAir()) manager.broken(dimension, tollPos);
             }
+            if (state.getBlock() instanceof ChestBlock && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
+                manager.broken(dimension, pos);
+                manager.broken(dimension, ChestBlock.getConnectedBlockPos(pos, state));
+            }
         });
         EconomyCraftFabricPermissions.install();
 
@@ -75,6 +81,13 @@ public final class EconomyCraftFabric implements ModInitializer {
                     addIfToll(affected, manager, dimension, halfPos);
                 }
             }
+        }
+
+        if (brokenState.getBlock() instanceof ChestBlock
+                && brokenState.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
+            BlockPos otherHalf = ChestBlock.getConnectedBlockPos(brokenPos, brokenState);
+            addIfToll(affected, manager, dimension, otherHalf);
+            if (afterBreak) affected.add(otherHalf.immutable());
         }
 
         BlockPos above = brokenPos.above();
