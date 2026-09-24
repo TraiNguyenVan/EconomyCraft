@@ -418,7 +418,7 @@ class TollUiTest {
         assertEquals(15, tolls.pressurePlateSignal(level, POS, 15));
     }
 
-    @Test void tollOverlayAppearsOnTargetAndClearsWhenPlayerLooksAway() {
+    @Test void tollOverlayStopsRefreshingWhenPlayerLooksAwayWithoutClearingNewerMessages() {
         tolls.put(DIMENSION, POS, OWNER, 75);
         when(server.getTickCount()).thenReturn(10);
         TollHud.tick(server);
@@ -427,7 +427,8 @@ class TollUiTest {
         when(player.pick(5.0, 1.0f, false)).thenReturn(BlockHitResult.miss(Vec3.ZERO, Direction.UP, POS));
         when(server.getTickCount()).thenReturn(20);
         TollHud.tick(server);
-        verify(player).sendSystemMessage(argThat(message -> message.getString().isEmpty()), eq(true));
+        verify(player, times(1)).sendSystemMessage(any(Component.class), eq(true));
+        verify(player, never()).sendSystemMessage(argThat(message -> message.getString().isEmpty()), eq(true));
     }
 
     @Test void offlineAuctionSellerGetsPendingSaleNotification() {

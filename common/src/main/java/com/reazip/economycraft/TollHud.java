@@ -36,10 +36,9 @@ public final class TollHud {
             TollManager.Toll toll = aimedToll(player, tolls);
             Displayed previous = displayed.get(id);
             if (toll == null) {
-                if (previous != null) {
-                    player.sendSystemMessage(Component.empty(), true);
-                    displayed.remove(id);
-                }
+                // Action bars are shared with other features. Stop refreshing our tip and let
+                // the client fade it naturally instead of clearing a newer message.
+                if (previous != null) displayed.remove(id);
                 continue;
             }
 
