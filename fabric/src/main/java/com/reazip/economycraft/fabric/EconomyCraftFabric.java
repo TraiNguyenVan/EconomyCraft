@@ -6,6 +6,7 @@ import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.TollManager;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+import net.minecraft.world.level.block.BasePressurePlateBlock;
 
 public final class EconomyCraftFabric implements ModInitializer {
     @Override
@@ -13,6 +14,8 @@ public final class EconomyCraftFabric implements ModInitializer {
         EconomyCraft.registerEvents();
         UseBlockCallback.EVENT.register((player, level, hand, hit) -> {
             if (level.isClientSide() || !(player instanceof net.minecraft.server.level.ServerPlayer serverPlayer))
+                return net.minecraft.world.InteractionResult.PASS;
+            if (level.getBlockState(hit.getBlockPos()).getBlock() instanceof BasePressurePlateBlock)
                 return net.minecraft.world.InteractionResult.PASS;
             String dimension = level.dimension().identifier().toString();
             TollManager.InteractionResult result = TollManager.of(level.getServer())

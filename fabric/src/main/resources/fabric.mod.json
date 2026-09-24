@@ -8,6 +8,7 @@
   "authors": ["ReaZip"],
   "license": "GPL-3.0",
   "environment": "*",
+  "mixins": ["economycraft.mixins.json"],
   "entrypoints": {
     "main": ["com.reazip.economycraft.fabric.EconomyCraftFabric"],
     "client": ["com.reazip.economycraft.fabric.client.EconomyCraftFabricClient"]

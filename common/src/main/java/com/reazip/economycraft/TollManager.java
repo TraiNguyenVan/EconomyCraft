@@ -6,7 +6,10 @@ import com.google.gson.reflect.TypeToken;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.level.Level;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.level.block.Block;
 
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -24,6 +27,8 @@ public final class TollManager {
     private final Path file;
     private final Map<String, Toll> tolls = new ConcurrentHashMap<>();
     private final Map<String, Long> cooldowns = new ConcurrentHashMap<>();
+    private final Map<String, Set<UUID>> pressurePlatePresent = new HashMap<>();
+    private final Map<String, Set<UUID>> pressurePlateGranted = new HashMap<>();
 
     public static synchronized TollManager of(MinecraftServer server) {
         return INSTANCES.computeIfAbsent(server, TollManager::new);
@@ -43,16 +48,22 @@ public final class TollManager {
     public void put(String dimension, BlockPos pos, UUID owner, long fee) { tolls.put(key(dimension,pos), new Toll(dimension,pos.getX(),pos.getY(),pos.getZ(),owner.toString(),fee)); save(); }
     public boolean remove(String dimension, BlockPos pos, UUID owner) {
         String k=key(dimension,pos); Toll t=tolls.get(k); if(t==null || !t.owner.equals(owner.toString())) return false;
-        tolls.remove(k); save(); return true;
+        tolls.remove(k); clearPressurePlateState(k); save(); return true;
     }
     public synchronized boolean transfer(String dimension, BlockPos pos, UUID currentOwner, UUID newOwner) {
         String k=key(dimension,pos); Toll t=tolls.get(k);
         if(t==null || !t.owner.equals(currentOwner.toString()) || currentOwner.equals(newOwner)) return false;
         t.owner=newOwner.toString(); save(); return true;
     }
-    public void broken(String dimension, BlockPos pos) { if(tolls.remove(key(dimension,pos))!=null) save(); }
+    public void broken(String dimension, BlockPos pos) {
+        String k = key(dimension, pos);
+        if (tolls.remove(k) != null) { clearPressurePlateState(k); save(); }
+    }
     public synchronized InteractionResult interact(MinecraftServer server, net.minecraft.server.level.ServerPlayer visitor, String dimension, BlockPos pos) {
         Toll toll=get(dimension,pos); if(toll==null) return InteractionResult.NOT_TOLL;
+        return charge(server, visitor, dimension, pos, toll);
+    }
+    private InteractionResult charge(MinecraftServer server, ServerPlayer visitor, String dimension, BlockPos pos, Toll toll) {
         UUID owner=UUID.fromString(toll.owner);
         if(owner.equals(visitor.getUUID())) return InteractionResult.GRANTED;
         String cooldown=visitor.getUUID()+"|"+key(dimension,pos); long now=server.getTickCount();
@@ -65,6 +76,41 @@ public final class TollManager {
         cooldowns.put(cooldown,now+100);
         visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("Paid $"+toll.fee+" toll (tax "+EconomyCraft.formatMoney(tax)+")."));
         return InteractionResult.GRANTED;
+    }
+
+    /** Called by the Fabric pressure-plate hook while vanilla calculates a plate's signal. */
+    public synchronized int pressurePlateSignal(ServerLevel level, BlockPos pos, int vanillaSignal) {
+        String dimension = level.dimension().identifier().toString();
+        String tollKey = key(dimension, pos);
+        Toll toll = tolls.get(tollKey);
+        if (toll == null) {
+            clearPressurePlateState(tollKey);
+            return vanillaSignal;
+        }
+
+        AABB contactArea = Block.column(14.0, 0.0, 0.5).bounds().move(pos);
+        List<ServerPlayer> players = level.getEntitiesOfClass(ServerPlayer.class, contactArea,
+                player -> player.isAlive() && !player.isSpectator());
+        Set<UUID> current = new HashSet<>();
+        for (ServerPlayer player : players) current.add(player.getUUID());
+
+        Set<UUID> previous = pressurePlatePresent.computeIfAbsent(tollKey, ignored -> new HashSet<>());
+        Set<UUID> granted = pressurePlateGranted.computeIfAbsent(tollKey, ignored -> new HashSet<>());
+        previous.retainAll(current);
+        granted.retainAll(current);
+        for (ServerPlayer player : players) {
+            UUID playerId = player.getUUID();
+            if (previous.add(playerId) && charge(level.getServer(), player, dimension, pos, toll) == InteractionResult.GRANTED) {
+                granted.add(playerId);
+            }
+        }
+        if (previous.isEmpty()) clearPressurePlateState(tollKey);
+        return granted.isEmpty() ? 0 : Math.max(1, vanillaSignal);
+    }
+
+    private void clearPressurePlateState(String key) {
+        pressurePlatePresent.remove(key);
+        pressurePlateGranted.remove(key);
     }
     private synchronized void save() {
         try { Files.writeString(file,GSON.toJson(tolls),StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING); }
