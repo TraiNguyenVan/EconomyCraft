@@ -54,6 +54,8 @@ public class EconomyConfig {
     public int maxActiveOrdersPerPlayer = 0;
     @SerializedName("max_active_auctions_per_player")
     public int maxActiveAuctionsPerPlayer = 0;
+    @SerializedName("max_active_tolls_per_player")
+    public int maxActiveTollsPerPlayer = 10;
     @SerializedName("dynamic_prices_enabled")
     public boolean dynamicPricesEnabled = false;
     @SerializedName("dynamic_price_min_multiplier")
@@ -103,6 +105,7 @@ public class EconomyConfig {
             parsed.auctionExpirationHours = clampNonNegative("auction_expiration_hours", parsed.auctionExpirationHours);
             parsed.maxActiveOrdersPerPlayer = clampNonNegative("max_active_orders_per_player", parsed.maxActiveOrdersPerPlayer);
             parsed.maxActiveAuctionsPerPlayer = clampNonNegative("max_active_auctions_per_player", parsed.maxActiveAuctionsPerPlayer);
+            parsed.maxActiveTollsPerPlayer = clampNonNegative("max_active_tolls_per_player", parsed.maxActiveTollsPerPlayer);
             parsed.dynamicPriceMinActiveDays = clampNonNegative("dynamic_price_min_active_days", parsed.dynamicPriceMinActiveDays);
             INSTANCE = parsed;
             normalizeDynamicPriceBounds();

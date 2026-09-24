@@ -80,6 +80,7 @@ public final class EconomyCommands {
                 buildDaily().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_DAILY));
         dispatcher.register(withCommandPermission(
                 buildTransactions().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_TRANSACTIONS));
+        registerStandalone(dispatcher, buildToll("toll"), Nodes.COMMAND_TOLL);
         dispatcher.register(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s ->
                         EconomyConfig.get().standaloneCommands && EconomyConfig.get().worthEnabled),
@@ -156,6 +157,7 @@ public final class EconomyCommands {
         root.then(withCommandPermission(buildDeliveries(), Nodes.COMMAND_DELIVERIES));
         root.then(withCommandPermission(buildDaily(), Nodes.COMMAND_DAILY));
         root.then(withCommandPermission(buildTransactions(), Nodes.COMMAND_TRANSACTIONS));
+        root.then(withCommandPermission(buildToll("toll"), Nodes.COMMAND_TOLL));
         root.then(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s -> EconomyConfig.get().worthEnabled), Nodes.COMMAND_WORTH));
 
@@ -171,6 +173,53 @@ public final class EconomyCommands {
         }
 
         return root;
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildToll(String rootName) {
+        LiteralArgumentBuilder<CommandSourceStack> root = literal(rootName);
+        root.then(literal("create").then(argument("fee", LongArgumentType.longArg(1, EconomyManager.MAX))
+                .executes(ctx -> tollCommand(ctx.getSource(), "create", LongArgumentType.getLong(ctx,"fee")))));
+        root.then(literal("set").then(argument("fee", LongArgumentType.longArg(1, EconomyManager.MAX))
+                .executes(ctx -> tollCommand(ctx.getSource(), "set", LongArgumentType.getLong(ctx,"fee")))));
+        root.then(literal("info").executes(ctx -> tollCommand(ctx.getSource(), "info", 0)));
+        root.then(literal("remove").executes(ctx -> tollCommand(ctx.getSource(), "remove", 0)));
+        return root;
+    }
+
+    private static int tollCommand(CommandSourceStack source, String action, long fee) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) { source.sendFailure(Component.literal("Only players can manage tolls.")); return 0; }
+        var hit = player.pick(5.0, 1.0f, false);
+        if (!(hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) || hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+            source.sendFailure(Component.literal("Look at a block within five blocks.")); return 0;
+        }
+        var pos = blockHit.getBlockPos();
+        String dimension = player.level().dimension().identifier().toString();
+        TollManager tolls = TollManager.of(source.getServer());
+        TollManager.Toll toll = tolls.get(dimension,pos);
+        switch (action) {
+            case "create" -> {
+                if (toll != null) { source.sendFailure(Component.literal("That block is already registered as a toll.")); return 0; }
+                int cap = EconomyConfig.get().maxActiveTollsPerPlayer;
+                if (cap > 0 && tolls.count(player.getUUID()) >= cap) { source.sendFailure(Component.literal("You have reached your active toll limit ("+cap+").")); return 0; }
+                tolls.put(dimension,pos,player.getUUID(),fee);
+                source.sendSuccess(() -> Component.literal("Toll created at "+pos.toShortString()+" for "+EconomyCraft.formatMoney(fee)+" net."), false);
+            }
+            case "set" -> {
+                if (toll == null || !toll.owner.equals(player.getUUID().toString())) { source.sendFailure(Component.literal("You do not own a toll at that block.")); return 0; }
+                tolls.put(dimension,pos,player.getUUID(),fee);
+                source.sendSuccess(() -> Component.literal("Toll fee set to "+EconomyCraft.formatMoney(fee)+" net."), false);
+            }
+            case "info" -> {
+                if (toll == null) { source.sendFailure(Component.literal("There is no toll at that block.")); return 0; }
+                source.sendSuccess(() -> Component.literal("Toll fee: "+EconomyCraft.formatMoney(toll.fee)+" net; owner: "+toll.owner), false);
+            }
+            case "remove" -> {
+                if (!tolls.remove(dimension,pos,player.getUUID())) { source.sendFailure(Component.literal("You do not own a toll at that block.")); return 0; }
+                source.sendSuccess(() -> Component.literal("Toll removed."), false);
+            }
+        }
+        return 1;
     }
 
     private static int importSharedFolder(CommandSourceStack source) {

@@ -15,6 +15,7 @@ public final class EconomySources {
     public static final MutationSource ORDER_FULFILLMENT = MutationSource.of("economycraft:order_fulfillment");
     public static final MutationSource ORDER_ESCROW_HOLD = MutationSource.of("economycraft:order_escrow_hold");
     public static final MutationSource ORDER_ESCROW_REFUND = MutationSource.of("economycraft:order_escrow_refund");
+    public static final MutationSource TOLL_PAYMENT = MutationSource.of("economycraft:toll_payment");
 
     private EconomySources() {}
 }
