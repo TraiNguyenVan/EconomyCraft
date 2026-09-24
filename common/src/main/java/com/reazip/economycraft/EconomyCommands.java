@@ -199,7 +199,7 @@ public final class EconomyCommands {
         TollManager.Toll toll = tolls.get(dimension,pos);
         switch (action) {
             case "create" -> {
-                if (!player.mayInteract(player.level(), pos)) {
+                if (!canModifyTollAt(player, pos)) {
                     source.sendFailure(Component.literal("You don't have permission to modify that block.")); return 0;
                 }
                 if (toll != null) { source.sendFailure(Component.literal("That block is already registered as a toll.")); return 0; }
@@ -209,7 +209,7 @@ public final class EconomyCommands {
                 source.sendSuccess(() -> Component.literal("Toll created at "+pos.toShortString()+" for "+EconomyCraft.formatMoney(fee)+" net."), false);
             }
             case "set" -> {
-                if (!player.mayInteract(player.level(), pos)) {
+                if (!canModifyTollAt(player, pos)) {
                     source.sendFailure(Component.literal("You don't have permission to modify that block.")); return 0;
                 }
                 if (toll == null || !toll.owner.equals(player.getUUID().toString())) { source.sendFailure(Component.literal("You do not own a toll at that block.")); return 0; }
@@ -226,6 +226,11 @@ public final class EconomyCommands {
             }
         }
         return 1;
+    }
+
+    private static boolean canModifyTollAt(ServerPlayer player, net.minecraft.core.BlockPos pos) {
+        return player.mayInteract(player.level(), pos)
+                && !player.blockActionRestricted(player.level(), pos, player.gameMode.getGameModeForPlayer());
     }
 
     private static int importSharedFolder(CommandSourceStack source) {
