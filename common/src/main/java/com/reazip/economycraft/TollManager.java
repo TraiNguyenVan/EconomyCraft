@@ -108,6 +108,52 @@ public final class TollManager {
         return granted.isEmpty() ? 0 : Math.max(1, vanillaSignal);
     }
 
+    /**
+     * Pressure plates do not run signal checks while they are unpowered. Sweep
+     * visitors that were denied on entry anyway, so leaving (including by
+     * teleport) clears their entry state and lets them retry when they return.
+     */
+    public synchronized void tickPressurePlateDepartures(MinecraftServer server) {
+        if (pressurePlatePresent.isEmpty()) return;
+
+        Iterator<Map.Entry<String, Set<UUID>>> plates = pressurePlatePresent.entrySet().iterator();
+        while (plates.hasNext()) {
+            Map.Entry<String, Set<UUID>> entry = plates.next();
+            String tollKey = entry.getKey();
+            Toll toll = tolls.get(tollKey);
+            if (toll == null) {
+                pressurePlateGranted.remove(tollKey);
+                plates.remove();
+                continue;
+            }
+
+            ServerLevel level = null;
+            for (ServerLevel candidate : server.getAllLevels()) {
+                if (candidate.dimension().identifier().toString().equals(toll.dimension)) {
+                    level = candidate;
+                    break;
+                }
+            }
+            if (level == null) continue;
+
+            BlockPos pos = new BlockPos(toll.x, toll.y, toll.z);
+            AABB contactArea = Block.column(14.0, 0.0, 0.5).bounds().move(pos);
+            Set<UUID> current = new HashSet<>();
+            for (ServerPlayer player : level.getEntitiesOfClass(ServerPlayer.class, contactArea,
+                    player -> player.isAlive() && !player.isSpectator())) {
+                current.add(player.getUUID());
+            }
+
+            entry.getValue().retainAll(current);
+            Set<UUID> granted = pressurePlateGranted.get(tollKey);
+            if (granted != null) granted.retainAll(current);
+            if (entry.getValue().isEmpty()) {
+                plates.remove();
+                pressurePlateGranted.remove(tollKey);
+            }
+        }
+    }
+
     private void clearPressurePlateState(String key) {
         pressurePlatePresent.remove(key);
         pressurePlateGranted.remove(key);
