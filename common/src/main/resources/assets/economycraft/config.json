@@ -22,5 +22,15 @@
   "dynamic_prices_enabled": false,
   "dynamic_price_min_multiplier": 0.5,
   "dynamic_price_max_multiplier": 5.0,
-  "dynamic_price_min_active_days": 30
+  "dynamic_price_min_active_days": 30,
+  "wealth_tax_enabled": false,
+  "wealth_tax_rate": 0.015,
+  "wealth_tax_floor": 1000,
+  "wealth_tax_median_floor_factor": 0.5,
+  "wealth_tax_inactive_days": 7,
+  "wealth_tax_inactive_multiplier": 3.33,
+  "wealth_tax_max_catchup_days": 7,
+  "wealth_tax_rebate_enabled": false,
+  "wealth_tax_rebate_max_rate": 0.01,
+  "wealth_tax_rebate_trigger_factor": 1.0
 }

@@ -60,6 +60,11 @@ public final class EconomyCraft {
 
     private static void onServerTick(MinecraftServer server) {
         TollHud.tick(server);
+        try {
+            EconomyCraft.getManager(server).runFiscalPassIfDue();
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to run the daily fiscal pass", e);
+        }
         if (server.getTickCount() % EXPIRATION_CHECK_INTERVAL_TICKS != 0) return;
 
         EconomyManager eco = getManager(server);

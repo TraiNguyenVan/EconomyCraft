@@ -4,6 +4,7 @@ import com.reazip.economycraft.EconomyCommands;
 import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
+import com.reazip.economycraft.fiscal.FiscalPolicy;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
 import com.reazip.economycraft.util.EconomyPermissions;
@@ -95,7 +96,19 @@ public final class AdminSettingsUi {
         MAX_ACTIVE_ORDERS_PER_PLAYER("Max Order Requests", "Most open order requests a player can have at once.",
                 "0 = no limit."),
         MAX_ACTIVE_AUCTIONS_PER_PLAYER("Max Auction Listings", "Most active auction listings a player can have at once.",
-                "0 = no limit.");
+                "0 = no limit."),
+        WEALTH_TAX("Daily Wealth Tax", "Take a daily cut of every balance above the floor.",
+                "Runs once per day, on top of the sell cap."),
+        WEALTH_TAX_RATE("Wealth Tax Rate", "Daily cut taken from the surplus above the floor."),
+        WEALTH_TAX_FLOOR("Wealth Tax Floor", "Balances at or below this are never taxed.",
+                "Also the target when rebates are on."),
+        WEALTH_TAX_MEDIAN_FACTOR("Median Floor Factor", "How far the floor follows the active-player median.",
+                "0 = floor stays put, 1 = floor equals the median."),
+        WEALTH_TAX_INACTIVE_DAYS("Inactive Window", "Days before an unseen player is charged the idle rate.",
+                "0 = one rate for everyone."),
+        WEALTH_TAX_INACTIVE_MULT("Inactive Rate", "Rate multiplier for players past the inactive window."),
+        WEALTH_TAX_REBATE("Rebate", "Pay players below the floor, but only once the median has crashed.",
+                "Off by default: this creates money.");
 
         final String label;
         final String description;
@@ -189,7 +202,34 @@ public final class AdminSettingsUi {
                 case AUCTION_EXPIRATION_HOURS -> valueItem(setting, Items.CLOCK, hours(config.auctionExpirationHours));
                 case MAX_ACTIVE_ORDERS_PER_PLAYER -> valueItem(setting, Items.WRITABLE_BOOK, limit(config.maxActiveOrdersPerPlayer));
                 case MAX_ACTIVE_AUCTIONS_PER_PLAYER -> valueItem(setting, Items.CHEST, limit(config.maxActiveAuctionsPerPlayer));
+                case WEALTH_TAX -> wealthTaxItem(config);
+                case WEALTH_TAX_RATE -> valueItem(setting, Items.PAPER, percent(config.wealthTaxRate));
+                case WEALTH_TAX_FLOOR -> valueItem(setting, Items.GOLD_INGOT, EconomyCraft.formatMoney(config.wealthTaxFloor));
+                case WEALTH_TAX_MEDIAN_FACTOR -> valueItem(setting, Items.PAPER, EconomyCraft.formatMultiplier(config.wealthTaxMedianFloorFactor));
+                case WEALTH_TAX_INACTIVE_DAYS -> valueItem(setting, Items.CLOCK, activeDaysLabel(config.wealthTaxInactiveDays));
+                case WEALTH_TAX_INACTIVE_MULT -> valueItem(setting, Items.PAPER, EconomyCraft.formatMultiplier(config.wealthTaxInactiveMultiplier));
+                case WEALTH_TAX_REBATE -> toggleItem(setting, config.wealthTaxRebateEnabled);
             };
+        }
+
+        private ItemStack wealthTaxItem(EconomyConfig config) {
+            long floor = FiscalPolicy.floor(eco.getDynamicPriceMedian(),
+                    config.wealthTaxFloor, config.wealthTaxMedianFloorFactor);
+
+            List<Component> lore = new ArrayList<>();
+            lore.add(MenuUiSupport.hint(Setting.WEALTH_TAX.description));
+            lore.add(MenuUiSupport.labeledValue("Now", config.wealthTaxEnabled ? "On" : "Off",
+                    MenuUiSupport.LABEL_PRIMARY_COLOR));
+            lore.add(MenuUiSupport.labeledValue("Active median",
+                    EconomyCraft.formatMoney(Math.round(eco.getDynamicPriceMedian())), MenuUiSupport.LABEL_PRIMARY_COLOR));
+            lore.add(MenuUiSupport.labeledValue("Effective floor", EconomyCraft.formatMoney(floor),
+                    MenuUiSupport.LABEL_PRIMARY_COLOR));
+            lore.add(MenuUiSupport.labeledValue("Click", config.wealthTaxEnabled ? "Turn off" : "Turn on",
+                    MenuUiSupport.LABEL_SECONDARY_COLOR));
+            return MenuUiSupport.button(
+                    config.wealthTaxEnabled ? ItemsCompat.limeStainedGlassPane() : ItemsCompat.redStainedGlassPane(),
+                    Setting.WEALTH_TAX.label, config.wealthTaxEnabled ? ChatFormatting.GREEN : ChatFormatting.RED,
+                    lore.toArray(new Component[0]));
         }
 
         private ItemStack dynamicPricesItem(EconomyConfig config) {
@@ -293,9 +333,14 @@ public final class AdminSettingsUi {
 
         private void editMultiplier(Setting setting, double current, Item icon,
                                     java.util.function.DoubleConsumer apply) {
+            editMultiplier(setting, current, icon, EconomyConfig.MAX_DYNAMIC_PRICE_MULTIPLIER, apply);
+        }
+
+        private void editMultiplier(Setting setting, double current, Item icon, double max,
+                                    java.util.function.DoubleConsumer apply) {
             long initial = Math.round(current * 100);
             NumberInputUi.open(viewer, setting.label, new ItemStack(icon), setting.label, initial,
-                    0, Math.round(EconomyConfig.MAX_DYNAMIC_PRICE_MULTIPLIER * 100),
+                    0, Math.round(max * 100),
                     new int[]{1000, 100, 25, 1}, v -> EconomyCraft.formatMultiplier(v / 100.0),
                     "Confirm", null,
                     (p, next) -> {
@@ -468,6 +513,28 @@ public final class AdminSettingsUi {
                         v -> EconomyConfig.get().maxActiveOrdersPerPlayer = (int) v);
                 case MAX_ACTIVE_AUCTIONS_PER_PLAYER -> editLimit(setting, config.maxActiveAuctionsPerPlayer, Items.CHEST,
                         v -> EconomyConfig.get().maxActiveAuctionsPerPlayer = (int) v);
+                case WEALTH_TAX -> {
+                    config.wealthTaxEnabled = !config.wealthTaxEnabled;
+                    save(viewer);
+                    render();
+                }
+                case WEALTH_TAX_RATE -> editPercent(setting, config.wealthTaxRate, Items.PAPER,
+                        v -> EconomyConfig.get().wealthTaxRate = v);
+                case WEALTH_TAX_FLOOR -> editMoney(setting, config.wealthTaxFloor, 0, Items.GOLD_INGOT,
+                        v -> EconomyConfig.get().wealthTaxFloor = v);
+                case WEALTH_TAX_MEDIAN_FACTOR -> editMultiplier(setting, config.wealthTaxMedianFloorFactor, Items.PAPER,
+                        EconomyConfig.MAX_MEDIAN_FLOOR_FACTOR,
+                        v -> EconomyConfig.get().wealthTaxMedianFloorFactor = v);
+                case WEALTH_TAX_INACTIVE_DAYS -> editActiveDays(setting, config.wealthTaxInactiveDays, Items.CLOCK,
+                        v -> EconomyConfig.get().wealthTaxInactiveDays = (int) v);
+                case WEALTH_TAX_INACTIVE_MULT -> editMultiplier(setting, config.wealthTaxInactiveMultiplier, Items.PAPER,
+                        EconomyConfig.MAX_INACTIVE_MULTIPLIER,
+                        v -> EconomyConfig.get().wealthTaxInactiveMultiplier = v);
+                case WEALTH_TAX_REBATE -> {
+                    config.wealthTaxRebateEnabled = !config.wealthTaxRebateEnabled;
+                    save(viewer);
+                    render();
+                }
             }
             return true;
         }

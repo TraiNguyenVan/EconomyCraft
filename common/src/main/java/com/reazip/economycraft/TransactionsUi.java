@@ -60,7 +60,9 @@ public final class TransactionsUi {
             Map.entry(EconomySources.ADMIN_REMOVE.asString(), new SourceStyle(Items.COMMAND_BLOCK, "Admin Remove", null, TransactionCategory.ADMIN)),
             Map.entry(EconomySources.ADMIN_SET.asString(), new SourceStyle(Items.COMMAND_BLOCK, "Admin Set", null, TransactionCategory.ADMIN)),
             Map.entry(EconomySources.ADMIN_RESET.asString(), new SourceStyle(Items.COMMAND_BLOCK, "Admin Reset", null, TransactionCategory.ADMIN)),
-            Map.entry(EconomySources.DAILY_REWARD.asString(), new SourceStyle(Items.CLOCK, "Daily Reward", null, TransactionCategory.REWARDS))
+            Map.entry(EconomySources.DAILY_REWARD.asString(), new SourceStyle(Items.CLOCK, "Daily Reward", null, TransactionCategory.REWARDS)),
+            Map.entry(EconomySources.WEALTH_TAX.asString(), new SourceStyle(Items.NETHERITE_INGOT, "Wealth Tax", "Daily wealth tax:", TransactionCategory.TAX)),
+            Map.entry(EconomySources.WEALTH_REBATE.asString(), new SourceStyle(Items.NETHERITE_INGOT, "Rebate", "Daily rebate:", TransactionCategory.TAX))
     );
 
     public static void open(ServerPlayer player) {

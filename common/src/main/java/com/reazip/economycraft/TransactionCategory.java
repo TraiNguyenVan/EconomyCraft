@@ -9,7 +9,8 @@ public enum TransactionCategory {
     AUCTION("Auction"),
     ORDERS("Orders"),
     ADMIN("Admin"),
-    REWARDS("Rewards");
+    REWARDS("Rewards"),
+    TAX("Tax");
 
     private final String label;
 

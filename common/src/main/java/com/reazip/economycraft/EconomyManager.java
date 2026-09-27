@@ -11,6 +11,7 @@ import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.fiscal.FiscalPass;
 import com.reazip.economycraft.util.AsyncFileWriter;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
@@ -59,6 +60,10 @@ public class EconomyManager {
             EconomySources.ORDER_FULFILLMENT.asString(),
             EconomySources.ORDER_ESCROW_HOLD.asString()
     );
+    private static final Set<String> FISCAL_SOURCES = Set.of(
+            EconomySources.WEALTH_TAX.asString(),
+            EconomySources.WEALTH_REBATE.asString()
+    );
     private static final String ECO_BALANCE_OBJECTIVE = "eco_balance";
     private static final int LEADERBOARD_SIZE = 5;
     private static final long SCOREBOARD_SCORE_SCALE = 1000L;
@@ -86,6 +91,7 @@ public class EconomyManager {
     private final BalanceEventDispatcher balanceEvents;
     private final BalanceMutationEngine balanceMutations;
     private final DynamicPriceEngine dynamicPrices;
+    private final FiscalPass fiscalPass;
 
     private Objective objective;
     private final DeliveryManager deliveries;
@@ -140,6 +146,7 @@ public class EconomyManager {
         this.prices = new PriceRegistry(server);
         this.dynamicPrices = new DynamicPriceEngine(dataDir);
         dynamicPrices.refresh(server, balances);
+        this.fiscalPass = new FiscalPass(this, dataDir);
 
         balanceEvents.register(transactionLogger::onBalanceChanged);
         balanceEvents.register(this::recordStats);
@@ -471,7 +478,10 @@ public class EconomyManager {
         long diff = event.difference();
         if (diff == 0) return;
 
-        boolean trade = event.source().map(MutationSource::asString).map(TRADE_SOURCES::contains).orElse(false);
+        String source = event.source().map(MutationSource::asString).orElse(null);
+        if (FISCAL_SOURCES.contains(source)) return;
+
+        boolean trade = TRADE_SOURCES.contains(source);
         stats.compute(event.playerId(), (id, current) -> {
             PlayerStats base = current != null ? current : new PlayerStats(0, 0, 0, 0);
             if (diff > 0) {
@@ -725,6 +735,30 @@ public class EconomyManager {
         return dynamicPrices.getMultiplier();
     }
 
+    public double getDynamicPriceMedian() {
+        return dynamicPrices.getMedianBalance();
+    }
+
+    public long getLastSeenMs(UUID player) {
+        return dynamicPrices.getLastSeenMs(player);
+    }
+
+    /** Runs the daily wealth-tax pass if the epoch day rolled over. Safe to call every tick. */
+    public FiscalPass.Report runFiscalPassIfDue() {
+        return fiscalPass.runIfDue();
+    }
+
+    /** Applies the fiscal pass immediately, ignoring the day rollover. */
+    public FiscalPass.Report forceFiscalPass() {
+        requireServerThread();
+        return fiscalPass.runNow();
+    }
+
+    public void resetFiscalState() {
+        requireServerThread();
+        fiscalPass.resetState();
+    }
+
     public boolean isDynamicPricingActive(String category, boolean itemEnabled) {
         return EconomyConfig.get().dynamicPricesEnabled && prices.isDynamicPricingEnabled(category, itemEnabled);
     }
@@ -790,6 +824,21 @@ public class EconomyManager {
         requireServerThread();
         stats.clear();
         save();
+    }
+
+    /**
+     * Drops one player's earned/spent/sold/bought history. Lets an admin clear out a stale
+     * duplicate profile that would otherwise hold a place on the stats leaderboards without
+     * ever having held a balance.
+     *
+     * @return true when a row was actually removed
+     */
+    public boolean clearStats(UUID id) {
+        requireServerThread();
+        if (stats.remove(id) == null) return false;
+        updateLeaderboard();
+        save();
+        return true;
     }
 
     public void resetTransactionLog() {

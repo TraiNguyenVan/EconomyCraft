@@ -4,6 +4,7 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.auction.AuctionExpiration;
+import com.reazip.economycraft.fiscal.FiscalPass;
 import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
@@ -37,6 +38,7 @@ public final class AdminResetUi {
     private static final int CLEAR_AUCTIONS = 11;
     private static final int CLEAR_ORDERS = 13;
     private static final int RESET_EVERYTHING = 15;
+    private static final int RUN_FISCAL_PASS = 20;
     private static final int BACK = 22;
 
     public static void open(ServerPlayer player, EconomyManager eco) {
@@ -89,6 +91,11 @@ public final class AdminResetUi {
             container.setItem(RESET_EVERYTHING, MenuUiSupport.button(Items.TNT, "Reset Entire Economy", ChatFormatting.DARK_RED,
                     MenuUiSupport.line("Everything above, all at once.", ChatFormatting.RED)));
 
+            container.setItem(RUN_FISCAL_PASS, MenuUiSupport.button(Items.NETHERITE_INGOT, "Run Wealth Tax Now", ChatFormatting.GOLD,
+                    MenuUiSupport.hint("Applies the daily wealth tax to every"),
+                    MenuUiSupport.hint("balance above the floor, right now."),
+                    MenuUiSupport.line("Balances really do change.", ChatFormatting.RED)));
+
             container.setItem(BACK, MenuUiSupport.button(Items.NETHER_STAR, "Back", ChatFormatting.YELLOW));
             MenuUiSupport.fillBackground(container);
         }
@@ -123,6 +130,10 @@ public final class AdminResetUi {
                 case RESET_EVERYTHING -> {
                     EconomySounds.click(viewer);
                     confirmResetEverything(viewer, eco);
+                }
+                case RUN_FISCAL_PASS -> {
+                    EconomySounds.click(viewer);
+                    runFiscalPass(viewer, eco);
                 }
                 case BACK -> {
                     EconomySounds.click(viewer);
@@ -163,7 +174,29 @@ public final class AdminResetUi {
                 p -> open(p, eco));
     }
 
+    private static void runFiscalPass(ServerPlayer viewer, EconomyManager eco) {
+        if (!EconomyConfig.get().wealthTaxEnabled) {
+            announce(viewer, "Wealth tax is off, so there was nothing to apply.");
+            return;
+        }
+
+        FiscalPass.Report report = eco.forceFiscalPass();
+        if (report == null || !report.didAnything()) {
+            announce(viewer, "No balances were above the floor. Nothing changed.");
+            return;
+        }
+
+        announce(viewer, "Wealth tax: " + report.taxed() + " player(s) paid "
+                + EconomyCraft.formatMoney(report.totalTaxed()) + " total, floor "
+                + EconomyCraft.formatMoney(report.floor()) + ".");
+        if (report.rebated() > 0) {
+            announce(viewer, "Rebate: " + report.rebated() + " player(s) received "
+                    + EconomyCraft.formatMoney(report.totalRebated()) + " total.");
+        }
+    }
+
     private static void confirmResetDailySell(ServerPlayer viewer, EconomyManager eco) {
+
         ConfirmUi.open(viewer, "Reset daily sell limits?", warningIcon(Items.HOPPER, "Reset Daily Sell Limits"),
                 "Reset sell limits",
                 List.of(MenuUiSupport.line("Everyone's daily sell limit resets to full immediately.", ChatFormatting.RED),

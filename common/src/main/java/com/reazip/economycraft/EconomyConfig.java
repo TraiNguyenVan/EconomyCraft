@@ -64,10 +64,33 @@ public class EconomyConfig {
     public double dynamicPriceMaxMultiplier = 5.0;
     @SerializedName("dynamic_price_min_active_days")
     public int dynamicPriceMinActiveDays = 30;
+    @SerializedName("wealth_tax_enabled")
+    public boolean wealthTaxEnabled = false;
+    @SerializedName("wealth_tax_rate")
+    public double wealthTaxRate = 0.015;
+    @SerializedName("wealth_tax_floor")
+    public long wealthTaxFloor = 1000;
+    @SerializedName("wealth_tax_median_floor_factor")
+    public double wealthTaxMedianFloorFactor = 0.5;
+    @SerializedName("wealth_tax_inactive_days")
+    public int wealthTaxInactiveDays = 7;
+    @SerializedName("wealth_tax_inactive_multiplier")
+    public double wealthTaxInactiveMultiplier = 3.33;
+    @SerializedName("wealth_tax_max_catchup_days")
+    public int wealthTaxMaxCatchupDays = 7;
+    @SerializedName("wealth_tax_rebate_enabled")
+    public boolean wealthTaxRebateEnabled = false;
+    @SerializedName("wealth_tax_rebate_max_rate")
+    public double wealthTaxRebateMaxRate = 0.01;
+    @SerializedName("wealth_tax_rebate_trigger_factor")
+    public double wealthTaxRebateTriggerFactor = 1.0;
 
     public static final int MIN_TRANSACTION_LOG_RETENTION_DAYS = 1;
     public static final int WARN_TRANSACTION_LOG_RETENTION_DAYS = 90;
     public static final double MAX_DYNAMIC_PRICE_MULTIPLIER = 100.0;
+    public static final double MAX_MEDIAN_FLOOR_FACTOR = 10.0;
+    public static final double MAX_INACTIVE_MULTIPLIER = 100.0;
+    public static final double MAX_REBATE_TRIGGER_FACTOR = 100.0;
 
     private static EconomyConfig INSTANCE = new EconomyConfig();
     private static Path file;
@@ -107,6 +130,14 @@ public class EconomyConfig {
             parsed.maxActiveAuctionsPerPlayer = clampNonNegative("max_active_auctions_per_player", parsed.maxActiveAuctionsPerPlayer);
             parsed.maxActiveTollsPerPlayer = clampNonNegative("max_active_tolls_per_player", parsed.maxActiveTollsPerPlayer);
             parsed.dynamicPriceMinActiveDays = clampNonNegative("dynamic_price_min_active_days", parsed.dynamicPriceMinActiveDays);
+            parsed.wealthTaxRate = clampPercentage("wealth_tax_rate", parsed.wealthTaxRate);
+            parsed.wealthTaxFloor = clampNonNegative("wealth_tax_floor", parsed.wealthTaxFloor);
+            parsed.wealthTaxMedianFloorFactor = clampRange("wealth_tax_median_floor_factor", parsed.wealthTaxMedianFloorFactor, 0.0, MAX_MEDIAN_FLOOR_FACTOR, "");
+            parsed.wealthTaxInactiveDays = clampNonNegative("wealth_tax_inactive_days", parsed.wealthTaxInactiveDays);
+            parsed.wealthTaxInactiveMultiplier = clampRange("wealth_tax_inactive_multiplier", parsed.wealthTaxInactiveMultiplier, 0.0, MAX_INACTIVE_MULTIPLIER, "");
+            parsed.wealthTaxMaxCatchupDays = clampNonNegative("wealth_tax_max_catchup_days", parsed.wealthTaxMaxCatchupDays);
+            parsed.wealthTaxRebateMaxRate = clampPercentage("wealth_tax_rebate_max_rate", parsed.wealthTaxRebateMaxRate);
+            parsed.wealthTaxRebateTriggerFactor = clampRange("wealth_tax_rebate_trigger_factor", parsed.wealthTaxRebateTriggerFactor, 0.0, MAX_REBATE_TRIGGER_FACTOR, "");
             INSTANCE = parsed;
             normalizeDynamicPriceBounds();
         } catch (Exception e) {
@@ -143,6 +174,14 @@ public class EconomyConfig {
     private static int clampNonNegative(String fieldName, int value) {
         if (value < 0) {
             LOGGER.warn("[EconomyCraft] {} ({}) is negative; clamping to 0 (unlimited).", fieldName, value);
+            return 0;
+        }
+        return value;
+    }
+
+    private static long clampNonNegative(String fieldName, long value) {
+        if (value < 0) {
+            LOGGER.warn("[EconomyCraft] {} ({}) is negative; clamping to 0.", fieldName, value);
             return 0;
         }
         return value;

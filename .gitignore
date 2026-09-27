@@ -9,6 +9,7 @@
 /neoforge/build/
 /.architectury-transformer/
 /local_servers/
+/common/logs/
 **/bin/
 /.vscode/
 /.claude/

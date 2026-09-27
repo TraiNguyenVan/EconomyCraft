@@ -1,6 +1,7 @@
 package com.reazip.economycraft;
 
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.fiscal.FiscalPolicy;
 import com.reazip.economycraft.util.UuidLongMapStore;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -24,6 +25,7 @@ public final class DynamicPriceEngine {
     private final Map<UUID, Long> lastActive = new ConcurrentHashMap<>();
     private final AtomicBoolean dirty = new AtomicBoolean(false);
     private volatile double multiplier = 1.0;
+    private volatile double medianBalance = 0.0;
     private volatile long lastRefreshMs = 0L;
 
     public DynamicPriceEngine(Path dataDir) {
@@ -33,6 +35,21 @@ public final class DynamicPriceEngine {
 
     public double getMultiplier() {
         return multiplier;
+    }
+
+    /**
+     * Median balance of the players counted as active, in the same currency-free units the
+     * multiplier is derived from. Other policies (the daily fiscal pass) read this instead of
+     * recomputing, so pricing and taxation can never disagree about who is active.
+     */
+    public double getMedianBalance() {
+        return medianBalance;
+    }
+
+    /** Epoch millis of the player's last login, or 0 when they have never been seen. */
+    public long getLastSeenMs(UUID player) {
+        if (player == null) return 0L;
+        return lastActive.getOrDefault(player, 0L);
     }
 
     public void markActive(UUID player) {
@@ -60,6 +77,7 @@ public final class DynamicPriceEngine {
         long reference = config.startingBalance;
         if (reference <= 0) {
             multiplier = 1.0;
+            medianBalance = 0.0;
             LOGGER.warn("[EconomyCraft] Dynamic prices: startingBalance is {} (must be positive to compute a reference median); leaving the multiplier at 1x.", reference);
             return;
         }
@@ -67,10 +85,12 @@ public final class DynamicPriceEngine {
         List<Long> activeBalances = collectActiveBalances(balances, config.dynamicPriceMinActiveDays);
         if (activeBalances.isEmpty()) {
             multiplier = 1.0;
+            medianBalance = 0.0;
             return;
         }
 
-        double median = median(activeBalances);
+        double median = FiscalPolicy.median(activeBalances);
+        medianBalance = median;
         double raw = median / (double) reference;
         multiplier = Math.clamp(raw, config.dynamicPriceMinMultiplier, config.dynamicPriceMaxMultiplier);
         LOGGER.info("[EconomyCraft] Dynamic prices: {} active player(s), median balance {}, reference {}, multiplier {}x",
@@ -113,12 +133,5 @@ public final class DynamicPriceEngine {
             out.add(entry.getValue());
         }
         return out;
-    }
-
-    private static double median(List<Long> values) {
-        List<Long> sorted = new ArrayList<>(values);
-        sorted.sort(Long::compareTo);
-        int n = sorted.size();
-        return n % 2 == 1 ? sorted.get(n / 2) : (sorted.get(n / 2 - 1) + sorted.get(n / 2)) / 2.0;
     }
 }

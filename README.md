@@ -49,13 +49,38 @@ current price = base price × active-player median balance / starting balance
 
 The scale is clamped between `dynamic_price_min_multiplier` and `dynamic_price_max_multiplier`, and recalculated at most once an hour. Sell prices are never affected. Opt out per category or item from the Shop editor above.
 
+### Daily wealth tax
+
+Optional, off by default (`wealth_tax_enabled`). Once per day, every balance above the floor pays a percentage of its surplus:
+
+```
+floor = max(wealth_tax_floor, active-player median balance x wealth_tax_median_floor_factor)
+tax   = (balance - floor) x rate
+```
+
+Because the floor is a fraction of the median rather than a fixed number, it follows the economy: as rich balances pay down and the median drifts lower, the tax base shrinks on its own.
+
+`wealth_tax_median_floor_factor` decides who is reached:
+
+| Factor  | Floor        | Reaches                                    |
+|---------|--------------|--------------------------------------------|
+| `0.0`   | fixed        | everyone above the floor, including the poorest players |
+| `0.5`   | half median  | the upper half                              |
+| `1.0`   | the median   | only the top half, and the median can then never fall |
+
+Players unseen for `wealth_tax_inactive_days` are charged `rate x wealth_tax_inactive_multiplier`, so the policy drains idle stock rather than taxing play.
+
+The optional rebate (`wealth_tax_rebate_enabled`, off by default) is the injection side. It only arms when the median falls below `startingBalance x wealth_tax_rebate_trigger_factor` — the aggregate gate matters, because with a healthy median the floor sits above the poorest players, and a per-player test alone would pay out in a healthy economy.
+
+Balances at or below the floor are never taxed, and a tax can never push a balance below the floor. Movement is recorded under `economycraft:wealth_tax` / `economycraft:wealth_rebate` and is deliberately excluded from the Leaderboards' earned/spent totals, since it is neither income nor spending.
+
 ### Settings
 
 Every option in `config.json`, editable in-game.
 
 ### Players
 
-Select any player, online or not, to give, take or set their balance, remove them from the economy, or override their max active orders/auctions.
+Select any player, online or not, to give, take or set their balance, clear their Leaderboard stats, remove them from the economy, or override their max active orders/auctions.
 
 ### Reset Tools
 
@@ -67,9 +92,10 @@ Select any player, online or not, to give, take or set their balance, remove the
 | **Reset Daily Sell Limits** | Everyone's daily sell limit resets to full immediately.                                     |
 | **Clear Auctions**          | Cancels every active listing. Items are returned to sellers' deliveries.                    |
 | **Clear Orders**            | Cancels every open order. Escrowed money is refunded to requesters.                         |
+| **Run Wealth Tax Now**      | Applies the daily wealth tax immediately and reports what it took, per day.                |
 | **Reset Entire Economy**    | All of the above, plus wipes the Leaderboards stats and deletes the entire transaction log. |
 
-None of these touch shop prices/categories or permission settings.
+None of these touch shop prices/categories or permission settings. **Run Wealth Tax Now** is the one tool that moves real balances as a side effect; it does nothing while `wealth_tax_enabled` is off.
 
 ### Admin commands
 
@@ -142,6 +168,16 @@ Stored in `config/economycraft/` on a server (or `saves/<world>/economycraft/` p
 | `dynamic_price_min_multiplier`   | `0.5`   | Lowest allowed price scale.                                                                                     |
 | `dynamic_price_max_multiplier`   | `5.0`   | Highest allowed price scale.                                                                                    |
 | `dynamic_price_min_active_days`  | `30`    | Players must have logged in within this many days to count as active. `0` includes everyone.                    |
+| `wealth_tax_enabled`             | `false` | Apply the daily wealth tax. See [Daily wealth tax](#daily-wealth-tax).                                          |
+| `wealth_tax_rate`                | `0.015` | Daily cut taken from the surplus above the floor, as a decimal.                                                  |
+| `wealth_tax_floor`               | `1000`  | Balances at or below this are never taxed. Also the rebate target.                                               |
+| `wealth_tax_median_floor_factor` | `0.5`   | How far the floor follows the active median. `0` keeps it fixed, `1` makes it equal the median.                  |
+| `wealth_tax_inactive_days`       | `7`     | Days before an unseen player is charged the idle rate. `0` = one rate for everyone.                              |
+| `wealth_tax_inactive_multiplier` | `3.33`  | Rate multiplier for players past the inactive window.                                                            |
+| `wealth_tax_max_catchup_days`    | `7`     | Most days applied after downtime. `0` = unlimited.                                                               |
+| `wealth_tax_rebate_enabled`      | `false` | Pay players below the floor when the median has crashed. Creates money.                                         |
+| `wealth_tax_rebate_max_rate`     | `0.01`  | Rebate rate applied to the shortfall below the floor.                                                            |
+| `wealth_tax_rebate_trigger_factor`| `1.0`   | Rebate arms only when the median is below `startingBalance x` this.                                             |
 
 ### `webhook.json`
 

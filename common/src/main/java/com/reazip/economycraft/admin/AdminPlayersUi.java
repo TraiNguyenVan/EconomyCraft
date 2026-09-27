@@ -39,6 +39,7 @@ public final class AdminPlayersUi {
     private static final int TAKE = 12;
     private static final int TRANSACTIONS = 13;
     private static final int SET = 14;
+    private static final int CLEAR_STATS = 15;
     private static final int WIPE = 16;
     private static final int MAX_AUCTIONS = 17;
     private static final int BACK = 18;
@@ -119,6 +120,9 @@ public final class AdminPlayersUi {
                     MenuUiSupport.hint("Browse this player's balance history.")));
             container.setItem(SET, MenuUiSupport.button(Items.GOLD_INGOT, "Set balance", ChatFormatting.GOLD,
                     MenuUiSupport.hint("Overwrite the balance with an exact amount.")));
+            container.setItem(CLEAR_STATS, MenuUiSupport.button(Items.KNOWLEDGE_BOOK, "Clear stats", ChatFormatting.YELLOW,
+                    MenuUiSupport.hint("Clears earned, spent, sold and bought."),
+                    MenuUiSupport.hint("Their balance is untouched.")));
             container.setItem(WIPE, MenuUiSupport.button(ItemsCompat.redStainedGlassPane(), "Remove from economy",
                     ChatFormatting.DARK_RED,
                     MenuUiSupport.hint("Deletes their account entirely."),
@@ -149,7 +153,8 @@ public final class AdminPlayersUi {
 
             long balance = eco.getBalance(target.id(), true);
             if (slot == GIVE || slot == TAKE || slot == SET || slot == WIPE || slot == BACK
-                    || slot == MAX_ORDERS || slot == MAX_AUCTIONS || slot == TRANSACTIONS) {
+                    || slot == MAX_ORDERS || slot == MAX_AUCTIONS || slot == TRANSACTIONS
+                    || slot == CLEAR_STATS) {
                 EconomySounds.click(viewer);
             }
             switch (slot) {
@@ -229,6 +234,18 @@ public final class AdminPlayersUi {
                     viewer.closeContainer();
                     TransactionsUi.openAdmin(viewer, target, p -> openTarget(p, eco, target));
                 }
+                case CLEAR_STATS -> ConfirmUi.open(viewer, "Clear " + target.name() + "'s stats?", subject(), "Clear stats",
+                        List.of(MenuUiSupport.balanceLore(balance),
+                                MenuUiSupport.line("Earned, spent, sold and bought are cleared.", ChatFormatting.RED),
+                                MenuUiSupport.hint("Their balance is not affected.")),
+                        p -> {
+                            boolean cleared = eco.clearStats(target.id());
+                            announce(p, cleared
+                                    ? "Cleared " + target.name() + "'s stats"
+                                    : target.name() + " had no stats to clear");
+                            openTarget(p, eco, target);
+                        },
+                        p -> openTarget(p, eco, target));
                 case WIPE -> ConfirmUi.open(viewer, "Remove " + target.name() + "?", subject(), "Remove them",
                         List.of(MenuUiSupport.balanceLore(balance),
                                 MenuUiSupport.line("Their balance is deleted.", ChatFormatting.RED),
