@@ -92,6 +92,18 @@ final class EconomyCraftApiImpl implements EconomyCraftApi {
         requireServerThread();
         return EconomyCraft.formatMoney(amount);
     }
+
+    @Override
+    public double inflationMultiplier() {
+        requireServerThread();
+        return manager().getDynamicPriceMultiplier();
+    }
+
+    @Override
+    public double medianActiveBalance() {
+        requireServerThread();
+        return manager().getDynamicPriceMedian();
+    }
 }
 
 final class BalanceApiImpl implements BalanceApi {
