@@ -1,10 +1,11 @@
 package com.reazip.economycraft.auction;
 
-import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.api.v1.PaymentResult;
+import com.reazip.economycraft.tax.TaxPolicy;
+import com.reazip.economycraft.tax.TaxScope;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 
@@ -45,7 +46,7 @@ public final class AuctionTrade {
         }
 
         long cost = claimed.price;
-        long tax = Math.round(cost * EconomyConfig.get().taxRate);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_AUCTION_BUY, cost);
         long total = cost + tax;
 
         String detail = EconomyCraft.describeItem(claimed.item.getCount(), claimed.item.getHoverName().getString());

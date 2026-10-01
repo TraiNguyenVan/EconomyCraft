@@ -9,7 +9,7 @@ Planning is tracked in `TODO.md`. No gameplay code has landed yet; the baseline 
 (`FiscalPolicyTest` 40, `TollUiTest` 21) on 26.3, both loaders green.
 
 ### Added (planned)
-- Single central tax policy (`tax` package), replacing 18 duplicated `Math.round(base * taxRate)` sites.
+- Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
 - Party tags: Communism, Capitalism, Monarchy, Anarchism (default).
 - Profession tags: Builder, Farmer, Miner, Merchant, Soldier.
 - Online-time accumulator, wall-clock cooldown service, party/profession stores.

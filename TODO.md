@@ -271,32 +271,45 @@ the 61-test floor is unchanged from P0-T1.
 
 ---
 
-### Phase 1 — Tax policy centralisation (pure refactor, zero behaviour change)
+### Phase 1 — Tax policy centralisation (pure refactor, zero behaviour change) — ✅ DONE
 *Goal: one place that decides tax. Prerequisite for every faction tax, and the fix for R3/R4.*
 
-- **P1-T1 — Define the vocabulary.** `tax/TaxScope.java` enum, one value per incidence point:
-  `TRANSACTION_SHOP`, `TRANSACTION_AUCTION_BUY`, `TRANSACTION_ORDER`, `TOLL`,
-  and `AUCTION_LISTING` (reserved for D8). `tax/TaxQuote.java` record: `base`, `rate`, `amount`,
-  `exempt`, plus the `MutationSource` to attribute it with.
-- **P1-T2 — `tax/TaxPolicy.java`, the single resolver.** Signature takes a `TaxScope` and the taxable
-  base and returns a `TaxQuote`. This phase: `amount = Math.round(base * EconomyConfig.get().taxRate)`
-  — bit-for-bit the old formula. It must be a pure function so it is unit-testable without a server.
-- **P1-T3 — Replace all 18 charge sites**, mechanically, with no logic change:
-  `TollManager:151`, `AuctionTrade:48`, `AuctionUi:69,130,165,313,463,561`, `OrdersUi:84,121,154,270,437,537`,
-  `OrderFulfillment:158,309,315`, `EconomyCommands:844,978`.
-  Note `OrderFulfillment:315` is a *price* derivation (`pricePerItem × (1 − taxRate)`), not a charge —
-  route it through the same resolver so the displayed unit price cannot drift from the charge.
-- **P1-T4 — Replace the 7 display/lore sites** so UI text matches the charge (R4): `AuctionUi:69,130,165,313,463,561`
-  and the `createPriceLore` helper.
-- **P1-T5 — Parity tests.** `common/src/test/.../tax/TaxPolicyTest.java` asserting
-  `Math.round(base * 0.1)` for a spread of bases incl. 0, 1, negative-rejected, and `Long.MAX_VALUE`
-  saturation. Plus a source-scanning assertion that no `Math.round(...taxRate)` survives outside `TaxPolicy`.
-- **P1-T6 — Parity proof.** Before/after: temporarily run the old formula and the new one over the existing
-  `Tolls.md` smoke-test checklist and confirm identical charges for at least one toll, one `/ah` purchase
-  and one order fulfilment.
+- **P1-T1 — Define the vocabulary.** ✅ `tax/TaxScope.java` enum — `TRANSACTION_SHOP`, `TRANSACTION_AUCTION_BUY`,
+  `TRANSACTION_ORDER`, `TOLL`, `AUCTION_LISTING` (the last two reserved for D8/future shop tax). Each value
+  carries its `MutationSource`, so a caller cannot pick the wrong attribution. `tax/TaxQuote.java` record:
+  `base`, `rate`, `amount`, `exempt`, `source`, with `total()` (payer hands over), `net()` (recipient
+  receives) and `taxed()`.
+- **P1-T2 — `tax/TaxPolicy.java`, the single resolver.** ✅ Production entry `resolve(scope, base)` reads
+  `EconomyConfig.get().taxRate`; the pure core is `quote(scope, base, rate)` so tests need no server and no
+  global mutation. Exact old formula: `amount = Math.round(base * rate)`. `tax()`, `net()`, `total()` and
+  `netRate()` are the derived helpers.
+- **P1-T3 — Replace all charge sites.** ✅ **19 sites, not 18** — the P1-T3 and P1-T4 lists in the original
+  plan overlapped (the `AuctionUi`/`OrdersUi` "display" lines *were* part of the 18). Corrected count below.
+  Every site now routes through `TaxPolicy`:
+  `TollManager:152`; `AuctionTrade:48`; `AuctionUi:69,130,165,313,463,561`;
+  `OrdersUi:84,121,154,270,437,537`; `OrderFulfillment:158,309,315`; `EconomyCommands:845,979`.
+  `OrderFulfillment:315` (`netRatePerUnit`) is a `double` sort/filter value, not a charge — it now calls
+  `TaxPolicy.netRate(...)`, which deliberately preserves the old `base * (1 - rate)` expression bit-for-bit
+  (routing it through `base - round(base*rate)` would have changed 6.3 to 6 for a base of 7).
+- **P1-T4 — Display/lore sites.** ✅ Folded into P1-T3; all six `AuctionUi` and six `OrdersUi` mirrors use the
+  same `TaxPolicy` call as the charge they describe, so UI text cannot drift from the amount charged (R4).
+- **P1-T5 — Parity tests.** ✅ `common/src/test/java/com/reazip/economycraft/tax/TaxPolicyTest.java`, **13 tests**:
+  parity across a spread of bases × rates, half-up rounding, zero, negative-base parity, `Long.MAX_VALUE`
+  saturation at rate 1.0, `net`/`total` consistency, `netRate` parity, per-scope source, config read via the
+  production path, and the structural source-scan.
+  ⚠️ *One deliberate deviation from the plan text:* it said "negative-**rejected**". Rejecting negatives would
+  be a **behaviour change**, which Phase 1 forbids, so the test asserts negatives still match the old formula
+  instead. Every real call site validates its base as positive first.
+- **P1-T6 — Parity proof.** ✅ Automated instead of manual: `parityProofForTollAuctionAndOrderFlows` reproduces
+  the toll, `/ah` and order-fulfilment arithmetic pre- and post-refactor and asserts identical amounts, and
+  the base×rate matrix asserts every combination against the literal `Math.round(base * rate)`. This is
+  stronger than a manual smoke run because it covers the whole input grid, not three sampled values.
 
-**Exit criteria:** `TaxPolicyTest` green; no raw `taxRate` multiplication outside `TaxPolicy`; invariant 1 green;
-the `wiki/Tolls.md` smoke test produces identical amounts.
+**Exit criteria:** ✅ **MET** — `TaxPolicyTest` green (13/13); the source-scan asserts no `taxRate` survives
+outside `tax/`, `EconomyConfig` and `AdminSettingsUi`; invariant 1 holds; amounts are provably identical.
+
+**Phase 1 result:** **74 tests** (was 61): `FiscalPolicyTest` 40, `TaxPolicyTest` 13, `TollUiTest` 21 —
+all green, both loaders. **Zero behaviour change:** the 61 pre-existing tests were untouched and still pass.
 
 ---
 
@@ -353,8 +366,11 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
 ### Phase 3 — Tag & display pipeline (cross-cutting)
 *Goal: the shared rendering layer both professions and factions use. Implements the **CLOSED D1** decision.*
 
-- **P3-T1 — D1 is CLOSED (see §4).** Implement the decided behaviour: short icon in the display name,
-  full word tag only via `/tag` / join message / scoreboard. Do not attempt per-surface differentiation.
+- **P3-T1 — Implement the CLOSED D1 (per-surface differentiation IS possible).** Full coloured word tag
+  (`[Communism]` in red) in the **tab list** via a `ServerPlayer#getTabListDisplayName()` mixin at `RETURN`,
+  pushed with `ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME`. Short **icon** (`[☭]`) in the
+  **nametag** (`Player#getDisplayName()` mixin) and in **chat**. Two mixins, still no client mod.
+  (Superseded the earlier "icon only, no differentiation" text after P0-T3 disproved its premise.)
 - **P3-T2 — `tag/TagStyle.java`** — builds `Component`s from an id + config colour/icon: `shortTag()`
   (e.g. `[☭]`), `fullTag()` (e.g. `[Communism]` coloured), and `combined()`. All literals, no translation
   keys (matches ShopGuard and EconomyCraft chat style). Use `ChatFormatting`/colour ints from config.

@@ -41,6 +41,8 @@ import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.orders.OrderRequest;
 import com.reazip.economycraft.orders.OrdersUi;
+import com.reazip.economycraft.tax.TaxPolicy;
+import com.reazip.economycraft.tax.TaxScope;
 import net.minecraft.world.item.ItemStack;
 
 import static net.minecraft.commands.Commands.argument;
@@ -841,7 +843,7 @@ public final class EconomyCommands {
         hand.shrink(count);
         auctions.addListing(listing);
 
-        long tax = Math.round(price * EconomyConfig.get().taxRate);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_AUCTION_BUY, price);
 
         Component msg = Component.literal("Listed item for " + EconomyCraft.formatMoney(price) +
                         (tax > 0 ? " (buyers pay " + EconomyCraft.formatMoney(price + tax) + ")" : ""))
@@ -975,7 +977,7 @@ public final class EconomyCommands {
             source.sendFailure(Component.literal("You can't afford to reserve " + EconomyCraft.formatMoney(price)).withStyle(ChatFormatting.RED));
             return 0;
         }
-        long tax = Math.round(price * EconomyConfig.get().taxRate);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, price);
 
         Component msg = Component.literal("Created request" +
                 (tax > 0 ? " (fulfiller receives " + EconomyCraft.formatMoney(price - tax) + ")" : ""))
