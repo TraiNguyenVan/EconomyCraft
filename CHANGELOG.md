@@ -27,17 +27,20 @@ on 26.3, both loaders green. Phases 0–2 are pure infrastructure and ship with 
 - Nothing user-visible. The only behavioural changes in this phase are the four new data files existing at all.
 
 ### Fixed
-- A hand-edited `"factions": null` no longer leaves the new sections null; they are rebuilt from defaults and the
-  mistake is named in the log.
+- A hand-edited `"factions": null` (or `"container_lock": null`) no longer leaves the section null; it is rebuilt
+  from defaults and the mistake is named in the log.
 
 ### Known gaps
 - The 30-hour party and profession lockouts are independent, and each writes nothing until the player actually
   chooses, so "never chose" stays distinguishable from "chose Anarchism" on disk.
-- Builder reach (`Thành thạo`) is stored and not applied — see `TODO.md` D11, the one rule still needing a
-  designer call.
 - `/eco settings` does not expose the new keys yet; they are file-only.
 
 ### Design decisions taken after the spec
+- **Builder reach** (`TODO.md` D11, corrected): the previous conclusion that a server-side mod cannot extend
+  reach on a vanilla client was **wrong**, because it looked for the range check in the wrong class.
+  `player.block_interaction_range` is a syncable vanilla attribute (default `4.5`, bounds `0.0`–`64.0`) that
+  *both* the client's `LocalPlayer.raycastHitResult` and the server's `handleUseItemOn` already read, so
+  `Thành thạo` is one `AttributeModifier` — no mixin, no client mod. Phase 4.
 - **Monarchy's daily tax** (`TODO.md` D19): Capitalism's formula, one change — inflation read off the server's
   total money rather than the player-activity signal — at `1.7%` instead of `5%`. The reference is per player, so
   the tax means the same thing on a 5-player and a 200-player server.

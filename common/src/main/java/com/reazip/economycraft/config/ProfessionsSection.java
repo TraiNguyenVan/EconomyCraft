@@ -65,7 +65,13 @@ public class ProfessionsSection {
         @SerializedName("level_up_count")
         public int levelUpCount = 1000;
 
-        /** {@code Thành thạo}. Kept as the spec's rule, and as a documented no-op: see the README. */
+        /**
+         * {@code Thành thạo}, added to vanilla's {@code player.block_interaction_range} (default 4.5).
+         *
+         * <p>One {@code AttributeModifier} per level, added with {@code ADD_VALUE}, so Apprentice reaches 5.5
+         * and Master 6.5 — and the same value widens the client's raycast and the server's own range check,
+         * because both read that attribute (D11).
+         */
         @SerializedName("reach_bonus_apprentice_blocks")
         public double reachBonusApprenticeBlocks = 1.0;
 

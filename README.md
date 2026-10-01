@@ -233,7 +233,7 @@ vanilla formatting names because the icon set needs shades the sixteen vanilla n
 | `rust_online_minutes`                      | `45`     | `Lụt nghề` — online minutes at half effect after returning.              |
 | `rust_effect_factor`                       | `0.5`    | What "half effect" means, as a multiplier on the job's numbers.         |
 | `builder.level_up_count`                   | `1000`   | Building blocks placed.                                                 |
-| `builder.reach_bonus_apprentice_blocks` / `_master_blocks` | `1.0` / `2.0` | `Thành thạo`. Kept as the spec's rule; see the note below.   |
+| `builder.reach_bonus_apprentice_blocks` / `_master_blocks` | `1.0` / `2.0` | `Thành thạo`: added to vanilla's `player.block_interaction_range` (4.5), so 5.5 at Apprentice and 6.5 at Master. Ships with Phase 4. |
 | `builder.haste_level` / `haste_refresh_seconds` | `1` / `1` | `Sửa lỗi`. Haste I, and only while breaking a trigger block — see below.  |
 | `builder.building_blocks`                  | spec list | 33 entries, verbatim. Tags (`#minecraft:logs`) and ids.                  |
 | `farmer.level_up_count`                    | `300`    | Crops harvested, animals fed, breeding.                                 |
@@ -285,9 +285,12 @@ key is `haste_refresh_seconds` and not a duration: `1` second is only the anti-f
 mining packets, not how long the effect can linger. The Builder's trigger set is the union of
 `haste_trigger_blocks` and `building_blocks`, so adding a building block extends the triggers automatically.
 
-**One open item.** `builder.reach_bonus_*_blocks` is the spec's `Thành thạo` rule, which Phase 3 flags for a
-designer decision: a reach increase requires an interaction-distance hook that vanilla does not expose, so it is
-stored and not yet applied.
+**Builder reach is a real attribute, not a config no-op.** `Thành thạo` adds one `AttributeModifier` to the
+vanilla `player.block_interaction_range` (default `4.5`), which is what both the client's block picking and the
+server's own range check read — so a Master Builder reaches 6.5 blocks with an unmodified vanilla client, and
+no mixin is involved. Note that this is *block interaction* range, not building-only: it also widens opening a
+container, reading a sign and clicking an item frame. That is intended (it is plain reach), but it is the same
+range check the container lock composes with, so it is documented here rather than left to be discovered.
 
 These keys are not yet editable from `/eco settings`; they are file-only for now.
 
