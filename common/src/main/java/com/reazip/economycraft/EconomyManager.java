@@ -754,6 +754,24 @@ public class EconomyManager {
         return prices;
     }
 
+    /**
+     * Every balance on the server, added up.
+     *
+     * <p>Added for D19: Monarchy's inflation factor is the server's money supply, so it needs the total, and
+     * nothing else here keeps a running sum. Accumulated in {@code double} because the tax that consumes it is
+     * a double anyway, and because summing enough longs to overflow is possible in principle and would wrap to
+     * a negative supply — a negative inflation factor that would then be clamped, quietly.
+     *
+     * <p>O(players) and only called by the daily fiscal pass.
+     */
+    public double totalMoneyInCirculation() {
+        double total = 0.0;
+        for (long balance : balances.values()) {
+            if (balance > 0L) total += balance;
+        }
+        return total;
+    }
+
     /** Accumulated online time, the clock the spec's 45-minute thresholds read. */
     public OnlineTimeService getOnlineTime() {
         return onlineTime;

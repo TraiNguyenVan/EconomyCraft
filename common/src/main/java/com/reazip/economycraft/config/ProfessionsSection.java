@@ -76,11 +76,26 @@ public class ProfessionsSection {
         @SerializedName("haste_level")
         public int hasteLevel = 1;
 
-        /** Assumption, not the spec: it gives no duration, so the effect is refreshed per break instead. */
-        @SerializedName("haste_duration_seconds")
-        public int hasteDurationSeconds = 30;
+        /**
+         * D20: the Haste is a <em>conditional</em> effect, not something the player carries. It is (re)applied
+         * every tick while they are breaking a block from this job's trigger set, and removed on the first tick
+         * that they are not — so a Builder breaking a chest gets no Haste, and a Miner walking around with
+         * Haste II is not possible.
+         *
+         * <p>That makes this key a refresh window rather than a duration: it only has to cover the gap between
+         * two mining packets, so that breaking consecutive qualifying blocks does not flicker. It is not how long
+         * the effect can sit on someone — clearing it is unconditional.
+         */
+        @SerializedName("haste_refresh_seconds")
+        public int hasteRefreshSeconds = 1;
 
-        /** The Haste trigger set: stone, cobblestone, dirt and every building block. */
+        /**
+         * The Haste trigger set: stone, cobblestone and dirt.
+         *
+         * <p>The spec also names "every building block", and that half is <em>not</em> repeated here:
+         * {@code building_blocks} is already the canonical list, and duplicating 33 entries into a second key
+         * guarantees the two drift apart. {@code BlockTags} unions this list with {@code building_blocks}.
+         */
         @SerializedName("haste_trigger_blocks")
         public List<String> hasteTriggerBlocks = List.of("minecraft:stone", "minecraft:cobblestone", "minecraft:dirt");
 
@@ -107,7 +122,7 @@ public class ProfessionsSection {
             reachBonusApprenticeBlocks = ConfigClamp.nonNegative("professions.builder.reach_bonus_apprentice_blocks", reachBonusApprenticeBlocks);
             reachBonusMasterBlocks = ConfigClamp.nonNegative("professions.builder.reach_bonus_master_blocks", reachBonusMasterBlocks);
             hasteLevel = ConfigClamp.effectLevel("professions.builder.haste_level", hasteLevel);
-            hasteDurationSeconds = ConfigClamp.nonNegative("professions.builder.haste_duration_seconds", hasteDurationSeconds);
+            hasteRefreshSeconds = ConfigClamp.nonNegative("professions.builder.haste_refresh_seconds", hasteRefreshSeconds);
             hasteTriggerBlocks = ConfigClamp.cleanList("professions.builder.haste_trigger_blocks", hasteTriggerBlocks);
             buildingBlocks = ConfigClamp.cleanList("professions.builder.building_blocks", buildingBlocks);
         }
@@ -202,9 +217,18 @@ public class ProfessionsSection {
         @SerializedName("haste_level")
         public int hasteLevel = 2;
 
-        /** Assumption, like the Builder's: the spec gives no duration, so it is refreshed per block broken. */
-        @SerializedName("haste_duration_seconds")
-        public int hasteDurationSeconds = 30;
+        /**
+         * D20: the Haste is a <em>conditional</em> effect, not something the player carries. It is (re)applied
+         * every tick while they are breaking a block from this job's trigger set, and removed on the first tick
+         * that they are not — so a Builder breaking a chest gets no Haste, and a Miner walking around with
+         * Haste II is not possible.
+         *
+         * <p>That makes this key a refresh window rather than a duration: it only has to cover the gap between
+         * two mining packets, so that breaking consecutive qualifying blocks does not flicker. It is not how long
+         * the effect can sit on someone — clearing it is unconditional.
+         */
+        @SerializedName("haste_refresh_seconds")
+        public int hasteRefreshSeconds = 1;
 
         @SerializedName("double_drop_chance_apprentice")
         public double doubleDropChanceApprentice = 0.05;
@@ -228,7 +252,7 @@ public class ProfessionsSection {
             oreTags = ConfigClamp.cleanList("professions.miner.ore_tags", oreTags);
             doubleValueOres = ConfigClamp.cleanList("professions.miner.double_value_ores", doubleValueOres);
             hasteLevel = ConfigClamp.effectLevel("professions.miner.haste_level", hasteLevel);
-            hasteDurationSeconds = ConfigClamp.nonNegative("professions.miner.haste_duration_seconds", hasteDurationSeconds);
+            hasteRefreshSeconds = ConfigClamp.nonNegative("professions.miner.haste_refresh_seconds", hasteRefreshSeconds);
             hasteTriggerBlocks = ConfigClamp.cleanList("professions.miner.haste_trigger_blocks", hasteTriggerBlocks);
             doubleDropChanceApprentice = ConfigClamp.chance("professions.miner.double_drop_chance_apprentice", doubleDropChanceApprentice);
             doubleDropChanceMaster = ConfigClamp.chance("professions.miner.double_drop_chance_master", doubleDropChanceMaster);

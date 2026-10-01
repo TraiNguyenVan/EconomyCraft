@@ -83,7 +83,15 @@ public class FactionsSection {
         @SerializedName("toll_tax_exempt_chance")
         public double tollTaxExemptChance = 0.5;
 
-        /** {@code Cộng đồng}: what a locked container refuses. See {@link ContainerLockMode}. */
+        /**
+         * {@code Cộng đồng}: who a locked container admits <em>while this buff is active</em>.
+         *
+         * <p>D10, closed: this is the buff's mode, not the server's default. The global default lives in the
+         * {@code container_lock} section and ships as {@link ContainerLockMode#UNLOCKED}; a player may raise
+         * their own container to {@link ContainerLockMode#PRIVATE}, and holding the Communism buff is what
+         * admits the party. Set this to {@link ContainerLockMode#UNLOCKED} to drop just the buff's lock,
+         * leaving the debuff's other effects alone.
+         */
         @SerializedName("container_lock_mode")
         public String containerLockMode = ContainerLockMode.PARTY_ONLY.name();
 
@@ -164,12 +172,29 @@ public class FactionsSection {
     /** Monarchy: halved claim cost and damage in your own claim, paid for with a daily tax and an import tax. */
     public static class MonarchySettings extends TagSettings {
         /**
-         * Assumption, not the spec: the spec gives Monarchy's {@code Cống nạp} as "an amount equal to the daily
-         * tax", but never states Monarchy's own daily rate. Defaults to Capitalism's 5 % so the two parties'
-         * debuffs are comparable, and is a config key precisely because the number is a guess.
+         * D19: the spec gives Monarchy's {@code Cống nạp} as "an amount equal to the daily tax" but never
+         * states Monarchy's own rate. The designer set it at {@code 0.017} — under a third of Capitalism's — so
+         * the two parties tax unequally, which is the whole point of having two of them.
          */
         @SerializedName("daily_tax_rate")
-        public double dailyTaxRate = 0.05;
+        public double dailyTaxRate = 0.017;
+
+        /**
+         * D19: Monarchy reads its inflation off the <em>server's</em> money supply, where Capitalism reads the
+         * existing player-activity signal. The factor is {@code totalMoneyInCirculation / (activePlayers ×
+         * this)}, so it reads as "how many times the reference fortune the average player holds" and is exactly
+         * {@code 1.0} on a fresh economy.
+         *
+         * <p>Per player rather than one absolute total on purpose: a fixed total means a tax that is punitive
+         * on a 200-player server and negligible on a 5-player one, and it would silently change meaning every
+         * time the player count moved.
+         */
+        @SerializedName("money_supply_reference_per_player")
+        public double moneySupplyReferencePerPlayer = 1000.0;
+
+        /** Ceiling on that factor, so one rich player cannot hand the whole server an unbounded tax. */
+        @SerializedName("money_supply_inflation_max")
+        public double moneySupplyInflationMax = 3.0;
 
         /** {@code Cống nạp} is this multiple of the daily tax amount, and is a pure burn — the king is flavour. */
         @SerializedName("corruption_multiplier")
@@ -194,6 +219,8 @@ public class FactionsSection {
         public void clamp() {
             clampTag("factions.monarchy");
             dailyTaxRate = ConfigClamp.percentage("factions.monarchy.daily_tax_rate", dailyTaxRate);
+            moneySupplyReferencePerPlayer = ConfigClamp.nonNegative("factions.monarchy.money_supply_reference_per_player", moneySupplyReferencePerPlayer);
+            moneySupplyInflationMax = ConfigClamp.range("factions.monarchy.money_supply_inflation_max", moneySupplyInflationMax, 1.0, ConfigClamp.MAX_MULTIPLIER);
             corruptionMultiplier = ConfigClamp.multiplier("factions.monarchy.corruption_multiplier", corruptionMultiplier);
             claimCostMultiplier = ConfigClamp.multiplier("factions.monarchy.claim_cost_multiplier", claimCostMultiplier);
             ownClaimDamageMultiplier = ConfigClamp.multiplier("factions.monarchy.own_claim_damage_multiplier", ownClaimDamageMultiplier);

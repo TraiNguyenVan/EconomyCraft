@@ -3,6 +3,7 @@ package com.reazip.economycraft;
 import com.google.gson.*;
 import com.google.gson.annotations.SerializedName;
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.config.ContainerLockSection;
 import com.reazip.economycraft.config.FactionsSection;
 import com.reazip.economycraft.config.ProfessionsSection;
 import com.reazip.economycraft.util.EconomyPaths;
@@ -107,6 +108,14 @@ public class EconomyConfig {
     @SerializedName("professions")
     public ProfessionsSection professions = new ProfessionsSection();
 
+    /**
+     * The container lock's global default (D10). Its own section because it is the answer for containers whose
+     * owner has no preference of their own — see {@code ContainerLockSection} for why that is separate from
+     * Communism's {@code container_lock_mode}.
+     */
+    @SerializedName("container_lock")
+    public ContainerLockSection containerLock = new ContainerLockSection();
+
     public static final int MIN_TRANSACTION_LOG_RETENTION_DAYS = 1;
     public static final int WARN_TRANSACTION_LOG_RETENTION_DAYS = 90;
     public static final double MAX_DYNAMIC_PRICE_MULTIPLIER = 100.0;
@@ -162,8 +171,10 @@ public class EconomyConfig {
             parsed.wealthTaxRebateTriggerFactor = clampRange("wealth_tax_rebate_trigger_factor", parsed.wealthTaxRebateTriggerFactor, 0.0, MAX_REBATE_TRIGGER_FACTOR, "");
             parsed.factions = requireSection("factions", parsed.factions, FactionsSection::new);
             parsed.professions = requireSection("professions", parsed.professions, ProfessionsSection::new);
+            parsed.containerLock = requireSection("container_lock", parsed.containerLock, ContainerLockSection::new);
             parsed.factions.clamp();
             parsed.professions.clamp();
+            parsed.containerLock.clamp();
             INSTANCE = parsed;
             normalizeDynamicPriceBounds();
         } catch (Exception e) {

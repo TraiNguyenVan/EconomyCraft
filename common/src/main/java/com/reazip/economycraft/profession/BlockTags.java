@@ -54,11 +54,18 @@ public final class BlockTags {
 
     /** Builds all five sets from the parsed config. Safe to call before the server has finished loading. */
     public static BlockTags fromConfig(ProfessionsSection config) {
+        BlockSet buildingBlocks =
+                BlockSet.parse("professions.builder.building_blocks", config.builder.buildingBlocks);
         return new BlockTags(
-                BlockSet.parse("professions.builder.building_blocks", config.builder.buildingBlocks),
+                buildingBlocks,
                 BlockSet.parse("professions.miner.ore_tags", config.miner.oreTags),
                 BlockSet.parse("professions.miner.double_value_ores", config.miner.doubleValueOres),
-                BlockSet.parse("professions.builder.haste_trigger_blocks", config.builder.hasteTriggerBlocks),
+                // The spec triggers Builder Haste on "stone, cobblestone, dirt and every building block", and
+                // the second half of that is already a list in the config. Unioning here rather than in the file
+                // keeps one canonical list: an admin who extends building_blocks extends the Haste trigger set
+                // too, and cannot add a building block that quietly does not give Haste.
+                BlockSet.parse("professions.builder.haste_trigger_blocks", config.builder.hasteTriggerBlocks)
+                        .union(buildingBlocks),
                 BlockSet.parse("professions.miner.haste_trigger_blocks", config.miner.hasteTriggerBlocks));
     }
 
@@ -83,6 +90,11 @@ public final class BlockTags {
 
     public boolean triggersBuilderHaste(BlockState state) {
         return builderHasteTriggers.matches(state);
+    }
+
+    /** How many literal blocks and tags the Builder's Haste trigger set resolved to, for diagnostics. */
+    public int builderHasteTriggerCount() {
+        return builderHasteTriggers.blocks().size() + builderHasteTriggers.tags().size();
     }
 
     public boolean triggersMinerHaste(BlockState state) {
@@ -196,6 +208,22 @@ public final class BlockTags {
         /** The config path these came from, for diagnostics. */
         public String source() {
             return source;
+        }
+
+        /**
+         * A set matching either input.
+         *
+         * <p>No flag is needed: a block or tag in both sets is simply matched twice, and the tag warning is
+         * still per-entry. Used for the Builder's Haste triggers, which are the configured list plus the
+         * building blocks.
+         */
+        public BlockSet union(BlockSet other) {
+            if (other == null) return this;
+            List<Block> mergedBlocks = new ArrayList<>(blocks);
+            mergedBlocks.addAll(other.blocks);
+            List<TagKey<Block>> mergedTags = new ArrayList<>(tags);
+            mergedTags.addAll(other.tags);
+            return new BlockSet(source + " ∪ " + other.source, List.copyOf(mergedBlocks), List.copyOf(mergedTags));
         }
     }
 }

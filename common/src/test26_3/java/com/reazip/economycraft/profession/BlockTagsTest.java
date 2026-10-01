@@ -70,14 +70,38 @@ class BlockTagsTest {
     }
 
     @Test
-    void theBuilderHasteTriggerSetIsItsOwnList() {
+    void builderHasteCoversItsTriggersAndEveryBuildingBlock() {
         BlockTags tags = BlockTags.fromConfig(literalOnly());
 
-        assertTrue(tags.triggersBuilderHaste(Blocks.STONE.defaultBlockState()));
-        assertTrue(tags.triggersBuilderHaste(Blocks.COBBLESTONE.defaultBlockState()));
-        assertFalse(tags.triggersBuilderHaste(Blocks.SAND.defaultBlockState()));
+        assertTrue(tags.triggersBuilderHaste(Blocks.STONE.defaultBlockState()), "an explicit trigger");
+        assertTrue(tags.triggersBuilderHaste(Blocks.COBBLESTONE.defaultBlockState()), "an explicit trigger");
+        assertTrue(tags.triggersBuilderHaste(Blocks.BRICKS.defaultBlockState()),
+                "D20: the spec triggers Haste on every building block, so the trigger set covers them too");
+        assertTrue(tags.triggersBuilderHaste(Blocks.SMOOTH_STONE.defaultBlockState()));
+        assertFalse(tags.triggersBuilderHaste(Blocks.SAND.defaultBlockState()), "sand is neither");
+    }
+
+    @Test
+    void extendingBuildingBlocksExtendsTheHasteTriggersWithoutDuplicatingTheList() {
+        ProfessionsSection config = literalOnly();
+        config.builder.buildingBlocks = List.of("minecraft:bricks", "minecraft:sand");
+
+        BlockTags tags = BlockTags.fromConfig(config);
+
+        assertTrue(tags.triggersBuilderHaste(Blocks.SAND.defaultBlockState()),
+                "an admin who adds a building block must not also have to add it to haste_trigger_blocks");
+        assertTrue(tags.isBuildingBlock(Blocks.SAND.defaultBlockState()));
+        assertEquals(3 + 2, tags.builderHasteTriggerCount(),
+                "the union of both lists exactly once each — a building list appended twice would give 7");
+    }
+
+    @Test
+    void buildingProgressAndHasteTriggersStayDifferentQuestions() {
+        BlockTags tags = BlockTags.fromConfig(literalOnly());
+
         assertFalse(tags.isBuildingBlock(Blocks.STONE.defaultBlockState()),
-                "Haste triggers and building blocks are separate keys, and one must not imply the other");
+                "stone gives Haste but no progress: breaking a Builder's stone is not building");
+        assertTrue(tags.triggersBuilderHaste(Blocks.STONE.defaultBlockState()));
     }
 
     @Test

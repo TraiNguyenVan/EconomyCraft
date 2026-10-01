@@ -151,13 +151,16 @@ class BundledConfigTest {
     /**
      * Whether a value is a nested object the file must describe key by key.
      *
-     * <p>The two section classes are ordinary classes (they exist to be rebuilt by {@code requireSection} when a
-     * hand-edited file nulls them), and each faction/profession record is a {@code TagSettings} subclass. A
-     * {@code List}, a {@code String} and an enum are none of those, so they fall through to the leaf comparison.
+     * <p>Decided by package rather than by naming each type, so a new config section is covered the moment it
+     * exists instead of needing this test edited at the same time — which is the failure it exists to prevent.
+     * Everything in {@code config} is either a section or a {@code TagSettings} subclass; enums and
+     * {@code List}s are compared as leaves.
      */
     private static boolean isSection(Object value) {
-        return value instanceof FactionsSection || value instanceof ProfessionsSection
-                || value instanceof TagSettings;
+        Package typePackage = value.getClass().getPackage();
+        return typePackage != null
+                && typePackage.getName().equals("com.reazip.economycraft.config")
+                && !value.getClass().isEnum();
     }
 
     /**

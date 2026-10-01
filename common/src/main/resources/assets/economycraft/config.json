@@ -65,7 +65,9 @@
     "monarchy": {
       "color": 16777045,
       "icon": "♔",
-      "daily_tax_rate": 0.05,
+      "daily_tax_rate": 0.017,
+      "money_supply_reference_per_player": 1000.0,
+      "money_supply_inflation_max": 3.0,
       "corruption_multiplier": 1.0,
       "claim_cost_multiplier": 0.5,
       "own_claim_damage_multiplier": 1.15,
@@ -91,7 +93,7 @@
       "reach_bonus_apprentice_blocks": 1.0,
       "reach_bonus_master_blocks": 2.0,
       "haste_level": 1,
-      "haste_duration_seconds": 30,
+      "haste_refresh_seconds": 1,
       "haste_trigger_blocks": [
         "minecraft:stone",
         "minecraft:cobblestone",
@@ -170,7 +172,7 @@
         "#minecraft:ores"
       ],
       "haste_level": 2,
-      "haste_duration_seconds": 30,
+      "haste_refresh_seconds": 1,
       "double_drop_chance_apprentice": 0.05,
       "double_drop_chance_master": 0.15,
       "lava_regeneration_level": 2,
@@ -198,5 +200,9 @@
       "adrenaline_cooldown_minutes": 5,
       "adrenaline_duration_factor": 0.5
     }
+  },
+  "container_lock": {
+    "mode": "UNLOCKED",
+    "allow_private_choice": true
   }
 }

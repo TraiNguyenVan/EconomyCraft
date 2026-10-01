@@ -103,7 +103,7 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
 | **D7** | **"Import" scope for Monarchy `Nhập khẩu`** — 50 % chance of an extra tax of 50 % of "the item's tax". Which flows are imports: fixed-price shop buy, `/ah` buy, order fulfilment, villager trade? | P9 | Shop buy + `/ah` buy + order fulfilment = imports. Exclude sells (the seller is exporting) and tolls. Confirm with the designer. |
 | **D8** ✅ | **Capitalism `/ah` buff.** Today the **buyer** pays `/ah` tax; the seller pays nothing. The spec's buff gives the *seller* a selling-price advantage, which implies a seller-side levy that **does not exist today**. | P9 | ✅ **DECIDED.** **No seller-side listing fee is introduced — no new money sink is created.** Instead, the existing buyer-paid tax is **exempted when the *seller* is a Capitalism member**: the buyer pays exactly the listing price, the seller still receives the full price, and the seller's undercut price brings repeat buyers. Condition is checked on the **seller's** faction. Selling via `/ah` costs the seller nothing either way; non-Capitalism sellers are unaffected. |
 | **D9** | **`Lụt nghề` (rust) semantics.** Player who had reached Master, switched away and returned: effects at 50 % "within 45 min online", then back to Master. Does the 45-min clock start on *re-selecting* the job, or on *becoming* rust? Is it per-job or global? | P4 | Per-job, started when the job is (re)selected while the player has a prior Master record. Progress is reset on switch (spec: "reset achievements"). |
-| **D10** ✅ | **`Cộng đồng` chest lock.** "2 options: lock for yourself, or not lock" — what does *lock* actually restrict, and which container types? | P9 | ✅ **DECIDED.** Applies to **every `Container` block**: chest, trapped chest, ender chest, shulker box, barrel, furnace, blast furnace, smoker, brewing stand, hopper, dropper, dispenser, chest minecart, and any modded `Container` — i.e. a `blockEntity instanceof Container` test, not a block allow-list, so it composes with the existing shulker handling in `SellService`. Per-chest mode, stored in `data/container_locks.json`: **`PARTY_ONLY`** (non-members denied — the buff's stated intent, **default**), **`PRIVATE`** (everyone but the owner denied — the spec's literal "lock for self" option), **`UNLOCKED`**. ⚠️ *Assumption to confirm:* the spec lists only 2 options (self-lock / no-lock), so `PARTY_ONLY` is a third value I added to satisfy "chỉ cho phép những người cùng tag Communism" — confirm it should exist rather than `PRIVATE` being the default. Keyed by canonical position with the same double-chest/hopper awareness as `TollManager.canonicalPos` (`TollManager.java:140`).
+| **D10** ✅ | **`Cộng đồng` chest lock.** "2 options: lock for yourself, or not lock" — what does *lock* actually restrict, and which container types? | P9 | ✅ **DECIDED.** Applies to **every `Container` block**: chest, trapped chest, ender chest, shulker box, barrel, furnace, blast furnace, smoker, brewing stand, hopper, dropper, dispenser, chest minecart, and any modded `Container` — i.e. a `blockEntity instanceof Container` test, not a block allow-list, so it composes with the existing shulker handling in `SellService`. Per-chest mode, stored in `data/container_locks.json`: **`PARTY_ONLY`** (non-members denied — the buff's stated intent, **default**), **`PRIVATE`** (everyone but the owner denied — the spec's literal "lock for self" option), **`UNLOCKED`**. **D10 closed by the designer (three answers, not one flag):** the **server default is `UNLOCKED`** — containers are not locked unless someone asks, because a lock that appears without being asked for is worse than no lock; a **player may choose `PRIVATE`** for their own container (the spec's literal "lock for yourself"); and **holding the Communism buff is what grants `PARTY_ONLY`**, via `factions.communism.container_lock_mode`, which is therefore the *buff's* mode rather than a default. Global default and whether players may opt in live in the new `container_lock` section (`mode`, `allow_private_choice`); the per-player choice is stored per container in `data/container_locks.json`. Keyed by canonical position with the same double-chest/hopper awareness as `TollManager.canonicalPos` (`TollManager.java:140`).
 | **D11** ✅ | **Builder reach.** Can a server-side mod extend interaction reach for a vanilla client? | P4 | ✅ **ANSWERED BY MEASUREMENT — effectively no.** P0-T3 disassembled `ServerGamePacketListenerImpl#handleUseItemOn`: it contains **no distance validation at all** — no `distToSqr`, no range comparison. The only distance constant in that class, `MAX_DISTANCE_TO_VALID_POSITION`, belongs to **movement** anti-cheat, not interaction. The server therefore has no interaction-reach gate to relax; the ~4.5-block limit is the **client's**, and a vanilla client simply never sends the packet for a farther block. ⚠️ **Consequence:** `Thành thạo` (+1 block Apprentice, +2 Master) **cannot deliver visible reach on a vanilla client**. Do not build a client mod (§1 rule 1). Instead: keep the spec's rule as an explicit **no-op with a documented note**, *or* repurpose the level to something server-side that is genuinely observable — e.g. extending the Builder's building-block **set** or the Haste window. **This needs a designer call; it is not an implementation detail.** |
 | **D12** | **Leaderboard treatment of profession freebies** (Farmer's bonus output, Miner's double ores, Builder's Haste). These are unlogged item duplication, not money. Confirm they must not affect money leaderboards — the spec implies yes. | P8 | Confirm: no money mutation, so nothing reaches `EconomyManager` and leaderboards are untouched. Log item-granting at `DEBUG` only. |
 | **D13** | **Anti-abuse on progression.** A player can place/break/farm/trade to farm progress and then switch jobs. The 30 h lockout is the only brake. Is a per-job anti-abuse rule needed (e.g. no progress while rust)? | P4 | No extra rule. Rusted players earn **no** progress (they are at 50 % effect, not training) — this is a natural brake and consistent with D9. |
@@ -111,6 +111,8 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
 | **D15** ✅ | **MC target scope.** `build.gradle` declares 5 targets (1.21.1, 1.21.11, 26.1.2, 26.2, 26.3). P0-T3 measured hooks against **26.3 only**; `26.1.2` and `26.2` have never even been built, and 1.21.11/1.21.1 were never probed. Should this feature be verified per-target, or scoped to 26.3? | P0 | ✅ **DECIDED: 26.3 only for this feature.** *Consequences, all favourable:* **(1) Every compat fork in the P0-T5 table is deleted** — all 19 hooks go in `src/main` with no `*Compat` shim, because the renames/moves (`AgeableMob`, `AbstractHorse`, `BreedGoal`, `LavaFluid`, `hurtServer`, `destroyAndAck`, `NameAndId`) are all 26.x-relative and simply never need the old spelling. **(2) P0-T5's inference gap is closed by removal, not by measurement** — the unverified-target risk no longer exists. **(3) The Phase 1 tax centralisation must still stay version-clean**, because it touches shared code: `TaxPolicy` is pure arithmetic with no Minecraft imports, so it remains safe on every target regardless. ⚠️ *What this does NOT do:* the mod **still builds and runs on all 5 targets** — D2 (both loaders) is unaffected, and the pre-existing wealth tax, tolls and `/ah` must keep working everywhere. Only the **new** faction/profession feature is 26.3-only. Anyone on ≤1.21.11 gets those features silently absent rather than broken; a deliberate trade for a correct, tested 26.3 implementation. Record the supported range in `CHANGELOG.md` and the mod description. |
 | **D16** ✅ | **How does a player choose a Party or Profession?** Spec line 5 says players choose two tag types and line 67 sets a 30 h lockout, but **the 67-line spec never states the mechanism** — no command, no menu, nothing. | P3 | ✅ **DECIDED: GUI menu.** `/tag` opens a menu, also reachable from the `/eco` hub; the player picks Party, then Profession, each behind an **explicit confirmation screen**. Chosen because the codebase is already GUI-first (`/ah`, `/order`, `/eco menu` all open menus) and a typed `/tag communism` would be both inconsistent and a way to lock yourself out of a faction for 30 h by mis-typing an autocomplete. ⚠️ *Consequences:* (a) P3-T5's `/tag` was **display-only** and is now split — `/tag` opens the menu, `/tag <player>` still shows another player's tags read-only. (b) The menu needs the 30 h cooldown rendered on every already-locked option, not just rejected on click, so the lockout is visible before choosing. (c) Reuse `MenuUiSupport`, `ConfirmUi`, `ItemPickerUi` — do not invent a new menu style. |
 | **D17** ✅ | **The 30 h lockout — one timer or two, and does the first choice count?** Spec line 67 reads "cannot change Party/profession for 30 hours" without saying whether the clock covers both, or starts on the first pick. | P2/P3 | ✅ **DECIDED: two separate 30 h timers**, Party and Profession independently, **and the first choice does start its own timer** (spec-literal). A new player who picks a faction is locked for 30 h of real time — that is intended, and the confirm screen (D16) must state the duration before they commit. Consequence: `PartySelection` and `ProfessionProgress` each carry **their own** `selectedAtEpochMillis`; a Party swap never resets the Profession clock, so you can still change job after picking faction. Add a `remainingCooldown(uuid)` read to both so the menu can grey out locked options. |
+| **D19** ✅ | **Monarchy's daily rate and its inflation source.** The spec gives `Cống nạp` as "an amount equal to the daily tax" but never states Monarchy's own rate, and never says whether its inflation signal is the same one Capitalism uses. | P9 | ✅ **DECIDED.** Monarchy runs **Capitalism's logic with one change**: the same concentration multiplier, but inflation read off the **server's total money** instead of the player-activity signal, at a **1.7 %** daily rate (`daily_tax_rate = 0.017`) rather than Capitalism's 5 %. Factor = `totalMoneyInCirculation / (activePlayers × money_supply_reference_per_player)`, clamped to `money_supply_inflation_max` (3.0). The reference is **per player** (default `1000.0`, i.e. `startingBalance`) rather than one absolute total, so the tax means the same thing on a 5-player and a 200-player server. `EconomyManager.totalMoneyInCirculation()` was added for it in Phase 2. The two parties' formulas must not be merged into one shared function: they differ in rate *and* in inflation source, and that difference is the point. |
+| **D20** ✅ | **Haste as a held effect or a conditional one?** The spec gives amplifier levels (Builder I, Miner II) and no duration. Read literally as a timed potion, a Builder would walk around permanently Hasted while breaking anything. | P4/P5 | ✅ **DECIDED: conditional.** Haste applies **only while the player is breaking a block in that job's trigger set**, re-applied each tick while true and **removed on the first tick that they are not**. It is not something a player can carry, so a Builder breaking a chest and a Miner tunnelling with Haste II are both impossible. `haste_duration_seconds` is therefore gone, replaced by `haste_refresh_seconds` (default `1`), which exists only to cover the gap between two mining packets so consecutive qualifying blocks do not flicker — not to let the effect linger. The Builder's trigger set is the union of `haste_trigger_blocks` and `building_blocks` (`BlockTags`), because the spec names both and one list must not be copied into the other. Implementation is a server-side intercept of the destroy-progress path (P4-T5/P5-T4), not an effect grant. |
 | **D18** ✅ | **Who reads the docs?** `wiki/` exists but `_Sidebar.md` is titled "EconomyCraft API v1" — every page is integrator documentation. `Tolls.md` is the only genuinely player-facing page and is **not linked from the sidebar at all** (pre-existing gap). | P11 | ✅ **DECIDED: Vietnamese player guides** under a new **Gameplay** section of the wiki sidebar — matching the spec's language and the likely reader. `Tolls.md` gets linked there too (fixing the pre-existing gap). Style is fixed by `Tolls.md`: second person, plain steps, no code, starting from the literal command or menu the player types. P11-T1/T2 already plan `Factions.md` / `Professions.md`; add a dedicated `Chon-tag.md` ("choosing a tag") page for D16/D17, since the 30 h lockout is the single most surprising rule in the feature and must be explained before first use, not discovered afterwards. |
 
 ---
@@ -328,15 +330,22 @@ all green, both loaders. **Zero behaviour change:** the 61 pre-existing tests we
 forgotten default is invisible: Gson ignores an unmatched key and a missing key falls back to the field's Java
 initialiser, so the server starts happily with a key the admin cannot see.
 New data files: `online_time.json`, `cooldowns.json`, `parties.json`, `professions.json`.
-185 tests green on 26.3 (was 61).
+192 tests green on 26.3 (was 61).
 
 **Recorded assumptions** (each is a config key, so a designer can correct it without a code change):
-- **Monarchy's daily tax rate** — the spec defines `Cống nạp` as "an amount equal to the daily tax" but never
-  states Monarchy's own daily rate. Defaulted to `0.05`, matching Capitalism, so the two debuffs are comparable.
-- **Builder and Miner Haste duration** — the spec gives amplifier levels (I and II) but no duration. Defaulted
-  to `30s`, refreshed per block broken.
-- **`container_lock_mode = PARTY_ONLY`** — D10's default. The spec only ever lists "lock for yourself" or
-  "do not lock"; `PARTY_ONLY` is the buff's stated intent. **Still open: confirm with the designer.**
+- **Builder's reach bonus** — see D11, the one assumption in this phase that is still unresolved. It is stored
+  and not applied, because a reach increase has no server-side hook.
+- **Double-value ores and the trigger sets** — the spec enumerates neither; both are config lists, shipped with
+  the spec's names and five reasonable ids.
+
+**Closed by the designer after this phase was written**, and folded back into it:
+- **Monarchy's tax (D19)** — Capitalism's logic, but inflation from the server's total money, at 1.7 %.
+  `factions.monarchy.daily_tax_rate = 0.017`, plus `money_supply_reference_per_player` and
+  `money_supply_inflation_max`; `EconomyManager.totalMoneyInCirculation()` added.
+- **Haste (D20)** — conditional on breaking a trigger block, not a held effect. `haste_duration_seconds` became
+  `haste_refresh_seconds` (1 s), and the Builder's triggers union in `building_blocks`.
+- **Container lock (D10)** — server default `UNLOCKED`, player opt-in `PRIVATE`, Communism's buff grants
+  `PARTY_ONLY`. The global half is the new `container_lock` section; the per-container store is Phase 10.
 - **Double-value ores** — the spec says "each diamond/gold mined counts as 2 ores" without enumerating blocks.
   Config ships diamond ore, deepslate diamond ore, gold ore, deepslate gold ore and nether gold ore.
 - **`use_global_inflation`** — D14's global half reads the existing read-only inflation signal rather than
@@ -477,9 +486,13 @@ mod; `/tag` shows the full coloured tag; no NPE or stale cache across join/quit/
   P0-T3-verified place hook, filtered by `BlockTags.isBuildingBlock`. Count from `BlockTags`, not a literal list.
 - **P4-T5 — Builder: `Thành thạo` reach (spec 44).** +1 block at Apprentice, +2 at Master, only while holding
   a building block. Server-side hook per P0-T3. Record the D11 caveat here in the code comment and the README.
-- **P4-T6 — Builder: `Sửa lỗi` Haste I (spec 45).** On mining stone, cobblestone, dirt or a building block,
-  grant Haste I. Decide and document the duration (spec gives none) — suggest a short refreshed duration via
-  the P0-T3 break hook rather than a lingering permanent effect.
+- **P4-T6 — Builder: `Sửa lỗi` Haste I (spec 45), per D20.** **Conditional, not a timed grant:** Haste I
+  applies *only* while the player is breaking a block in `BlockTags.triggersBuilderHaste` — stone, cobblestone,
+  dirt and every building block — and must be **removed on the first tick they are not**. The break hook from
+  P0-T3 gives the position and the block; re-apply each tick while the target qualifies, clear otherwise, and
+  use `haste_refresh_seconds` (1 s) purely as the anti-flicker window. Two tests are mandatory: breaking a
+  non-trigger block leaves no Haste on the player, and stopping mid-block removes it. Do **not** grant it on
+  break completion alone — that is what produced the "permanently Hasted Builder" reading.
 - **P4-T7 — Builder tests.** Progress reaches 1000 → `MASTER`; the buff tier changes with level; rust halves
   it; job change resets progress; the 30 h lockout blocks a switch.
 
@@ -514,8 +527,10 @@ no framework changes.
 ### Phase 6 — Miner
 - **P6-T1 — Level-up tracking (spec 52).** 270 ores total; diamond and gold count as 2. Use `BlockTags.isOre`
   plus an explicit double-value set from config.
-- **P6-T2 — `Lanh lợi` Haste II (spec 53).** Haste II while mining stone, deepslate, tuff, netherack or an ore.
-  Sets come from `BlockTags`.
+- **P6-T2 — `Lanh lợi` Haste II (spec 53), per D20.** Same conditional rule as P4-T6: Haste II only while the
+  block being broken is in `BlockTags.triggersMinerHaste` (stone, deepslate, tuff, netherack or an ore),
+  cleared on the first tick it is not. Reuse P4-T6's helper rather than writing a second implementation — the
+  two jobs differ only in which set and which amplifier level they pass in.
 - **P6-T3 — `Khéo tay` (spec 54).** 5 % / 15 % chance of a doubled ore drop, via the P0-T3-verified drop hook.
   Must not double non-ores and must not double XP behaviour inconsistently — document the XP decision.
 - **P6-T4 — `Bảo hộ lao động` (spec 55).** **Master only.** On lava contact, Regeneration II for 4 s with a
@@ -620,7 +635,12 @@ post-cooldown, second effect inside the same window).
 - **P9-T9 — Monarchy `Nhập khẩu` (spec 31).** 50 % chance of an extra import tax equal to 50 % of that item's
   tax, on the import scopes agreed in D7. Rounded consistently with `TaxPolicy` (round half of an already-rounded
   tax — pin the exact order and unit-test it).
-- **P9-T10 — Monarchy `Cống nạp` (spec 30).** Blocked only on **D4** (the daily-tax amount). D5 is **CLOSED**:
+- **P9-T10 — Monarchy `Cống nạp` (spec 30), per D19.** The rate is no longer open: `daily_tax_rate = 0.017`,
+  and the inflation factor is **Monarchy's own** — `totalMoneyInCirculation() / (activePlayers ×
+  money_supply_reference_per_player)`, clamped to `money_supply_inflation_max` — *not* Capitalism's
+  `inflationMultiplier()`. The concentration multiplier is shared with Capitalism's; do not fold the two
+  formulas into one function, because they differ in both rate and source. Test the factor at 0.5×, 1× and
+  above the ceiling. D5 is **CLOSED**:
   the corruption payment is a **pure burn** — debit the player, credit nobody, using
   `transferMoney(player, …, debit, 0, ECONOMYCRAFT:CORRUPTION_TAX, …)`. **Do not** build a king entity, a king
   pointer, or any recipient lookup, and do not credit the amount anywhere. Handle only one failure path:
@@ -635,7 +655,11 @@ post-cooldown, second effect inside the same window).
   thing to over-apply here.
 - **P9-T13 — Anarchism `Thoải mái` + `Vô chính phủ` (spec 35, 37).** Both need the claim bridge
   (`Thoải mái` needs "unclaimed land"; `Vô chính phủ` needs to block claiming and trust). Phase 10.
-- **P9-T14 — `Cộng đồng` chest lock (spec 10).** Resolve **D10**. Per-container mode stored in a new
+- **P9-T14 — `Cộng đồng` chest lock (spec 10).** **D10 is CLOSED:** the global default is `UNLOCKED`
+  (`container_lock.mode`), a player may opt their own container into `PRIVATE` (unless
+  `container_lock.allow_private_choice` is false), and the Communism buff grants `PARTY_ONLY`. Effective mode
+  per container = buff if held, else the player's own choice, else the global default — resolve it that way and
+  document the precedence, because "who is it locked to" has three inputs. Per-container mode stored in a new
   `data/container_locks.json`, keyed like `TollManager`'s canonical position (be aware of double chests and
   the existing hopper/pressure-plate canonicalisation, P2/P3 in `TollManager:canonicalPos`). Hook the
   container-open path. Must compose with ShopGuard's claim protection (R5) and with the `/eco admin` reset

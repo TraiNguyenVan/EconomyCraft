@@ -203,7 +203,7 @@ and so the defaults are visible without opening `config.json`.
 | `communism.income_tax_tier2_threshold` / `_rate` | `15000` / `0.0075`| Anti-speculation income tax, tier 2.                                 |
 | `communism.income_tax_tier3_threshold` / `_rate` | `22000` / `0.0125`| Anti-speculation income tax, tier 3 (highest match wins).             |
 | `communism.toll_tax_exempt_chance` | `0.5`      | `Đầu tư công` — chance a toll is paid without tax. The toll owner is still paid. |
-| `communism.container_lock_mode`    | `PARTY_ONLY` | `Cộng đồng`. One of `PARTY_ONLY`, `PRIVATE`, `UNLOCKED`. See the note below.  |
+| `communism.container_lock_mode`    | `PARTY_ONLY` | `Cộng đồng`: who a locked container admits *while the buff is active*. Set `UNLOCKED` to drop just the lock. |
 | `capitalism.daily_tax_rate`        | `0.05`     | Base daily rate, before the concentration multiplier.                            |
 | `capitalism.use_global_inflation`  | `true`     | D14: read the existing inflation signal instead of a fourth independent measure. |
 | `capitalism.concentration_reference_share` | `0.15` | Party wealth share at which the multiplier is exactly `1.0`.                   |
@@ -211,7 +211,9 @@ and so the defaults are visible without opening `config.json`.
 | `capitalism.concentration_min_multiplier` / `_max_multiplier` | `0.0` / `5.0` | Bounds on that multiplier.                             |
 | `capitalism.max_rate_change_per_day` | `0.25`    | D14's griefing brake on how fast the rate may move.                              |
 | `capitalism.toll_tax_multiplier`   | `1.25`     | Toll tax amount multiplier.                                                      |
-| `monarchy.daily_tax_rate`          | `0.05`     | **Assumption** — the spec never states Monarchy's own rate; this matches Capitalism. |
+| `monarchy.daily_tax_rate`          | `0.017`    | Monarchy taxes at a third of Capitalism's rate. |
+| `monarchy.money_supply_reference_per_player` | `1000.0` | Money per active player at which Monarchy's inflation factor is exactly `1.0`. Same formula as Capitalism's concentration multiplier, different inflation source: total money on the server. |
+| `monarchy.money_supply_inflation_max` | `3.0`    | Ceiling on that factor, so one rich player cannot push the whole server's tax up without limit. |
 | `monarchy.corruption_multiplier`   | `1.0`      | `Cống nạp`, as a multiple of the daily tax. Burned.                             |
 | `monarchy.claim_cost_multiplier`   | `0.5`      | `Tự trị` — halved claim cost.                                                    |
 | `monarchy.own_claim_damage_multiplier` | `1.15` | `Phép vua thua lẹ làng`.                                                         |
@@ -232,7 +234,7 @@ vanilla formatting names because the icon set needs shades the sixteen vanilla n
 | `rust_effect_factor`                       | `0.5`    | What "half effect" means, as a multiplier on the job's numbers.         |
 | `builder.level_up_count`                   | `1000`   | Building blocks placed.                                                 |
 | `builder.reach_bonus_apprentice_blocks` / `_master_blocks` | `1.0` / `2.0` | `Thành thạo`. Kept as the spec's rule; see the note below.   |
-| `builder.haste_level` / `haste_duration_seconds` | `1` / `30` | `Sửa lỗi`. Amplifier is from the spec; the duration is an assumption. |
+| `builder.haste_level` / `haste_refresh_seconds` | `1` / `1` | `Sửa lỗi`. Haste I, and only while breaking a trigger block — see below.  |
 | `builder.building_blocks`                  | spec list | 33 entries, verbatim. Tags (`#minecraft:logs`) and ids.                  |
 | `farmer.level_up_count`                    | `300`    | Crops harvested, animals fed, breeding.                                 |
 | `farmer.crop_boost_radius_blocks`          | `24`     | `Tươi tốt` scan radius.                                                  |
@@ -243,7 +245,7 @@ vanilla formatting names because the icon set needs shades the sixteen vanilla n
 | `miner.level_up_count`                     | `270`    | Ores mined.                                                             |
 | `miner.ore_tags`                           | `["#minecraft:ores"]` | The ore set, as a tag so modded ores count.                    |
 | `miner.double_value_ores`                  | 5 ids     | Each counts as 2: diamond and gold ores.                                |
-| `miner.haste_level` / `haste_duration_seconds` | `2` / `30` | `Lanh lợi` — Haste II, from the spec. Duration is an assumption. |
+| `miner.haste_level` / `haste_refresh_seconds` | `2` / `1` | `Lanh lợi` — Haste II, and only while breaking an ore or stone-type block. |
 | `miner.double_drop_chance_apprentice` / `_master` | `0.05` / `0.15` | `Khéo tay`.                                     |
 | `miner.lava_regeneration_level` / `_seconds` / `lava_cooldown_minutes` | `2` / `4` / `5` | `Bảo hộ lao động`, at Master.         |
 | `merchant.villager_trade_count`            | `50`     | Villager trades. Trades made with a stick do not count.                 |
@@ -263,9 +265,27 @@ Every number above is clamped rather than rejected, with the value and the bound
 a 0–1 decimal factor, a colour is 24-bit, an icon is a single glyph, a container lock mode is one of the three
 defined values. A mistyped key costs you that value, not the server.
 
-**Two open items.** `container_lock_mode` defaults to `PARTY_ONLY`, the buff's stated intent, but the spec only
-ever lists the other two options — if the intent was literally "lock for yourself", the default should be
-`PRIVATE`. And `builder.reach_bonus_*_blocks` is the spec's `Thành thạo` rule, which Phase 3 flags for a
+**Container lock** (`container_lock`, plus the buff's key above):
+
+| Key                          | Default     | Description                                                        |
+|------------------------------|-------------|--------------------------------------------------------------------|
+| `container_lock.mode`        | `UNLOCKED`  | What a container is restricted to when its owner has chosen nothing. Locking is opt-in. |
+| `container_lock.allow_private_choice` | `true` | Whether a player may lock their own container to `PRIVATE`.  |
+
+Three answers rather than one switch: nothing is locked by default, a player can lock their own chest to
+`PRIVATE`, and holding the Communism buff is what admits the party (`PARTY_ONLY`). If a container has all three
+inputs, the buff wins, then the player's own choice, then the server default. Not enforced yet — that is Phase
+10.
+
+**Haste is conditional, not a potion you carry.** `Sửa lỗi` and `Lanh lợi` apply *only* while the player is
+breaking a block their job counts — a Builder gets Haste I on stone, cobblestone, dirt and building blocks; a
+Miner gets Haste II on stone, deepslate, tuff, netherack and ores — and it is removed the moment they break
+something else. A Builder cannot carry Haste to a chest, and a Miner cannot walk around with it. That is why the
+key is `haste_refresh_seconds` and not a duration: `1` second is only the anti-flicker window between two
+mining packets, not how long the effect can linger. The Builder's trigger set is the union of
+`haste_trigger_blocks` and `building_blocks`, so adding a building block extends the triggers automatically.
+
+**One open item.** `builder.reach_bonus_*_blocks` is the spec's `Thành thạo` rule, which Phase 3 flags for a
 designer decision: a reach increase requires an interaction-distance hook that vanilla does not expose, so it is
 stored and not yet applied.
 

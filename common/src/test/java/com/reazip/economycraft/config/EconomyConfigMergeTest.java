@@ -109,13 +109,15 @@ class EconomyConfigMergeTest {
 
         // The sections Phase 2 adds are absent from this hand-written file, so the merge must add them whole,
         // including the records nested inside them.
-        for (String section : new String[]{"factions", "professions"}) {
+        for (String section : new String[]{"factions", "professions", "container_lock"}) {
             assertTrue(merged.has(section), section + " must be added to an existing user config");
             assertTrue(merged.get(section).isJsonObject(), section + " must be added as a nested object");
         }
         assertTrue(merged.getAsJsonObject("factions").has("communism"),
                 "the nested faction records must be added, not just the top-level section");
         assertTrue(merged.getAsJsonObject("professions").getAsJsonObject("builder").has("level_up_count"));
+        assertEquals("UNLOCKED", merged.getAsJsonObject("container_lock").get("mode").getAsString(),
+                "D10: a server upgrading from a build without the lock must not have its containers locked");
     }
 
     @Test
