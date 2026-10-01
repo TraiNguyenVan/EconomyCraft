@@ -121,7 +121,7 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
 
 | ID | Risk | Handling |
 |---|---|---|
-| **R1** | Vanilla hooks must be *discovered* on 26.3 — there are no local Minecraft sources or Gradle/Loom cache in this checkout, so target names/signatures cannot be confirmed offline. | P0-T3 exists solely to verify every hook by compiling. Do not write gameplay code against an unverified signature. |
+| **R1** | Vanilla hooks must be *discovered* on 26.3, and the obvious way to look is wrong: **the deobfuscated 26.3 jar is in the Gradle cache** and is fully inspectable, but **there are no sources** — the `*-sources.jar` is an empty zip. So every hook question is answered by reading *bytecode*, and a method that "has no distance check" may simply not be the method that does it. ⚠️ **This already produced one wrong decision: D11** (see §4), where the check was looked for in `handleUseItemOn` instead of one call away. | **Verify with the recipe in P0-T3 before writing any hook, and follow the call one level deeper before concluding a check does not exist.** Do not write gameplay code against an unverified signature. |
 | **R2** | NeoForge parity. Today's 3 toll mixins are Fabric-only. New mixins (crops, breeding, drops, recipes, reach, lava, damage, effects) will be the majority of the new logic. | Either duplicate the mixin config per loader, or explicitly accept Fabric-only for these hooks (then say so in the README). Decide in D2 and be honest in docs. |
 | **R3** | Double-charging / double-tax risk. Because there are 18 tax sites, any missed site produces an inconsistent economy that is very hard to notice. | P1 replaces **all** 18 sites mechanically and adds a test that fails if a raw `EconomyConfig.get().taxRate` multiplication reappears (a source-scanning assertion is acceptable here). |
 | **R4** | `AuctionUi` and `OrdersUi` compute tax for **display lore** as well as for the actual charge. Display and charge must use the same resolver or the UI will lie. | P1-T5. Enumerate display sites separately from charge sites in the task. |
@@ -165,6 +165,27 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
 - **P0-T3 — Hook verification spike — ✅ DONE, results below.** Verified by direct inspection of
   `~/.gradle/caches/fabric-loom/26.3/minecraft-merged.jar` (34,225 classes, official Mojang mappings) using
   `javap -p -c`, plus a real compile for the build-level checks. No probe package was needed in the end.
+
+  **The recipe, for any future hook question** (the artefacts are re-downloaded by any build, so this is
+  reproducible on a fresh machine — nothing here depends on this conversation):
+
+  ```bash
+  JAR=~/.gradle/caches/fabric-loom/minecraftMaven/net/minecraft/minecraft-merged-deobf/26.3/minecraft-merged-deobf-26.3.jar
+  mkdir -p /tmp/mc && cd /tmp/mc && unzip -q "$JAR"                 # 11,383 classes, Mojang names
+
+  # Which classes even mention a name? Fastest first step, and it answers "is this used at all":
+  grep -rl 'blockInteractionRange' --include='*.class' .
+
+  # Signatures, and which attribute a method really reads:
+  JAVAP=~/.gradle/jdks/eclipse_adoptium-25-amd64-linux.2/bin/javap  # NOT on PATH; system java has no javap
+  $JAVAP -p net/minecraft/world/entity/player/Player.class | grep -i interaction
+  $JAVAP -p -c net/minecraft/server/network/ServerGamePacketListenerImpl.class   # bytecode, incl. callers
+  ```
+
+  ⚠️ Two traps this cost real time. (1) **There is no decompiled source** — the `*-sources.jar` in the same
+  directory is an empty zip, so bytecode is the only evidence and a *method-level* grep proves nothing about
+  behaviour. (2) **`javap` is not on `PATH`**; only the Gradle-provisioned JDK has it. And the general lesson
+  from D11: `javap -c` on the class you *expect* to validate is not enough — follow the callee.
 
   | # | Need | 26.3 target | Status |
   |---|---|---|---|
