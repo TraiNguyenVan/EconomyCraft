@@ -109,6 +109,9 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
 | **D13** | **Anti-abuse on progression.** A player can place/break/farm/trade to farm progress and then switch jobs. The 30 h lockout is the only brake. Is a per-job anti-abuse rule needed (e.g. no progress while rust)? | P4 | No extra rule. Rusted players earn **no** progress (they are at 50 % effect, not training) — this is a natural brake and consistent with D9. |
 | **D14** ✅ | **Capitalism's daily tax scales with how much wealth Capitalism holds** (designer's request): "calculate the total money of people in Capitalism, and base the rate on that to multiply the base tax." Which signal — faction concentration, server-wide inflation, or both? | P9 | ✅ **DECIDED — both signals, multiplied**, per D4's independent-pass rule. `rate = baseRate × globalInflationMultiplier × concentrationMultiplier`. Global half **reuses the read-only `EconomyCraftApi.inflationMultiplier()`** (already public API, already hourly-recomputed from the **active-player** median, so "who is active" stays shared with pricing — do not create a fourth signal; the codebase already has three). Concentration half: `share = Σ balances(CAPITALISM) / Σ balances(all accounts)`, `concentration = clamp((share / referenceShare) ^ elasticity, minMult, maxMult)`. `referenceShare` default `0.15` = the share at which the multiplier is exactly `1.0`; `elasticity` default `1.0` is the single difficulty dial (`>1` punishes concentration harder, `<1` is gentle and sub-linear); `minMult` `0`, `maxMult` `5`. All config keys, clamp-and-warn validated. **Three failure modes, handled in P9-T0, not ignored:** **(1) Griefing** — a rich bloc leaving collapses `share` and drops everyone's rate ⇒ **per-day rate-change clamp** (`maxRateChangePerDay`, default `0.25`) persisted in `data/faction_fiscal.json`; the 30 h faction lockout blunts it further. **(2) Division by zero** — `serverAggregate == 0` ⇒ `share = 0` ⇒ multiplier at `minMult`; nobody in Capitalism ⇒ rate `0`. **(3) Addition overflow** — saturating sum (`EconomyManager.MAX` ≈ 10¹² per account). Use the **active-player** window for the global half but **all** faction accounts for the concentration half, else a member logging off lowers their own rate. Build it **faction-agnostic and config-driven** so Monarchy can adopt it later with no new code; only Capitalism uses it now. The charge message must state every factor. |
 | **D15** ✅ | **MC target scope.** `build.gradle` declares 5 targets (1.21.1, 1.21.11, 26.1.2, 26.2, 26.3). P0-T3 measured hooks against **26.3 only**; `26.1.2` and `26.2` have never even been built, and 1.21.11/1.21.1 were never probed. Should this feature be verified per-target, or scoped to 26.3? | P0 | ✅ **DECIDED: 26.3 only for this feature.** *Consequences, all favourable:* **(1) Every compat fork in the P0-T5 table is deleted** — all 19 hooks go in `src/main` with no `*Compat` shim, because the renames/moves (`AgeableMob`, `AbstractHorse`, `BreedGoal`, `LavaFluid`, `hurtServer`, `destroyAndAck`, `NameAndId`) are all 26.x-relative and simply never need the old spelling. **(2) P0-T5's inference gap is closed by removal, not by measurement** — the unverified-target risk no longer exists. **(3) The Phase 1 tax centralisation must still stay version-clean**, because it touches shared code: `TaxPolicy` is pure arithmetic with no Minecraft imports, so it remains safe on every target regardless. ⚠️ *What this does NOT do:* the mod **still builds and runs on all 5 targets** — D2 (both loaders) is unaffected, and the pre-existing wealth tax, tolls and `/ah` must keep working everywhere. Only the **new** faction/profession feature is 26.3-only. Anyone on ≤1.21.11 gets those features silently absent rather than broken; a deliberate trade for a correct, tested 26.3 implementation. Record the supported range in `CHANGELOG.md` and the mod description. |
+| **D16** ✅ | **How does a player choose a Party or Profession?** Spec line 5 says players choose two tag types and line 67 sets a 30 h lockout, but **the 67-line spec never states the mechanism** — no command, no menu, nothing. | P3 | ✅ **DECIDED: GUI menu.** `/tag` opens a menu, also reachable from the `/eco` hub; the player picks Party, then Profession, each behind an **explicit confirmation screen**. Chosen because the codebase is already GUI-first (`/ah`, `/order`, `/eco menu` all open menus) and a typed `/tag communism` would be both inconsistent and a way to lock yourself out of a faction for 30 h by mis-typing an autocomplete. ⚠️ *Consequences:* (a) P3-T5's `/tag` was **display-only** and is now split — `/tag` opens the menu, `/tag <player>` still shows another player's tags read-only. (b) The menu needs the 30 h cooldown rendered on every already-locked option, not just rejected on click, so the lockout is visible before choosing. (c) Reuse `MenuUiSupport`, `ConfirmUi`, `ItemPickerUi` — do not invent a new menu style. |
+| **D17** ✅ | **The 30 h lockout — one timer or two, and does the first choice count?** Spec line 67 reads "cannot change Party/profession for 30 hours" without saying whether the clock covers both, or starts on the first pick. | P2/P3 | ✅ **DECIDED: two separate 30 h timers**, Party and Profession independently, **and the first choice does start its own timer** (spec-literal). A new player who picks a faction is locked for 30 h of real time — that is intended, and the confirm screen (D16) must state the duration before they commit. Consequence: `PartySelection` and `ProfessionProgress` each carry **their own** `selectedAtEpochMillis`; a Party swap never resets the Profession clock, so you can still change job after picking faction. Add a `remainingCooldown(uuid)` read to both so the menu can grey out locked options. |
+| **D18** ✅ | **Who reads the docs?** `wiki/` exists but `_Sidebar.md` is titled "EconomyCraft API v1" — every page is integrator documentation. `Tolls.md` is the only genuinely player-facing page and is **not linked from the sidebar at all** (pre-existing gap). | P11 | ✅ **DECIDED: Vietnamese player guides** under a new **Gameplay** section of the wiki sidebar — matching the spec's language and the likely reader. `Tolls.md` gets linked there too (fixing the pre-existing gap). Style is fixed by `Tolls.md`: second person, plain steps, no code, starting from the literal command or menu the player types. P11-T1/T2 already plan `Factions.md` / `Professions.md`; add a dedicated `Chon-tag.md` ("choosing a tag") page for D16/D17, since the 30 h lockout is the single most surprising rule in the feature and must be explained before first use, not discovered afterwards. |
 
 ---
 
@@ -331,14 +334,19 @@ all green, both loaders. **Zero behaviour change:** the 61 pre-existing tests we
   Factions: `COMMUNISM`, `CAPITALISM`, `MONARCHY`, `ANARCHISM` (`ANARCHISM` = default when unset).
   Professions: `BUILDER`, `FARMER`, `MINER`, `MERCHANT`, `SOLDIER`. Each carries a colour and a short
   icon glyph, both from config. Single source of truth for both colour and display name.
-- **P2-T4 — `faction/FactionStore.java`.** `Map<UUID, PartySelection>` where `PartySelection` = faction id
-  + `selectedAtEpochMillis` (for the 30 h lockout). Save via `AsyncFileWriter` + `dirty` flag, matching
+- **P2-T4 — `faction/FactionStore.java`.** `Map<UUID, PartySelection>` where `PartySelection` = faction id +
+  **`selectedAtEpochMillis` for this tag type's own 30 h lockout** (D17: the Party clock is independent of the
+  Profession clock, and the *first* choice starts it). Expose `remainingCooldown(UUID)` for the menu to grey
+  out locked options (D16). `ANARCHISM` is the default for a UUID with no entry — but **do not write an entry
+  until the player actually chooses**, otherwise "never chose" and "chose Anarchism" become indistinguishable
+  and D17's timer cannot tell them apart. Save via `AsyncFileWriter` + `dirty` flag, matching
   `NotificationManager`'s pattern. File `data/parties.json`.
 - **P2-T5 — `profession/ProfessionStore.java`.** `Map<UUID, ProfessionProgress>`:
   `profession`, `level` (`APPRENTICE`/`MASTER`), `count` (progress counter), `everMastered` (set of
-  professions), `masteredAt`, `rustStartedAtOnlineMs` (D9), and
+  professions), `masteredAt`, **`selectedAtEpochMillis`** (the *Profession* half of D17 — changing job must
+  not disturb the Party clock), `rustStartedAtOnlineMs` (D9), and
   `Map<String, Integer> villagerTradeTally` (keyed by a stable villager identity — see P7-T2).
-  File `data/professions.json`.
+  `remainingCooldown(UUID)` here too. File `data/professions.json`.
 - **P2-T6 — Vendor registry for "items/build blocks".** `profession/BlockTags.java` resolving the
   Builder building-block list (spec line 43: the `#minecraft:logs` … `minecraft:quartz_bricks` set) via
   `TagKey<Block>` where the spec gives a tag, and a literal set where it gives an id. Must be **data-driven
@@ -382,8 +390,16 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
   icon (EconomyCraft's own `sendSystemMessage` sites get it directly; vanilla-generated messages need the
   P0-T3-verified hook). Must be cheap: no per-message store lookups on the hot path — cache per player and
   invalidate on selection change.
-- **P3-T5 — Full tag surfaces.** `/tag` (self), `/tag <player>` (others, permission-gated), the join
-  message, and an optional scoreboard/sidebar line. All read from the cached style.
+- **P3-T5 — Full tag surfaces.** `/tag` (self, opens the D16 selection menu), `/tag <player>` (others,
+  permission-gated, **read-only** — never offer to change another player's faction), the join message, and an
+  optional scoreboard/sidebar line. All read from the cached style.
+- **P3-T8 — Tag selection menu (D16/D17).** The spec never specifies how a player chooses, so this is design,
+  not transcription. `/tag` opens a menu with two sections (Party, Profession); picking one shows a
+  `ConfirmUi` confirmation that **states the 30 h lockout in plain words before the player commits** (D17).
+  Options already on cooldown are rendered as visibly locked with their remaining time, not silently
+  rejected on click — the point of a 30 h commitment is that it is never a surprise. Reuse `MenuUiSupport` /
+  `ConfirmUi` / `ItemPickerUi`; do not invent a new menu style. Wiring goes in here, but the underlying
+  `selectedAtEpochMillis` fields land in Phase 2 (P2-T4/P2-T5).
 - **P3-T6 — Colour/icon config.** Per-faction and per-profession colour + icon in `EconomyConfig`, validated
   (icon must be a single renderable glyph; colour must be a valid RGB int) with the usual clamp-and-warn style.
 - **P3-T7 — Cache invalidation.** Style cache keyed by UUID, invalidated on selection change, job change,
@@ -626,11 +642,15 @@ starts cleanly with ShopGuard absent.
 ---
 
 ### Phase 11 — Documentation, release
-- **P11-T1 — README.** New sections: factions, professions, the online-time convention, the 30 h lockout, every
-  new config key with its default and unit, and an explicit **"Limitations"** section covering D1 (tab list),
-  D11 (reach), and any R2 loader asymmetry.
-- **P11-T2 — `wiki/`.** Add `Factions.md` and `Professions.md`; cross-link from `_Sidebar.md`. Update
-  `Tolls.md` if the toll tax behaviour changed.
+- **P11-T1 — README.** New sections: factions, professions, the online-time convention, the 30 h lockout (both
+  timers, per D17), every new config key with its default and unit, and an explicit **"Limitations"** section
+  covering D1 (tab list), D11 (reach), and any R2 loader asymmetry.
+- **P11-T2 — `wiki/`, player-facing pages in Vietnamese (D18).** Add a **Gameplay** section to
+  `_Sidebar.md` containing `Chon-tag.md` (choosing a tag — **must land before players can pick**, since the
+  30 h lockout is the most surprising rule in the feature), `Factions.md` and `Professions.md`, and link the
+  currently-orphaned `Tolls.md`. Voice and structure follow `Tolls.md`: second person, plain steps, no code,
+  opening with the literal command or menu path. Leave the existing `API v1` integrator pages in English —
+  their readers are mod developers, not players. Update `Tolls.md` if the toll tax behaviour changed.
 - **P11-T3 — `api/v1` additions (optional but recommended).** `FactionApi` / `ProfessionApi` exposing read-only
   queries, following `BalanceApi`'s shape and the `requireServerThread()` rule. Additive, so v1 stays compatible.
   Skip if it is not needed by anything — do not add speculative API.
