@@ -141,6 +141,11 @@ Admin and command access is gated by permission nodes. Any admin node not set by
 
 Stored in `config/economycraft/` on a server (or `saves/<world>/economycraft/` per-world in singleplayer): `config.json`, `webhook.json` and `prices.json` at the top, player data under `data/`.
 
+Phase 2 added four data files: `online_time.json` (accumulated online time), `cooldowns.json` (wall-clock
+cooldowns), `parties.json` (party choices and their lockouts) and `professions.json` (profession, progress and
+rust state). They are written only when something changes, and are deliberately **not** part of the
+singleplayer-to-server folder import: an import moves balances and prices, not who is in which party.
+
 ### `config.json`
 
 | Key                              | Default | Description                                                                                                     |
@@ -178,6 +183,93 @@ Stored in `config/economycraft/` on a server (or `saves/<world>/economycraft/` p
 | `wealth_tax_rebate_enabled`      | `false` | Pay players below the floor when the median has crashed. Creates money.                                         |
 | `wealth_tax_rebate_max_rate`     | `0.01`  | Rebate rate applied to the shortfall below the floor.                                                            |
 | `wealth_tax_rebate_trigger_factor`| `1.0`   | Rebate arms only when the median is below `startingBalance x` this.                                             |
+
+#### `factions` and `professions`
+
+These two sections hold the party and profession tuning for the faction & profession system. **Phase 2 shipped
+them as data only** — every key is read, clamped and saved, and nothing consumes it yet; the effects arrive in
+later phases (`TODO.md` §7). They are listed here so the numbers are reviewable before anything acts on them,
+and so the defaults are visible without opening `config.json`.
+
+`factions`:
+
+| Key                                | Default    | Description                                                                       |
+|------------------------------------|------------|-----------------------------------------------------------------------------------|
+| `enabled`                          | `true`     | Master switch for the party system.                                               |
+| `selection_lockout_hours`          | `30`       | How long a party choice holds. Independent of the profession lockout. `0` = off.  |
+| `levy_interval_minutes`            | `45`       | The spec's "45 minutes online" cadence, in online minutes.                       |
+| `communism.party_fee`              | `10`       | `Đảng phí`, charged per interval. Burned — there is no recipient.                |
+| `communism.income_tax_tier1_threshold` / `_rate` | `10000` / `0.005` | Anti-speculation income tax, tier 1.                                 |
+| `communism.income_tax_tier2_threshold` / `_rate` | `15000` / `0.0075`| Anti-speculation income tax, tier 2.                                 |
+| `communism.income_tax_tier3_threshold` / `_rate` | `22000` / `0.0125`| Anti-speculation income tax, tier 3 (highest match wins).             |
+| `communism.toll_tax_exempt_chance` | `0.5`      | `Đầu tư công` — chance a toll is paid without tax. The toll owner is still paid. |
+| `communism.container_lock_mode`    | `PARTY_ONLY` | `Cộng đồng`. One of `PARTY_ONLY`, `PRIVATE`, `UNLOCKED`. See the note below.  |
+| `capitalism.daily_tax_rate`        | `0.05`     | Base daily rate, before the concentration multiplier.                            |
+| `capitalism.use_global_inflation`  | `true`     | D14: read the existing inflation signal instead of a fourth independent measure. |
+| `capitalism.concentration_reference_share` | `0.15` | Party wealth share at which the multiplier is exactly `1.0`.                   |
+| `capitalism.concentration_elasticity` | `1.0`    | The single difficulty dial; above `1` punishes concentration harder.             |
+| `capitalism.concentration_min_multiplier` / `_max_multiplier` | `0.0` / `5.0` | Bounds on that multiplier.                             |
+| `capitalism.max_rate_change_per_day` | `0.25`    | D14's griefing brake on how fast the rate may move.                              |
+| `capitalism.toll_tax_multiplier`   | `1.25`     | Toll tax amount multiplier.                                                      |
+| `monarchy.daily_tax_rate`          | `0.05`     | **Assumption** — the spec never states Monarchy's own rate; this matches Capitalism. |
+| `monarchy.corruption_multiplier`   | `1.0`      | `Cống nạp`, as a multiple of the daily tax. Burned.                             |
+| `monarchy.claim_cost_multiplier`   | `0.5`      | `Tự trị` — halved claim cost.                                                    |
+| `monarchy.own_claim_damage_multiplier` | `1.15` | `Phép vua thua lẹ làng`.                                                         |
+| `monarchy.import_tax_chance` / `import_tax_factor` | `0.5` / `0.5` | `Nhập khẩu`.                                     |
+| `anarchism.unclaimed_speed_multiplier` | `1.15`  | `Thoải mái` on unclaimed land.                                                    |
+| `anarchism.unclaimed_horse_speed_multiplier` | `1.15` | Needs its own hook; horses ignore movement speed.                      |
+
+Each faction also has `color` (24-bit RGB integer) and `icon` (one glyph). Colours are integers rather than
+vanilla formatting names because the icon set needs shades the sixteen vanilla names do not include.
+
+`professions`:
+
+| Key                                        | Default  | Description                                                            |
+|--------------------------------------------|----------|------------------------------------------------------------------------|
+| `enabled`                                  | `true`   | Master switch for the profession system.                                |
+| `selection_lockout_hours`                  | `30`     | The profession's own lockout. Changing party never disturbs it.        |
+| `rust_online_minutes`                      | `45`     | `Lụt nghề` — online minutes at half effect after returning.              |
+| `rust_effect_factor`                       | `0.5`    | What "half effect" means, as a multiplier on the job's numbers.         |
+| `builder.level_up_count`                   | `1000`   | Building blocks placed.                                                 |
+| `builder.reach_bonus_apprentice_blocks` / `_master_blocks` | `1.0` / `2.0` | `Thành thạo`. Kept as the spec's rule; see the note below.   |
+| `builder.haste_level` / `haste_duration_seconds` | `1` / `30` | `Sửa lỗi`. Amplifier is from the spec; the duration is an assumption. |
+| `builder.building_blocks`                  | spec list | 33 entries, verbatim. Tags (`#minecraft:logs`) and ids.                  |
+| `farmer.level_up_count`                    | `300`    | Crops harvested, animals fed, breeding.                                 |
+| `farmer.crop_boost_radius_blocks`          | `24`     | `Tươi tốt` scan radius.                                                  |
+| `farmer.crop_boost_cooldown_minutes`       | `4`      | `Tươi tốt` cooldown.                                                     |
+| `farmer.breeding_cooldown_factor_apprentice` / `_master` | `0.1` / `0.2` | `Chăm sóc` cooldown reduction.                 |
+| `farmer.baby_growth_factor_apprentice` / `_master` | `1.15` / `1.3` | `Chăm sóc` offspring growth.                 |
+| `farmer.bonus_output_chance_apprentice` / `_master` | `0.01` / `0.05` | `Khéo léo`.                       |
+| `miner.level_up_count`                     | `270`    | Ores mined.                                                             |
+| `miner.ore_tags`                           | `["#minecraft:ores"]` | The ore set, as a tag so modded ores count.                    |
+| `miner.double_value_ores`                  | 5 ids     | Each counts as 2: diamond and gold ores.                                |
+| `miner.haste_level` / `haste_duration_seconds` | `2` / `30` | `Lanh lợi` — Haste II, from the spec. Duration is an assumption. |
+| `miner.double_drop_chance_apprentice` / `_master` | `0.05` / `0.15` | `Khéo tay`.                                     |
+| `miner.lava_regeneration_level` / `_seconds` / `lava_cooldown_minutes` | `2` / `4` / `5` | `Bảo hộ lao động`, at Master.         |
+| `merchant.villager_trade_count`            | `50`     | Villager trades. Trades made with a stick do not count.                 |
+| `merchant.max_trades_per_villager`         | `20`     | Per-villager cap on that count.                                          |
+| `merchant.auction_purchase_count`          | `5`      | Purchases from `/ah`; a second, separate counter.                        |
+| `merchant.cost_factor_apprentice` / `_master` | `0.05` / `0.15` | `Lưỡi không xương`.                        |
+| `soldier.kill_count`                       | `100`    | Kills.                                                                   |
+| `soldier.damage_taken_factor_apprentice` / `_master` | `0.95` / `0.85` | `Sắt được tôi`.               |
+| `soldier.damage_dealt_factor_apprentice` / `_master` | `1.05` / `1.15` | `Sắt được tôi`.               |
+| `soldier.adrenaline_window_seconds`        | `4`      | Effects are only halved within this of the first debuff.                 |
+| `soldier.adrenaline_cooldown_minutes`      | `5`      | `Andrenaline` cooldown; it triggers automatically, never manually.        |
+| `soldier.adrenaline_duration_factor`       | `0.5`    | The halving itself.                                                      |
+
+Every job also has `color` and `icon`, read the same way as a faction's.
+
+Every number above is clamped rather than rejected, with the value and the bound in one warning line: a rate is
+a 0–1 decimal factor, a colour is 24-bit, an icon is a single glyph, a container lock mode is one of the three
+defined values. A mistyped key costs you that value, not the server.
+
+**Two open items.** `container_lock_mode` defaults to `PARTY_ONLY`, the buff's stated intent, but the spec only
+ever lists the other two options — if the intent was literally "lock for yourself", the default should be
+`PRIVATE`. And `builder.reach_bonus_*_blocks` is the spec's `Thành thạo` rule, which Phase 3 flags for a
+designer decision: a reach increase requires an interaction-distance hook that vanilla does not expose, so it is
+stored and not yet applied.
+
+These keys are not yet editable from `/eco settings`; they are file-only for now.
 
 ### `webhook.json`
 

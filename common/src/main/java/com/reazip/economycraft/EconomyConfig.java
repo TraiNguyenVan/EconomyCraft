@@ -3,6 +3,8 @@ package com.reazip.economycraft;
 import com.google.gson.*;
 import com.google.gson.annotations.SerializedName;
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.config.FactionsSection;
+import com.reazip.economycraft.config.ProfessionsSection;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
@@ -85,6 +87,26 @@ public class EconomyConfig {
     @SerializedName("wealth_tax_rebate_trigger_factor")
     public double wealthTaxRebateTriggerFactor = 1.0;
 
+    /**
+     * The four parties and their buffs (Phase 2 onward).
+     *
+     * <p>Nested on purpose: these arrived in Phase 2, and they are the first keys that are more than one level
+     * deep. Keeping them in their own section rather than flattening them into the root is what lets the merge
+     * add a <em>whole new party</em> to an existing server's config without touching the server owner's
+     * hand-tuned economy keys — see {@code addMissingRecursive} and the {@code EconomyConfigMergeTest} cases
+     * that cover exactly this.
+     */
+    @SerializedName("factions")
+    public FactionsSection factions = new FactionsSection();
+
+    /**
+     * The five professions and their buffs, with the same reasoning as {@link #factions}.
+     *
+     * <p>Nothing in either section is wired to gameplay by this phase. They are data and tuning surface only.
+     */
+    @SerializedName("professions")
+    public ProfessionsSection professions = new ProfessionsSection();
+
     public static final int MIN_TRANSACTION_LOG_RETENTION_DAYS = 1;
     public static final int WARN_TRANSACTION_LOG_RETENTION_DAYS = 90;
     public static final double MAX_DYNAMIC_PRICE_MULTIPLIER = 100.0;
@@ -138,11 +160,25 @@ public class EconomyConfig {
             parsed.wealthTaxMaxCatchupDays = clampNonNegative("wealth_tax_max_catchup_days", parsed.wealthTaxMaxCatchupDays);
             parsed.wealthTaxRebateMaxRate = clampPercentage("wealth_tax_rebate_max_rate", parsed.wealthTaxRebateMaxRate);
             parsed.wealthTaxRebateTriggerFactor = clampRange("wealth_tax_rebate_trigger_factor", parsed.wealthTaxRebateTriggerFactor, 0.0, MAX_REBATE_TRIGGER_FACTOR, "");
+            parsed.factions = requireSection("factions", parsed.factions, FactionsSection::new);
+            parsed.professions = requireSection("professions", parsed.professions, ProfessionsSection::new);
+            parsed.factions.clamp();
+            parsed.professions.clamp();
             INSTANCE = parsed;
             normalizeDynamicPriceBounds();
         } catch (Exception e) {
             throw new IllegalStateException("[EconomyCraft] Failed to read/parse config.json at " + file, e);
         }
+    }
+
+    /**
+     * A hand-edited {@code "factions": null} would otherwise leave the whole phase with a live NPE waiting for
+     * the first caller, so an unusable section is rebuilt from defaults and the mistake is named in the log.
+     */
+    private static <T> T requireSection(String name, T section, java.util.function.Supplier<T> fallback) {
+        if (section != null) return section;
+        LOGGER.warn("[EconomyCraft] {} section is null; rebuilding it from defaults.", name);
+        return fallback.get();
     }
 
     private static double clampRange(String fieldName, double value, double min, double max, String reason) {

@@ -11,7 +11,12 @@ import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.faction.FactionStore;
 import com.reazip.economycraft.fiscal.FiscalPass;
+import com.reazip.economycraft.profession.BlockTags;
+import com.reazip.economycraft.profession.ProfessionStore;
+import com.reazip.economycraft.time.CooldownService;
+import com.reazip.economycraft.time.OnlineTimeService;
 import com.reazip.economycraft.util.AsyncFileWriter;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
@@ -93,6 +98,23 @@ public class EconomyManager {
     private final DynamicPriceEngine dynamicPrices;
     private final FiscalPass fiscalPass;
 
+    /**
+     * The tag phase's data layer (Phase 2). Data and tuning only: nothing here is wired to gameplay yet, so a
+     * freshly-started server writes these files empty and reads them back unchanged.
+     *
+     * <p>They are owned here, and not by the phases that will use them, so that there is exactly one place that
+     * loads them on startup and exactly one that flushes them on shutdown — and so a future phase cannot
+     * accidentally create a second instance with its own copy of the state.
+     */
+    private final OnlineTimeService onlineTime;
+    private final CooldownService cooldowns;
+    private final FactionStore factions;
+    private final ProfessionStore professions;
+    private final BlockTags blockTags;
+
+    /** Reused per tick so tracking online players does not allocate a new set twenty times a second. */
+    private final Set<UUID> onlineScratch = new HashSet<>();
+
     private Objective objective;
     private final DeliveryManager deliveries;
     private final AuctionManager auctions;
@@ -147,6 +169,15 @@ public class EconomyManager {
         this.dynamicPrices = new DynamicPriceEngine(dataDir);
         dynamicPrices.refresh(server, balances);
         this.fiscalPass = new FiscalPass(this, dataDir);
+
+        // Phase 2. Built after EconomyConfig is loaded (SERVER_STARTING) so BlockTags can read the
+        // professions section, and after the economy files so a config problem cannot leave a half-built
+        // manager behind.
+        this.onlineTime = new OnlineTimeService(dataDir.resolve("online_time.json"));
+        this.cooldowns = new CooldownService(dataDir.resolve("cooldowns.json"));
+        this.factions = new FactionStore(dataDir.resolve("parties.json"));
+        this.professions = new ProfessionStore(dataDir.resolve("professions.json"));
+        this.blockTags = BlockTags.fromConfig(EconomyConfig.get().professions);
 
         balanceEvents.register(transactionLogger::onBalanceChanged);
         balanceEvents.register(this::recordStats);
@@ -456,6 +487,10 @@ public class EconomyManager {
         AsyncFileWriter.writeAsync(dailySellFile, GSON.toJson(new HashMap<>(dailySells), DAILY_SELL_TYPE));
         AsyncFileWriter.writeAsync(statsFile, GSON.toJson(new HashMap<>(stats), STATS_TYPE));
         dynamicPrices.flush();
+        onlineTime.flush();
+        cooldowns.flush();
+        factions.flush();
+        professions.flush();
     }
 
     private void loadDaily() {
@@ -717,6 +752,73 @@ public class EconomyManager {
 
     public PriceRegistry getPrices() {
         return prices;
+    }
+
+    /** Accumulated online time, the clock the spec's 45-minute thresholds read. */
+    public OnlineTimeService getOnlineTime() {
+        return onlineTime;
+    }
+
+    /** Shared wall-clock cooldowns for every job and party effect. */
+    public CooldownService getCooldowns() {
+        return cooldowns;
+    }
+
+    /** Party selections and their 30-hour lockouts. */
+    public FactionStore getFactions() {
+        return factions;
+    }
+
+    /** Profession selections, progress and rust state. */
+    public ProfessionStore getProfessions() {
+        return professions;
+    }
+
+    /** The resolved building-block, ore and Haste trigger sets. */
+    public BlockTags getBlockTags() {
+        return blockTags;
+    }
+
+    /**
+     * Advances the tag data layer by one tick. Called from {@code TickEvent.SERVER_POST}.
+     *
+     * <p>Two things happen, and neither is gameplay:
+     *
+     * <ol>
+     *   <li>Online time is accumulated for everyone currently online. This runs even when the professions
+     *       section is disabled, because online time is also the clock the party levies will read; switching
+     *       the feature on should not start every player's counters from zero.</li>
+     *   <li>Time is added towards clearing a rust timer, and a player who has served it is promoted back to
+     *       Master. This is the one place Phase 2 writes to a store on a timer rather than on an event, and it
+     *       is skipped entirely when {@code professions.enabled} is false.</li>
+     * </ol>
+     *
+     * <p>Nothing here is on the hot path: the only per-tick cost is one map iteration over online players, and
+     * {@link ProfessionStore#completeRustIfEarned} returns immediately for the overwhelming majority of them.
+     */
+    public void tickTagServices() {
+        long tickCount = server.getTickCount();
+
+        onlineScratch.clear();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            onlineScratch.add(player.getUUID());
+        }
+
+        onlineTime.tick(tickCount, onlineScratch);
+
+        if (!EconomyConfig.get().professions.enabled) return;
+
+        long credited = onlineTime.lastCreditedIntervalMillis();
+        if (credited <= 0L) return;
+
+        int rustMinutes = EconomyConfig.get().professions.rustOnlineMinutes;
+        for (UUID player : onlineScratch) {
+            try {
+                professions.completeRustIfEarned(player, credited, rustMinutes);
+            } catch (Exception e) {
+                LOGGER.error("[EconomyCraft] Failed to advance the rust timer for {}", player, e);
+            }
+        }
     }
 
     public void markActive(UUID player) {

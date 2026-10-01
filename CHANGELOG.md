@@ -5,23 +5,38 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased — Faction & Profession System
 
-Planning is tracked in `TODO.md`. No gameplay code has landed yet; the baseline is 61 passing tests
-(`FiscalPolicyTest` 40, `TollUiTest` 21) on 26.3, both loaders green.
+Planning is tracked in `TODO.md`. **No gameplay behaviour has landed yet**; the baseline is 185 passing tests
+on 26.3, both loaders green. Phases 0–2 are pure infrastructure and ship with zero behaviour change.
 
-### Added (planned)
+### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
-- Party tags: Communism, Capitalism, Monarchy, Anarchism (default).
+- Party tags: Communism, Capitalism, Monarchy, Anarchism (default when nothing is chosen).
 - Profession tags: Builder, Farmer, Miner, Merchant, Soldier.
-- Online-time accumulator, wall-clock cooldown service, party/profession stores.
-- Container lock (`Cộng đồng`) for all `Container` blocks.
-- Inflation-responsive Capitalism daily rate (faction wealth concentration × server inflation).
-- Optional ShopGuard integration for the four claim-dependent faction effects.
+- Online-time accumulator (`OnlineTimeService`), wall-clock cooldown service (`CooldownService`), and the
+  `FactionStore` / `ProfessionStore` pair, persisted to `online_time.json`, `cooldowns.json`, `parties.json` and
+  `professions.json`. Data only — no effect reads them yet.
+- `BlockTags`: the config-driven building-block, ore, double-value-ore and Haste-trigger sets, with tags
+  resolved lazily so a `/reload` is honoured and a bad entry is dropped with a warning instead of failing.
+- `factions` and `professions` config sections, with the spec's defaults and clamping for every key.
+- Container lock (`Cộng đồng`) — planned; `ContainerLockMode` is defined but not yet enforced.
 
-### Changed (planned)
-- Nothing yet. Phases 0–2 are pure infrastructure and must ship with zero behaviour change.
+### Changed
+- Config merge now covers nested sections, so an existing server gains the new keys without losing any
+  hand-tuned values (`EconomyConfigMergeTest`).
+- Nothing user-visible. The only behavioural changes in this phase are the four new data files existing at all.
 
-### Fixed (planned)
-- Nothing yet.
+### Fixed
+- A hand-edited `"factions": null` no longer leaves the new sections null; they are rebuilt from defaults and the
+  mistake is named in the log.
+
+### Known gaps
+- The 30-hour party and profession lockouts are independent, and each writes nothing until the player actually
+  chooses, so "never chose" stays distinguishable from "chose Anarchism" on disk.
+- `Monarchy`'s daily tax rate is an assumption (`0.05`): the spec gives its `Cống nạp` as "the daily tax amount"
+  but never states Monarchy's own rate. Builder and Miner Haste durations are likewise assumed (`30s`); the
+  spec gives no duration and the effect is refreshed per block broken.
+- Builder reach (`Thành thạo`) is stored and not applied — see `TODO.md` D11.
+- `/eco settings` does not expose the new keys yet; they are file-only.
 
 ### Notes
 - The pre-existing wealth tax (`FiscalPass`, `FiscalPolicy`, `fiscal.json`, `wealth_tax_*`) is deliberately

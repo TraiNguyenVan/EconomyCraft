@@ -65,6 +65,11 @@ public final class EconomyCraft {
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to run the daily fiscal pass", e);
         }
+        try {
+            EconomyCraft.getManager(server).tickTagServices();
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to advance the tag data layer", e);
+        }
         if (server.getTickCount() % EXPIRATION_CHECK_INTERVAL_TICKS != 0) return;
 
         EconomyManager eco = getManager(server);

@@ -26,6 +26,17 @@ public final class EconomyPaths {
             "webhook.json",
             "prices.json"
     );
+    /**
+     * The data files {@code /eco import} moves between a singleplayer world and a server.
+     *
+     * <p>Deliberately absent: {@code online_time.json}, {@code cooldowns.json}, {@code parties.json} and
+     * {@code professions.json}. They are per-player progression, not economy: importing them would hand every
+     * player a fresh party and profession on migration, and *deleting* the shared copy would destroy the source
+     * server's tag state. Adding a file here is therefore a gameplay decision, not a bookkeeping one.
+     *
+     * <p>Note also that {@code player_activity.json} is last-seen millis for dynamic pricing and has nothing to
+     * do with online time; they must never be merged to "save a file" (R8).
+     */
     private static final List<String> DATA_FILES = List.of(
             "balances.json",
             "daily.json",

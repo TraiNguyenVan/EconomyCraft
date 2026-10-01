@@ -1,6 +1,6 @@
 # EconomyCraft — Faction & Profession System (Implementation Plan)
 
-**Status:** planning only. No code written.
+**Status:** Phase 2 complete (data & save layer). No gameplay behaviour yet.
 **Spec:** `/home/capcap/Git/Vibe code plugin.md` (67 lines, Vietnamese) — the single source of truth for *what*.
 **This file:** the source of truth for *how and in what order*.
 
@@ -316,8 +316,49 @@ all green, both loaders. **Zero behaviour change:** the 61 pre-existing tests we
 
 ---
 
-### Phase 2 — Data & save layer
+### Phase 2 — Data & save layer — ✅ DONE
 *Goal: the three clocks (R10), the two stores, and the config surface — all persisted and tested.*
+
+**Shipped:** P2-T1…P2-T9. New files: `config/ConfigClamp.java`, `config/TagSettings.java`,
+`config/FactionsSection.java`, `config/ProfessionsSection.java`, `faction/FactionId.java`,
+`faction/ContainerLockMode.java`, `faction/FactionStore.java`, `profession/ProfessionId.java`,
+`profession/ProfessionLevel.java`, `profession/ProfessionStore.java`, `profession/BlockTags.java`,
+`time/OnlineTimeService.java`, `time/CooldownService.java`, `time/WallClock.java`, `time/MutableClock.java`.
+`BundledConfigTest` walks `config.json` and `EconomyConfig` in both directions, because the failure mode of a
+forgotten default is invisible: Gson ignores an unmatched key and a missing key falls back to the field's Java
+initialiser, so the server starts happily with a key the admin cannot see.
+New data files: `online_time.json`, `cooldowns.json`, `parties.json`, `professions.json`.
+185 tests green on 26.3 (was 61).
+
+**Recorded assumptions** (each is a config key, so a designer can correct it without a code change):
+- **Monarchy's daily tax rate** — the spec defines `Cống nạp` as "an amount equal to the daily tax" but never
+  states Monarchy's own daily rate. Defaulted to `0.05`, matching Capitalism, so the two debuffs are comparable.
+- **Builder and Miner Haste duration** — the spec gives amplifier levels (I and II) but no duration. Defaulted
+  to `30s`, refreshed per block broken.
+- **`container_lock_mode = PARTY_ONLY`** — D10's default. The spec only ever lists "lock for yourself" or
+  "do not lock"; `PARTY_ONLY` is the buff's stated intent. **Still open: confirm with the designer.**
+- **Double-value ores** — the spec says "each diamond/gold mined counts as 2 ores" without enumerating blocks.
+  Config ships diamond ore, deepslate diamond ore, gold ore, deepslate gold ore and nether gold ore.
+- **`use_global_inflation`** — D14's global half reads the existing read-only inflation signal rather than
+  introducing a fourth independent measure of "who is active".
+
+**Deliberate deviations from the task text above**, all behaviour-preserving:
+- `consumeIfThresholdMet` fires at `>=`, not `>`. A player sitting on exactly 45:00 has met a "45 minutes"
+  threshold, and the boundary is the case a player notices.
+- The 30-hour lockout is a timestamp on the selection (`selectedAtEpochMillis`), not a `CooldownService` entry.
+  The store needs that timestamp anyway — the `/tag` menu shows the remaining time — and the two locks are in
+  two files on purpose, so "one clock disturbing the other" cannot happen by construction.
+- `remainingCooldown(UUID)` takes the configured hours as a parameter rather than reading config inside, keeping
+  both stores free of hidden config reads and the values testable without a loaded config.
+- `everMastered` is one boolean plus `masteredProfessionLeftBehind` rather than a set of professions. For the
+  player's *current* profession the two models produce identical answers, including "mastered two jobs, neither
+  one is rusty" — see `ProfessionStoreTest`. `masteredAt` was dropped: nothing displays it yet.
+- Clamping is covered by a dedicated `TagConfigClampTest` rather than inside `EconomyConfigMergeTest`, which
+  stays about the merge mechanism.
+- The Merchant's two level-up counters are exposed as `recordVillagerTrade` / `recordAuctionPurchase`, and
+  `addProgress` refuses for `MERCHANT`, so half of its condition cannot be applied by accident (P5-T2).
+- **`/eco settings` does not expose the new keys yet.** They are file-only until an AdminSettingsUi phase adds
+  them; the README says so rather than claiming in-game editability.
 
 - **P2-T1 — `time/OnlineTimeService.java` — online-time accumulation (spec line 1 convention).**
   Per player: accumulated online milliseconds + last-accounted tick. Tick-driven via the existing
@@ -357,10 +398,14 @@ all green, both loaders. **Zero behaviour change:** the 61 pre-existing tests we
   covering: missing file, new nested key added to an existing user file, key added inside an existing
   nested object, out-of-range clamping of each new numeric key with a warning. This directly de-risks R7
   and must land *before* the first nested config key.
-- **P2-T8 — Wire persistence.** Register `online_time.json`, `cooldowns.json`, `parties.json`,
-  `professions.json` in the save path and flush them on `SERVER_STOPPING` next to `manager.save()`.
-  Do **not** add them to `EconomyPaths.DATA_FILES`/`SETTINGS_FILES` (those drive `/eco import`) — but
-  confirm and document why (invariant 6).
+- **P2-T8 — Wire persistence.** DONE. The four files are owned by `EconomyManager` (constructed from
+  `EconomyPaths.dataDir(server)`, flushed in `manager.save()`, which `SERVER_STOPPING` already calls before
+  `AsyncFileWriter.flush()`). `tickTagServices()` runs from `SERVER_POST` and advances online time plus any
+  rust timer. **Invariant 6 confirmed:** the four files are deliberately absent from
+  `EconomyPaths.DATA_FILES`/`SETTINGS_FILES`, because those lists drive `/eco import` — importing is meant to
+  move a world economy (balances, prices), and copying who is in which party would hand every player a fresh
+  party and profession on migration, while *deleting* the shared copy would destroy the source server's tag
+  state.
 - **P2-T9 — New config keys.** Every rate, threshold, duration, count, colour and icon from the spec, as
   clamped `EconomyConfig` fields with the bundled-default merge and matching entries in
   `common/src/main/resources/assets/economycraft/config.json`. Group under `factions` / `professions`
