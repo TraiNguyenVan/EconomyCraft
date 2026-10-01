@@ -736,8 +736,8 @@ nametag wherever D21 allows it; `/tag` shows the full coloured tag; no NPE or st
 join/quit/selection change.
 
 **Verified by running it, not by compiling it.** A dev server (`./gradlew -Pfilter_platforms=fabric
--Pminecraft_version=26.3 :fabric:runServer`, EULA in `fabric/run/`) boots to `Done` with **both mixins applied and
-zero errors in the log** — which matters because a mixin target is only resolved when its class is transformed, so
+-Pminecraft_version=26.3 :fabric:runServer`; its working directory is `fabric/run/`, which needs `eula=true` in
+`eula.txt` the first time and is gitignored) boots to `Done` with **both mixins applied and zero errors in the log** — which matters because a mixin target is only resolved when its class is transformed, so
 a clean compile proves nothing about `@Inject`/`@ModifyVariable` targets. Two bugs were found by tests during this
 task rather than by inspection: `TabStyle#tabRow` emitted `[Builder]Steve` with no space, and `tagsOf` bypassed the
 cache so a read never warmed it.
