@@ -36,6 +36,10 @@ versionRange = "[${archVer},)"
 ordering = "NONE"
 side = "BOTH"
 
+# ---- Mixins (server-side display hooks; see TODO.md P3-T1):
+[[mixins]]
+config = "economycraft.mixins.json"
+
 # ---- Placeholder API NeoForge (optional, for mod-to-mod placeholder integration):
 [[dependencies.economycraft]]
 modId = "${placeholderModId}"

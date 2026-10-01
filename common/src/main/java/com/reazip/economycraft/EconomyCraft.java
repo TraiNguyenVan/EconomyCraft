@@ -55,6 +55,7 @@ public final class EconomyCraft {
         });
 
         PlayerEvent.PLAYER_JOIN.register(EconomyCraft::onPlayerJoin);
+        PlayerEvent.PLAYER_QUIT.register(EconomyCraft::onPlayerQuit);
         TickEvent.SERVER_POST.register(EconomyCraft::onServerTick);
     }
 
@@ -104,6 +105,7 @@ public final class EconomyCraft {
             }
 
             eco.markActive(player.getUUID());
+            eco.getTagDisplay().applyTo(player);
             eco.getNotifications().sendPending(player);
 
             if (eco.getDeliveries().hasDeliveries(player.getUUID())) {
@@ -115,6 +117,22 @@ public final class EconomyCraft {
             }
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to set up {} on join", player.getName().getString(), e);
+        }
+    }
+
+    /**
+     * Drops the player from their tag team and out of the display cache.
+     *
+     * <p>Needed because the cache is keyed by UUID and would otherwise keep an entry — and a team membership — for
+     * everyone who has ever connected. Deliberately does not save anything: the stores already own the persisted
+     * state, and a tag is derived from it.
+     */
+    private static void onPlayerQuit(ServerPlayer player) {
+        try {
+            EconomyManager eco = getManager(player.level().getServer());
+            eco.getTagDisplay().forget(player);
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to release tag display state for {}", player.getName().getString(), e);
         }
     }
 

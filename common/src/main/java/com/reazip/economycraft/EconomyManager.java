@@ -11,10 +11,14 @@ import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.faction.FactionId;
 import com.reazip.economycraft.faction.FactionStore;
 import com.reazip.economycraft.fiscal.FiscalPass;
 import com.reazip.economycraft.profession.BlockTags;
+import com.reazip.economycraft.profession.ProfessionId;
+import com.reazip.economycraft.profession.ProfessionLevel;
 import com.reazip.economycraft.profession.ProfessionStore;
+import com.reazip.economycraft.tag.TagDisplayService;
 import com.reazip.economycraft.time.CooldownService;
 import com.reazip.economycraft.time.OnlineTimeService;
 import com.reazip.economycraft.util.AsyncFileWriter;
@@ -110,6 +114,7 @@ public class EconomyManager {
     private final CooldownService cooldowns;
     private final FactionStore factions;
     private final ProfessionStore professions;
+    private final TagDisplayService tagDisplay;
     private final BlockTags blockTags;
 
     /** Reused per tick so tracking online players does not allocate a new set twenty times a second. */
@@ -125,6 +130,9 @@ public class EconomyManager {
     private final Set<UUID> loggedUnresolvedNames = ConcurrentHashMap.newKeySet();
     private volatile boolean active = true;
     private volatile List<LeaderboardEntry> leaderboardCache;
+
+    /** Five seconds: fast enough that a stale tag is a non-event, slow enough to be invisible in a profiler. */
+    private static final int TAG_SWEEP_INTERVAL_TICKS = 100;
 
     public static final long MAX = 999_999_999_999L;
 
@@ -178,6 +186,25 @@ public class EconomyManager {
         this.factions = new FactionStore(dataDir.resolve("parties.json"));
         this.professions = new ProfessionStore(dataDir.resolve("professions.json"));
         this.blockTags = BlockTags.fromConfig(EconomyConfig.get().professions);
+        // The display service reads the two stores above and nothing else, so it is built last and holds them by
+        // reference: every later phase that changes a selection or a level calls tagDisplay().refresh(...) and the
+        // tab row, the nametag prefix and the chat icon all move together.
+        this.tagDisplay = new TagDisplayService(new TagDisplayService.TagSource() {
+            @Override
+            public FactionId factionOf(UUID player) {
+                return factions.factionOf(player);
+            }
+
+            @Override
+            public ProfessionId professionOf(UUID player) {
+                return professions.professionOf(player);
+            }
+
+            @Override
+            public ProfessionLevel levelOf(UUID player) {
+                return professions.levelOf(player);
+            }
+        });
 
         balanceEvents.register(transactionLogger::onBalanceChanged);
         balanceEvents.register(this::recordStats);
@@ -198,6 +225,7 @@ public class EconomyManager {
     public void deactivate() {
         active = false;
         BalanceEventDispatcher.release(server);
+        tagDisplay.clear();
     }
 
     private @Nullable String resolveName(MinecraftServer server, UUID id) {
@@ -792,6 +820,11 @@ public class EconomyManager {
         return professions;
     }
 
+    /** The tab row, nametag prefix and chat icon, and the cache that keeps them in sync. */
+    public TagDisplayService getTagDisplay() {
+        return tagDisplay;
+    }
+
     /** The resolved building-block, ore and Haste trigger sets. */
     public BlockTags getBlockTags() {
         return blockTags;
@@ -823,6 +856,7 @@ public class EconomyManager {
         }
 
         onlineTime.tick(tickCount, onlineScratch);
+        sweepTagDisplay();
 
         if (!EconomyConfig.get().professions.enabled) return;
 
@@ -837,6 +871,22 @@ public class EconomyManager {
                 LOGGER.error("[EconomyCraft] Failed to advance the rust timer for {}", player, e);
             }
         }
+    }
+
+    /**
+     * The display sweep, on a deliberately slow interval.
+     *
+     * <p>Every tag surface is cached, and a cache that only refreshes when a caller remembers to call
+     * {@code refresh} is a cache that shows a stale tag the first time a phase forgets. This compares a cheap
+     * signature per online player and re-pushes only the ones that actually changed, so correctness does not
+     * depend on that, at the cost of three hash lookups per player every five seconds.
+     *
+     * <p>Not gated on {@code professions.enabled} or {@code factions.enabled} on purpose: switching a feature off
+     * has to <em>remove</em> tags, and this is the path that notices.
+     */
+    private void sweepTagDisplay() {
+        if (server.getTickCount() % TAG_SWEEP_INTERVAL_TICKS != 0) return;
+        tagDisplay.sweep(server.getPlayerList().getPlayers());
     }
 
     public void markActive(UUID player) {

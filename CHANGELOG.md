@@ -29,11 +29,20 @@ on 26.3, both loaders green. Phases 0–2 are pure infrastructure and ship with 
 ### Fixed
 - A hand-edited `"factions": null` (or `"container_lock": null`) no longer leaves the section null; it is rebuilt
   from defaults and the mistake is named in the log.
+- Phase 3 corrected the reasoning behind its own nametag decision: the nametag is drawn by **client** code, so a
+  server-side display-name mixin could never have reached it. The tag is delivered as a synced scoreboard team
+  prefix instead — see D21 in `TODO.md`.
 
 ### Known gaps
 - The 30-hour party and profession lockouts are independent, and each writes nothing until the player actually
   chooses, so "never chose" stays distinguishable from "chose Anarchism" on disk.
 - `/eco settings` does not expose the new keys yet; they are file-only.
+
+### Added (Phase 3 — the tag surfaces)
+- Party and profession tags now render on a vanilla client, with no client mod: the full coloured word in the tab
+  list (`[Communism][Builder] Steve`), the icons above the head (`[☭][⚒] Steve`) and in front of the player's own
+  chat. Colours come from the existing per-faction and per-profession config keys.
+- `/tag`-driven surfaces are not in this entry yet; only the rendering layer is.
 
 ### Design decisions taken after the spec
 - **Builder reach** (`TODO.md` D11, corrected): the previous conclusion that a server-side mod cannot extend

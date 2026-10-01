@@ -327,6 +327,34 @@ The editor also writes a few extra keys:
 
 ---
 
+## Party and profession tags
+
+Each player can hold one **party** (Communism, Capitalism, Monarchy, Anarchism) and one **profession** (Builder,
+Farmer, Miner, Merchant, Soldier). Both are chosen with `/tag` and both are drawn on a vanilla client, with no
+client mod:
+
+| Surface | What it shows | Example |
+|---|---|---|
+| Tab list (hold <kbd>Tab</kbd>) | the full word, in the party's or profession's colour | `[Communism][Builder] Steve` |
+| Above the head | the icons only | `[☭][⚒] Steve` |
+| Chat | the icons in front of the message | `<Steve> [☭][⚒] hello` |
+| `/tag <player>` | the player's tags, read-only | — |
+
+The icon and colour for each are config keys (`factions.<party>.icon` / `.color`, and the same under
+`professions.<profession>`), so a server can restyle them without touching the code. A profession shows its level in
+the tab list only once it is `Master` or `Rusted` — `Apprentice` is the default and is not worth interrupting a
+name for.
+
+Two deliberate limits, both settled by reading the game rather than by guessing:
+
+- **A player's chat badge.** Chat's `<Name>` slot is built by the client from the account name, so the icon has to
+  go in the message body. A message rewritten this way renders as *server-modified*, so the signed-chat badge is
+  grey for messages from players who have a tag. Players with no tag are never rewritten and keep their badge.
+- **Scoreboard teams.** The nametag is drawn by client code, so the only server-side way to reach it is the team
+  prefix — which means EconomyCraft puts a tagged player in a team of its own (`ec_…`). A player already on a team
+  from another plugin is moved off it when they take a tag, and their nametag prefix follows the party. If your
+  server uses scoreboard teams for ranks, this will conflict; the two features cannot both own the same slot.
+
 ## Placeholders
 
 Exposes economy data to other mods via [Text Placeholder API](https://modrinth.com/mod/placeholder-api) (Fabric) or [Placeholder API NeoForge](https://modrinth.com/mod/placeholder-api-neoforge) (NeoForge). Both are optional, the mod works without them, but the matching jar must be in `mods/` for placeholders to resolve.

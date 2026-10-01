@@ -114,8 +114,8 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
 | **D19** ✅ | **Monarchy's daily rate and its inflation source.** The spec gives `Cống nạp` as "an amount equal to the daily tax" but never states Monarchy's own rate, and never says whether its inflation signal is the same one Capitalism uses. | P9 | ✅ **DECIDED.** Monarchy runs **Capitalism's logic with one change**: the same concentration multiplier, but inflation read off the **server's total money** instead of the player-activity signal, at a **1.7 %** daily rate (`daily_tax_rate = 0.017`) rather than Capitalism's 5 %. Factor = `totalMoneyInCirculation / (activePlayers × money_supply_reference_per_player)`, clamped to `money_supply_inflation_max` (3.0). The reference is **per player** (default `1000.0`, i.e. `startingBalance`) rather than one absolute total, so the tax means the same thing on a 5-player and a 200-player server. `EconomyManager.totalMoneyInCirculation()` was added for it in Phase 2. The two parties' formulas must not be merged into one shared function: they differ in rate *and* in inflation source, and that difference is the point. |
 | **D20** ✅ | **Haste as a held effect or a conditional one?** The spec gives amplifier levels (Builder I, Miner II) and no duration. Read literally as a timed potion, a Builder would walk around permanently Hasted while breaking anything. | P4/P5 | ✅ **DECIDED: conditional.** Haste applies **only while the player is breaking a block in that job's trigger set**, re-applied each tick while true and **removed on the first tick that they are not**. It is not something a player can carry, so a Builder breaking a chest and a Miner tunnelling with Haste II are both impossible. `haste_duration_seconds` is therefore gone, replaced by `haste_refresh_seconds` (default `1`), which exists only to cover the gap between two mining packets so consecutive qualifying blocks do not flicker — not to let the effect linger. The Builder's trigger set is the union of `haste_trigger_blocks` and `building_blocks` (`BlockTags`), because the spec names both and one list must not be copied into the other. Implementation is a server-side intercept of the destroy-progress path (P4-T5/P5-T4), not an effect grant. |
 
-| **D21** 🟡 | **How does a tag reach the nametag above a head, given that the nametag is drawn client-side?** The only server-side lever is the scoreboard **team prefix** (hooks #16/#18e): `PlayerTeam#setPlayerPrefix(Component)` is broadcast to every client, and `PlayerTeam#getFormattedName` renders `prefix + name + suffix`. | P3 | 🟡 **OPEN — mechanics verified, the visual trade-off is yours.** Not negotiable, because the bytecode settles it: the prefix *is* the mechanism; no team colour is needed (leaving `TeamColor` empty keeps the prefix's own RGB, since `applyColor` is then a no-op); one team per (faction, profession) pair, ~30 of them, because a player can be in only one team; and `addPlayerToTeam` will silently move a player off a team another plugin assigned. The open part is visual: the icon alone is coloured, **or** you also set a team colour and the player's **name** is recoloured as well — and `TeamColor` is only 16 named values, so the name could not even match the config RGB. Options are laid out in the Phase 3 section. |
-| **D22** 🟡 | **How does a tag reach chat?** The sender-name slot is **impossible**: the client builds it from `PlayerInfo#getProfile()`, so no server value reaches `<Name>` (hook #18c). The only server-side lever is the message *content* (hook #18d). | P3 | 🟡 **OPEN — needs your call; the options are not equal in cost.** **A:** only EconomyCraft's own messages (system messages, command feedback, join/leave notices) carry the icon — free, no side effects, but player chat lines show no faction at all. **B:** rewrite each player's content via `PlayerChatMessage#withUnsignedContent`, prefixing the icon. It does render (`decoratedContent()` prefers `unsignedContent`) and the signature stays valid, but **every** chat line becomes `ChatTrustLevel.MODIFIED`, so the signed-chat badge the client shows players goes grey server-wide. **C:** skip chat entirely. |
+| **D21** ✅ | **How does a tag reach the nametag above a head, given that the nametag is drawn client-side?** The only server-side lever is the scoreboard **team prefix** (hooks #16/#18e): `PlayerTeam#setPlayerPrefix(Component)` is broadcast to every client, and `PlayerTeam#getFormattedName` renders `prefix + name + suffix`. | P3 | ✅ **DECIDED — **icon prefix, name untouched.** The team prefix carries the icon and **no team colour is set**, so the player's name renders exactly as it does today. That is also what keeps the config RGB reachable: `applyColor` is a no-op on an empty colour, whereas setting one would recolour the whole name and cap it at the 16 `TeamColor` values (D22's answer means this is what we want). **Accepted consequences, recorded not hidden:** (a) one team per (faction, profession) pair, ~30 of them, cached so `addPlayerTeam` never logs "Requested creation of existing team"; (b) `addPlayerToTeam` **moves a player off any team another plugin gave them** — we own that slot, so a server combining EconomyCraft with team-based ranks must be told; (c) `setCollisionRule(ALWAYS)` is set explicitly, because a team whose collision rule is left alone can quietly make same-party players unable to hurt each other; (d) the prefix also shows in death messages and anywhere else the server renders `getDisplayName()`. Implemented in P3-T9. |
+| **D22** ✅ | **How does a tag reach chat?** The sender-name slot is **impossible**: the client builds it from `PlayerInfo#getProfile()`, so no server value reaches `<Name>` (hook #18c). The only server-side lever is the message *content* (hook #18d). | P3 | ✅ **DECIDED — rewrite every chat line.** Hook the server chat funnel and rebuild the message with `PlayerChatMessage#withUnsignedContent(icon + " " + body)`; `decoratedContent()` prefers it and the signature stays valid, so the icon renders and nothing about who said what is lost. **The cost is accepted knowingly:** a rewritten line renders as `ChatTrustLevel.MODIFIED`, so the signed-chat badge goes grey for those messages. Two refinements the decision did not specify and the implementation adopts, because both make the cost smaller without weakening the feature: (1) **only a player who actually has a tag is rewritten** — an untagged player's messages are never touched and keep their badge; (2) a message that already carries `unsignedContent` is **left alone**, so we never stomp another mod's rewrite and never double-prefix our own. `signedContent()` is untouched, so the console log and `/ah`-style logs stay plain text. Hooked in P3-T4. |
 | **D18** ✅ | **Who reads the docs?** `wiki/` exists but `_Sidebar.md` is titled "EconomyCraft API v1" — every page is integrator documentation. `Tolls.md` is the only genuinely player-facing page and is **not linked from the sidebar at all** (pre-existing gap). | P11 | ✅ **DECIDED: Vietnamese player guides** under a new **Gameplay** section of the wiki sidebar — matching the spec's language and the likely reader. `Tolls.md` gets linked there too (fixing the pre-existing gap). Style is fixed by `Tolls.md`: second person, plain steps, no code, starting from the literal command or menu the player types. P11-T1/T2 already plan `Factions.md` / `Professions.md`; add a dedicated `Chon-tag.md` ("choosing a tag") page for D16/D17, since the 30 h lockout is the single most surprising rule in the feature and must be explained before first use, not discovered afterwards. |
 
 ---
@@ -455,14 +455,15 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
 ### Phase 3 — Tag & display pipeline (cross-cutting)
 *Goal: the shared rendering layer both professions and factions use. Implements the **CLOSED D1** decision.*
 
-- **P3-T1 — Display surfaces, as the bytecode actually allows.** ⚠️ **Replaces the original text of this task**,
+- **P3-T1 — Display surfaces, as the bytecode actually allows — ✅ DONE** (`fabric/mixin/TabListDisplayNameMixin`,
+  `neoforge/mixin/TabListDisplayNameMixin`, `tag/TagStyle#tabRow`). ⚠️ **Replaces the original text of this task**,
   which said "nametag via a `Player#getDisplayName()` mixin" and was wrong (D1, D21):
   | Surface | Mechanism | Status |
   |---|---|---|
   | Tab list | `ServerPlayer#getTabListDisplayName()` mixin at `RETURN` (it is a `null`-returning stub) + push `ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME` so no reconnect is needed | ✅ **unblocked, build this** |
-  | Nametag | scoreboard **team prefix** `PlayerTeam#setPlayerPrefix` — the nametag is drawn client-side, so nothing server-side can reach it except synced scoreboard data | 🟡 **blocked on D21** (which prefix/colour trade-off) |
+  | Nametag | scoreboard **team prefix** `PlayerTeam#setPlayerPrefix`, **no team colour** (D21) — the nametag is drawn client-side, so nothing server-side can reach it except synced scoreboard data | ✅ **unblocked — build this** |
   | Chat sender name | **impossible** — the client composes it from `PlayerInfo#getProfile()` | ❌ never build a mixin for this |
-  | Chat content | `PlayerChatMessage#withUnsignedContent` — renders, but makes every line `MODIFIED` | 🟡 **blocked on D22** |
+  | Chat content | `PlayerChatMessage#withUnsignedContent` — renders, but makes every rewritten line `MODIFIED` (D22) | ✅ **unblocked, build this** — only tagged players' messages are rewritten |
   Full coloured word tag (`[Đảng]` in the party's colour) in the **tab list**; short **icon** (`[☭]`) in the nametag
   and chat, where long names would be unreadable. Still **no client mod, no custom packet, no registered menu**
   (§1 rule 1). **One** mixin is needed (tab list only), not two.
@@ -471,13 +472,19 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
   (matches ShopGuard and EconomyCraft chat style). Colours come from `TagSettings.color` as a raw RGB int via
   `Component#withColor(int)` — **not** a `ChatFormatting` name, because the sixteen vanilla ones cannot express
   the yellow-green the icon set needs (see `TagSettings`' javadoc).
-- **P3-T3 — Tab list.** On join and on any selection change, set `getTabListDisplayName()` to `combined()`
+- **P3-T3 — Tab list — ✅ DONE** (`tag/TagDisplayService` + the two mixins; pushed with `UPDATE_DISPLAY_NAME`,
+  `null` restores vanilla). On join and on any selection change, set `getTabListDisplayName()` to `combined()`
   (tag + existing name) and push the packet. Restore vanilla (`null`, so the client falls back to the profile
   name) when all tags are removed. Must **not** affect UUID/name resolution (`ProfileCompat` path) or the
   leaderboard, which use names independently. Note from hook #18b: because the display name is non-null, the
   client **skips** team formatting for that row, so this composes cleanly with the D21 team prefix.
-- **P3-T4 — Chat icon.** 🟡 **Blocked on D22.** Whatever is chosen, the cost must be cheap: no per-message store
-  lookups on the hot path — cache the short tag per UUID and invalidate on selection change.
+- **P3-T4 — Chat icon (D22: rewrite the content) — ✅ DONE** (`fabric|neoforge/mixin/ChatIconMixin` on
+  `broadcastChatMessage`, one `@ModifyVariable`; both D22 limits enforced in the mixin). Mixin the server chat funnel — `ServerGamePacketListenerImpl#broadcastChatMessage(PlayerChatMessage)`
+  (private) calls straight into `PlayerList#broadcastChatMessage(PlayerChatMessage, ServerPlayer, ChatType$Bound)` — and
+  rebuild the message as `withUnsignedContent(iconPrefix + " " + message.decoratedContent())`. Three rules, all from D22:
+  **rewrite only if the speaker has a tag**, **skip if `unsignedContent()` is already non-null** (another mod got there first),
+  and never touch `signedContent()` (so the console log stays plain). Cost must be cheap: no per-message store lookup —
+  the cached icon prefix is read from the style cache and invalidated on selection change.
 - **P3-T5 — `/tag`.** `/tag` (self) opens the D16 selection menu; `/tag <player>` (others, permission-gated,
   **read-only** — never offer to change another player's faction) prints their tags; plus the join message and
   an optional scoreboard/sidebar line. All read from the cached style.
@@ -486,8 +493,14 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
   `ConfigClamp#color` (24-bit) and `ConfigClamp#icon` (single renderable glyph, with a fallback). `FactionId#settings()`
   and `ProfessionId#settings()` are the only accessors. **Nothing to add** — but `BundledConfigTest` must keep
   passing, so a new tag key has to land in the bundled `config.json` too.
-- **P3-T7 — Cache invalidation.** Style cache keyed by UUID, invalidated on selection change, job change, rust
-  transition, join and quit. Test: changing faction immediately changes the rendered component.
+- **P3-T7 — Cache invalidation — ✅ DONE, and stronger than the task asked.** `tag/TagDisplayService` caches a
+  `Rendered` per UUID and **never re-reads the stores on a render path** (P3-T4's cost rule). Correctness comes
+  from `isStale`, a three-value signature compared against the cache on a slow tick sweep
+  (`EconomyManager#sweepTagDisplay`, every 100 ticks), so a party change, a level-up or a rust transition is noticed
+  **even if nobody calls `refresh`** — the sweep is not gated on either `enabled` flag, so switching a feature off
+  removes tags. Join calls `applyTo`, quit calls `forget` (which also drops the player from our team, but leaves a
+  foreign team's membership alone). `TagDisplayServiceTest` asserts composition, both D22 rules, the label rule and
+  that a party/level change flips `isStale`.
 - **P3-T8 — Tag selection menu (D16/D17).** The spec never specifies how a player chooses, so this is design,
   not transcription. `/tag` opens a menu with two sections (Party, Profession); picking one shows a
   `ConfirmUi` confirmation that **states the 30 h lockout in plain words before the player commits** (D17).
@@ -496,7 +509,8 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
   `ConfirmUi` / `ItemPickerUi`; do not invent a new menu style. `MenuUiSupport#openMenu` takes a `MenuProvider`,
   so this stays inside §1 rule 1 (no registered `MenuType`). Wiring goes in here, but the underlying
   `selectedAtEpochMillis` fields landed in Phase 2 (P2-T4/P2-T5).
-- **P3-T9 — Team-prefix sync (nametag), if D21 says yes.** One cached `PlayerTeam` per (faction, profession)
+- **P3-T9 — Team-prefix sync (nametag) — D21: icon prefix, no team colour — ✅ DONE**
+  (`TagDisplayService#syncTeam`/`createTeam`). One cached `PlayerTeam` per (faction, profession)
   pair, named for what it is and kept short; `setPlayerPrefix(iconComponent)`, `setCollisionRule(ALWAYS)`
   explicitly so the tag cannot accidentally make same-party players immune to damage, and no team colour set
   unless D21 asks for a recoloured name. Cache the `PlayerTeam` handles by name — `Scoreboard#addPlayerTeam`
@@ -720,6 +734,16 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
 **Exit criteria:** selecting a tag changes the tab row for a vanilla client without any client mod, and the
 nametag wherever D21 allows it; `/tag` shows the full coloured tag; no NPE or stale cache across
 join/quit/selection change.
+
+**Verified by running it, not by compiling it.** A dev server (`./gradlew -Pfilter_platforms=fabric
+-Pminecraft_version=26.3 :fabric:runServer`, EULA in `fabric/run/`) boots to `Done` with **both mixins applied and
+zero errors in the log** — which matters because a mixin target is only resolved when its class is transformed, so
+a clean compile proves nothing about `@Inject`/`@ModifyVariable` targets. Two bugs were found by tests during this
+task rather than by inspection: `TabStyle#tabRow` emitted `[Builder]Steve` with no space, and `tagsOf` bypassed the
+cache so a read never warmed it.
+
+**Still open in this phase:** P3-T5 (`/tag`, self menu + read-only other-player view) and P3-T8 (the selection
+menu itself). Both read `TagDisplayService#tagsOf`, which is public for exactly that reason.
 
 ⚠️ **If you are reading this in a new session:** D21 and D22 are open questions for the designer, not gaps in
 the plan. Do not guess them. Everything else in this phase (P3-T2, T3, T5, T6, T7, T8) is unblocked — start at
