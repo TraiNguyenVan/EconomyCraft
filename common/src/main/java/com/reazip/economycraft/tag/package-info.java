@@ -3,25 +3,34 @@
  *
  * <p>Both tag types are drawn from the same primitives here so they can never drift apart visually.
  *
- * <p><strong>Two separate vanilla paths, and this is load-bearing.</strong> On 26.3 the nametag above a
- * player's head and the row in the tab list are fed by <em>different</em> server-side methods, so a
- * server-side-only mod can legitimately render different text in each:
+ * <p><strong>Three surfaces, three different answers — and only one of them is a mixin.</strong> All of this was
+ * settled by reading 26.3 bytecode (see {@code TODO.md} P0-T3 rows 15-18e), because the obvious reading of the
+ * class names was wrong twice:
  *
  * <ul>
- *   <li>Nametag — {@code EntityRenderer#getNameTag} calls {@code Entity#getDisplayName()}, which
- *       {@code Player} overrides. {@code PlayerTeam#formatNameForTeam} is applied inside it.</li>
- *   <li>Tab list — {@code PlayerTabOverlay} calls {@code ServerPlayer#getTabListDisplayName()}, which is a
- *       vanilla stub that returns {@code null}; the client then falls back to the profile name.</li>
+ *   <li><strong>Tab list — a mixin, and it works.</strong> {@code PlayerTabOverlay#getNameForDisplay} calls
+ *       {@code ServerPlayer#getTabListDisplayName()}, a vanilla stub that returns {@code null}; the client then
+ *       falls back to the profile name. Supplying a component makes the client render that instead <em>and skip
+ *       team formatting for the row</em>, so a tab row never double-prefixes. There is no public setter, so this
+ *       one is reached by mixin, with the change pushed via
+ *       {@code ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME} — no reconnect needed.</li>
+ *   <li><strong>Nametag — not a mixin, ever.</strong> {@code EntityRenderer#getNameTag} is <em>client</em> code,
+ *       so every client draws the nametag from its own entity and a server-side mixin on
+ *       {@code Player#getDisplayName()} would change only what the server renders (death messages, titles).
+ *       The one server-side lever is synced scoreboard data: the team prefix, via
+ *       {@code PlayerTeam#setPlayerPrefix}, which {@code PlayerTeam#getFormattedName} renders as
+ *       {@code prefix + name + suffix} and {@code ServerScoreboard} broadcasts to every client. Leaving
+ *       {@code TeamColor} empty keeps the prefix's own RGB, because {@code applyColor} is then a no-op.</li>
+ *   <li><strong>Chat sender name — impossible.</strong> The client passes {@code PlayerInfo#getProfile()} into
+ *       {@code ChatType$Bound#decorate}, so {@code <Name>} is composed client-side from the account name and no
+ *       server value reaches that slot. Only the message <em>content</em> is server-controlled, via
+ *       {@code PlayerChatMessage#withUnsignedContent} — and doing that makes every line
+ *       {@code ChatTrustLevel.MODIFIED}.</li>
  * </ul>
  *
- * <p>Neither has a public setter on 26.3, so both are reached by mixin. Note that
- * {@code ClientboundPlayerInfoUpdatePacket$Action} already includes {@code UPDATE_DISPLAY_NAME}, so a
- * display-name change can be pushed without a reconnect.
+ * <p>EconomyCraft's own messages are always free: they are server-built components.
  *
- * <p>Chat is a third, genuinely separate surface: EconomyCraft's own messages can be built directly, while
- * vanilla-generated chat needs a formatting hook.
- *
- * <p>Decisions live in {@code TODO.md} §4 — see D1 (display split) and the {@code displayName} findings
- * recorded under P0-T3, which corrected an earlier assumption that these surfaces were inseparable.
+ * <p>Decisions live in {@code TODO.md} §4 — D1 for the display split (its nametag half is wrong and superseded
+ * by D21), D21 for the nametag's colour trade-off and D22 for the chat badge trade-off, both currently open.
  */
 package com.reazip.economycraft.tag;

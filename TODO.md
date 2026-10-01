@@ -94,7 +94,7 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
 
 | ID | Question | Blocks | Recommendation |
 |---|---|---|---|
-| **D1** ✅ | **Tab list vs nametag.** I originally asserted these were inseparable. **P0-T3 disproved that.** On 26.3 the nametag is `EntityRenderer#getNameTag` → `Player#getDisplayName()`, while the tab row is `PlayerTabOverlay` → `ServerPlayer#getTabListDisplayName()` (a vanilla stub returning `null`). Different methods ⇒ a server-side-only mod **can** render different text in each. | P3 | ✅ **DECIDED — YOUR ORIGINAL SPEC, now implementable.** Full coloured word tag (`[Communism]` in red) in the **tab list**, via a `ServerPlayer#getTabListDisplayName()` mixin at `RETURN`, pushed with `ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME` so it applies without a reconnect. Short **icon only** (`[☭]`) in the **nametag** (`Player#getDisplayName()` mixin) and in **chat**, where long names would be unreadable. Still **no client mod, no custom packet, no registered menu** (§1 rule 1). Cost: two mixins instead of one. |
+| **D1** ✅ | **Tab list vs nametag.** I originally asserted these were inseparable. **P0-T3 disproved that.** On 26.3 the nametag is `EntityRenderer#getNameTag` → `Player#getDisplayName()`, while the tab row is `PlayerTabOverlay` → `ServerPlayer#getTabListDisplayName()` (a vanilla stub returning `null`). Different methods ⇒ a server-side-only mod **can** render different text in each. | P3 | ✅ **DECIDED — YOUR ORIGINAL SPEC, now implementable.** Full coloured word tag (`[Communism]` in red) in the **tab list**, via a `ServerPlayer#getTabListDisplayName()` mixin at `RETURN`, pushed with `ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME` so it applies without a reconnect. Short **icon only** (`[☭]`) in the **nametag** (`Player#getDisplayName()` mixin) and in **chat**, where long names would be unreadable. Still **no client mod, no custom packet, no registered menu** (§1 rule 1). Cost: two mixins instead of one. ⚠️ **The nametag half of this decision was wrong and is superseded by D21.** `EntityRenderer#getNameTag` is **client** code, so a server-side `Player#getDisplayName()` mixin changes only what the *server* renders (death messages, titles) and never what another client draws over a head. The tab-list half stands: `ServerPlayer#getTabListDisplayName()` is server-side and its client consumer does use it. **Do not implement the nametag mixin.** The icon now travels through a scoreboard team prefix instead. |
 | **D2** ✅ | **Version + loader scope.** | P0 | ✅ **DECIDED — BOTH loaders, NeoForge parity required.** All gameplay logic in **`common`** with the repo's compat forks (`modern`/`legacy121`, `unobfuscated`/`obfuscated`). Vanilla hooks in thin per-loader adapters (`fabric/` + `neoforge/`). **NeoForge must be built out properly, not deferred.** Default dev target 26.3.<br>⚠️ **Accepted consequence of the loader split:** ShopGuard is **Fabric-only** (`fabric-loom`, `ModInitializer`, no NeoForge port), so on NeoForge `ClaimBridge` finds no backend and the **four claim-dependent faction features are inert** — Monarchy `Tự trị` + `Phép vua`, Anarchism `Thoải mái` + `Vô chính phủ`. That is documented as a per-loader limitation in the README's Limitations section (invariant: **never** silently no-op — if the bridge is absent, say so once at startup). The other ~10 faction features and all 5 professions work on both loaders.<br>**Cost of Fabric-only instead** (rejected, recorded so the option stays visible): only the *mixins* are loader-specific — Architectury already neutralises join/quit, tick, commands and lifecycle, and all `common` logic is loader-agnostic. So it halves the build matrix `2×5 → 5` in `release.yml` and defers ~10–13 mixin classes, but porting them later is **not** mechanical (NeoForge mappings differ, so each needs re-derivation + re-testing). The real trap: `common` compiles on both loaders, so Fabric-only wiring yields code that looks right and silently does nothing on NeoForge — which is worse than the feature being absent.
 | **D3** ✅ | **Communism income-tax brackets** (0.5 % > $10 000, 0.75 % > $15 000, 1.25 % > $22 000): single-tier (highest matched) or cumulative/marginal? Are thresholds strictly greater, or inclusive? Applied to balance *after* the $10 party fee? | P9 | ✅ **DECIDED.** **Highest-matched single tier** (not cumulative, not marginal), thresholds are **strictly greater than** the stated amount (exactly $10 000 pays nothing), and the rate is applied to the balance **remaining after the $10 party fee is deducted**. Reuse `FiscalPolicy`'s invariants: the levy may never drive a balance below $0, and the whole collection is one operation so the player sees a single combined figure. |
 | **D4** ✅ | **"Daily tax" is undefined** in the spec. Enumerating every `removeMoney`/`transferMoney` site and date comparison found exactly **one** recurring daily debit in either repo: `FiscalPass:161` (`"Daily wealth tax"`). | P9 | ✅ **DECIDED — leave `wealth_tax` alone; build our own.** `FiscalPass`, `FiscalPolicy`, `fiscal.json`, `wealth_tax_*` and `wealth_tax_rebate_*` are **pre-existing and not the spec's** ⇒ **untouched**: no faction flags, no added config keys, no new epoch-day compare inside them, no edits to `FiscalPolicyTest`. The spec's daily taxes (Capitalism's, Monarchy's corruption) are **ours**, so they get an **independent** pass: new `faction/FactionFiscalPass.java` (own epoch-day cadence + catch-up) and new `faction/FactionFiscalPolicy.java` (pure, own tests), with **its own** state file `data/faction_fiscal.json`. It may only **read** `EconomyCraftApi.inflationMultiplier()` / `medianActiveBalance()` — never write through them. ✅ Benefits: the pre-existing fiscal path cannot regress (invariant 2), and the earlier `inactive_multiplier 3.33 × 5 % = 16.65 %` compounding hazard **disappears** because we never touch `wealth_tax_inactive_multiplier`. ⚠️ Accepted consequence: `wealth_tax` and the faction daily tax are **independent**, so if an admin enables both, a player can pay both on the same day — correct and intended, but state it in the README. ⚠️ Also: our daily tax is **not** off by default, because it is the spec's feature — it is gated by a plain `factionSystemEnabled` flag instead. |
@@ -113,6 +113,9 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
 | **D17** ✅ | **The 30 h lockout — one timer or two, and does the first choice count?** Spec line 67 reads "cannot change Party/profession for 30 hours" without saying whether the clock covers both, or starts on the first pick. | P2/P3 | ✅ **DECIDED: two separate 30 h timers**, Party and Profession independently, **and the first choice does start its own timer** (spec-literal). A new player who picks a faction is locked for 30 h of real time — that is intended, and the confirm screen (D16) must state the duration before they commit. Consequence: `PartySelection` and `ProfessionProgress` each carry **their own** `selectedAtEpochMillis`; a Party swap never resets the Profession clock, so you can still change job after picking faction. Add a `remainingCooldown(uuid)` read to both so the menu can grey out locked options. |
 | **D19** ✅ | **Monarchy's daily rate and its inflation source.** The spec gives `Cống nạp` as "an amount equal to the daily tax" but never states Monarchy's own rate, and never says whether its inflation signal is the same one Capitalism uses. | P9 | ✅ **DECIDED.** Monarchy runs **Capitalism's logic with one change**: the same concentration multiplier, but inflation read off the **server's total money** instead of the player-activity signal, at a **1.7 %** daily rate (`daily_tax_rate = 0.017`) rather than Capitalism's 5 %. Factor = `totalMoneyInCirculation / (activePlayers × money_supply_reference_per_player)`, clamped to `money_supply_inflation_max` (3.0). The reference is **per player** (default `1000.0`, i.e. `startingBalance`) rather than one absolute total, so the tax means the same thing on a 5-player and a 200-player server. `EconomyManager.totalMoneyInCirculation()` was added for it in Phase 2. The two parties' formulas must not be merged into one shared function: they differ in rate *and* in inflation source, and that difference is the point. |
 | **D20** ✅ | **Haste as a held effect or a conditional one?** The spec gives amplifier levels (Builder I, Miner II) and no duration. Read literally as a timed potion, a Builder would walk around permanently Hasted while breaking anything. | P4/P5 | ✅ **DECIDED: conditional.** Haste applies **only while the player is breaking a block in that job's trigger set**, re-applied each tick while true and **removed on the first tick that they are not**. It is not something a player can carry, so a Builder breaking a chest and a Miner tunnelling with Haste II are both impossible. `haste_duration_seconds` is therefore gone, replaced by `haste_refresh_seconds` (default `1`), which exists only to cover the gap between two mining packets so consecutive qualifying blocks do not flicker — not to let the effect linger. The Builder's trigger set is the union of `haste_trigger_blocks` and `building_blocks` (`BlockTags`), because the spec names both and one list must not be copied into the other. Implementation is a server-side intercept of the destroy-progress path (P4-T5/P5-T4), not an effect grant. |
+
+| **D21** 🟡 | **How does a tag reach the nametag above a head, given that the nametag is drawn client-side?** The only server-side lever is the scoreboard **team prefix** (hooks #16/#18e): `PlayerTeam#setPlayerPrefix(Component)` is broadcast to every client, and `PlayerTeam#getFormattedName` renders `prefix + name + suffix`. | P3 | 🟡 **OPEN — mechanics verified, the visual trade-off is yours.** Not negotiable, because the bytecode settles it: the prefix *is* the mechanism; no team colour is needed (leaving `TeamColor` empty keeps the prefix's own RGB, since `applyColor` is then a no-op); one team per (faction, profession) pair, ~30 of them, because a player can be in only one team; and `addPlayerToTeam` will silently move a player off a team another plugin assigned. The open part is visual: the icon alone is coloured, **or** you also set a team colour and the player's **name** is recoloured as well — and `TeamColor` is only 16 named values, so the name could not even match the config RGB. Options are laid out in the Phase 3 section. |
+| **D22** 🟡 | **How does a tag reach chat?** The sender-name slot is **impossible**: the client builds it from `PlayerInfo#getProfile()`, so no server value reaches `<Name>` (hook #18c). The only server-side lever is the message *content* (hook #18d). | P3 | 🟡 **OPEN — needs your call; the options are not equal in cost.** **A:** only EconomyCraft's own messages (system messages, command feedback, join/leave notices) carry the icon — free, no side effects, but player chat lines show no faction at all. **B:** rewrite each player's content via `PlayerChatMessage#withUnsignedContent`, prefixing the icon. It does render (`decoratedContent()` prefers `unsignedContent`) and the signature stays valid, but **every** chat line becomes `ChatTrustLevel.MODIFIED`, so the signed-chat badge the client shows players goes grey server-wide. **C:** skip chat entirely. |
 | **D18** ✅ | **Who reads the docs?** `wiki/` exists but `_Sidebar.md` is titled "EconomyCraft API v1" — every page is integrator documentation. `Tolls.md` is the only genuinely player-facing page and is **not linked from the sidebar at all** (pre-existing gap). | P11 | ✅ **DECIDED: Vietnamese player guides** under a new **Gameplay** section of the wiki sidebar — matching the spec's language and the likely reader. `Tolls.md` gets linked there too (fixing the pre-existing gap). Style is fixed by `Tolls.md`: second person, plain steps, no code, starting from the literal command or menu the player types. P11-T1/T2 already plan `Factions.md` / `Professions.md`; add a dedicated `Chon-tag.md` ("choosing a tag") page for D16/D17, since the 30 h lockout is the single most surprising rule in the feature and must be explained before first use, not discovered afterwards. |
 
 ---
@@ -203,10 +206,14 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
   | 12 | Soldier: `Andrenaline` | `MobEffectInstance`, `MobEffect`, `LivingEntity#addEffect` | ✅ |
   | 13 | Anarchism: movement speed | `Attributes.MOVEMENT_SPEED` | ✅ |
   | 14 | Anarchism: horse speed | **`net.minecraft.world.entity.animal.equine.AbstractHorse`** | ⚠️ **MOVED** — was `…entity.animal.horse.AbstractHorse` in ≤1.21.11 |
-  | 15 | Builder: reach | `ServerGamePacketListenerImpl#handleUseItemOn` | ❌ **NO DISTANCE CHECK EXISTS** — see D11 |
-  | 16 | Nametag above head | `Player#getDisplayName()` (overrides `Entity#getDisplayName()`), consumed by `EntityRenderer#getNameTag` | ✅ — also applies `PlayerTeam#formatNameForTeam` |
+  | 15 | Builder: reach | **`Player#blockInteractionRange()`** (`Attributes.BLOCK_INTERACTION_RANGE`) | ✅ **CORRECTED — the premise was wrong**, see D11: `handleUseItemOn` does not check distance itself, it calls `isWithinBlockInteractionRange`. A syncable attribute, so one `AttributeModifier` widens client picking *and* server validation |
+  | 16 | Nametag above head | **scoreboard team prefix**, `PlayerTeam#setPlayerPrefix(Component)`, consumed by `PlayerTeam#formatNameForTeam` | ⚠️ **CORRECTED — a mixin here cannot work.** `Player#getDisplayName()` looked right, but its consumer `EntityRenderer#getNameTag` is **client-only code** (`…client.renderer.entity`), so every client draws the nametag from *its own* entity. A server-side mixin would change only what the *server* renders. The one server-side lever is the team prefix, which the client receives as data — `ServerScoreboard#onTeamAdded`/`onTeamChanged` → `ClientboundSetPlayerTeamPacket.createAddOrModifyPacket` → `PlayerList#broadcastAll`. See D21 |
   | 17 | Tab-list row | **`ServerPlayer#getTabListDisplayName()`**, consumed by `PlayerTabOverlay` | ✅ — **returns `null`** in vanilla (a stub), no public setter. **A different method from #16** |
   | 18 | Push a display-name change | `ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME` | ✅ — no reconnect needed |
+  | 18b | Tab-list row detail | `PlayerTabOverlay#getNameForDisplay` | ✅ — if `getTabListDisplayName()` is **non-null** it is used and team formatting is **skipped**; only the `null` fallback applies `formatNameForTeam`. So our own tab row and a team prefix do **not** double up |
+  | 18c | Chat: sender name | `ChatType$Bound#decorate` → `ChatTypeDecoration` SENDER parameter | ❌ **NOT SERVER-SETTABLE.** The client passes `PlayerInfo#getProfile()`, so the name in `<Name>` is composed **client-side** from the account name. No server value reaches that slot — see D22 |
+  | 18d | Chat: message content | `PlayerChatMessage#withUnsignedContent(Component)`, which the client prefers: `decoratedContent()` is `requireNonNullElseGet(unsignedContent, signedBody)` | ⚠️ **Works, at a price**: the message keeps its signature but renders as `ChatTrustLevel.MODIFIED`, i.e. every player chat line loses its "signed" badge. See D22 |
+  | 18e | Scoreboard team API names (26.3) | `Scoreboard#addPlayerTeam(String)` is get-or-create **by team name**; `Scoreboard#getPlayerTeam(String)` looks up **by player name**; `addPlayerToTeam(String, PlayerTeam)` moves a player off their old team; `PlayerTeam#setPlayerPrefix` / `setSuffix` / `setColor(Optional<TeamColor>)` / `setCollisionRule` | ✅ — but the two lookup methods are one letter apart and mean opposite things. `TeamColor` is a **16-value enum**, yet a team with **no** colour set leaves the prefix's own RGB intact, because `getFormattedName` appends the prefix first and `applyColor` is then a no-op |
   | 19 | Player identity in 26.3 | `net.minecraft.server.players.NameAndId` | ⚠️ note — `PlayerInfo` is **client-only** (`client.multiplayer.PlayerInfo`); there is no server-side equivalent. ShopGuard's v4 lookups must key on this |
 
   **Load-bearing conclusions.** (a) Five of the nineteen targets **moved or were renamed** in 26.x — writing
@@ -448,6 +455,237 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
 ### Phase 3 — Tag & display pipeline (cross-cutting)
 *Goal: the shared rendering layer both professions and factions use. Implements the **CLOSED D1** decision.*
 
+- **P3-T1 — Display surfaces, as the bytecode actually allows.** ⚠️ **Replaces the original text of this task**,
+  which said "nametag via a `Player#getDisplayName()` mixin" and was wrong (D1, D21):
+  | Surface | Mechanism | Status |
+  |---|---|---|
+  | Tab list | `ServerPlayer#getTabListDisplayName()` mixin at `RETURN` (it is a `null`-returning stub) + push `ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME` so no reconnect is needed | ✅ **unblocked, build this** |
+  | Nametag | scoreboard **team prefix** `PlayerTeam#setPlayerPrefix` — the nametag is drawn client-side, so nothing server-side can reach it except synced scoreboard data | 🟡 **blocked on D21** (which prefix/colour trade-off) |
+  | Chat sender name | **impossible** — the client composes it from `PlayerInfo#getProfile()` | ❌ never build a mixin for this |
+  | Chat content | `PlayerChatMessage#withUnsignedContent` — renders, but makes every line `MODIFIED` | 🟡 **blocked on D22** |
+  Full coloured word tag (`[Đảng]` in the party's colour) in the **tab list**; short **icon** (`[☭]`) in the nametag
+  and chat, where long names would be unreadable. Still **no client mod, no custom packet, no registered menu**
+  (§1 rule 1). **One** mixin is needed (tab list only), not two.
+- **P3-T2 — `tag/TagStyle.java`** — builds `Component`s from a `TagSettings` + label: `shortTag()` (`[☭]`),
+  `fullTag()` (`[Đảng]`, coloured from config RGB), and `combined()`. All literals, no translation keys
+  (matches ShopGuard and EconomyCraft chat style). Colours come from `TagSettings.color` as a raw RGB int via
+  `Component#withColor(int)` — **not** a `ChatFormatting` name, because the sixteen vanilla ones cannot express
+  the yellow-green the icon set needs (see `TagSettings`' javadoc).
+- **P3-T3 — Tab list.** On join and on any selection change, set `getTabListDisplayName()` to `combined()`
+  (tag + existing name) and push the packet. Restore vanilla (`null`, so the client falls back to the profile
+  name) when all tags are removed. Must **not** affect UUID/name resolution (`ProfileCompat` path) or the
+  leaderboard, which use names independently. Note from hook #18b: because the display name is non-null, the
+  client **skips** team formatting for that row, so this composes cleanly with the D21 team prefix.
+- **P3-T4 — Chat icon.** 🟡 **Blocked on D22.** Whatever is chosen, the cost must be cheap: no per-message store
+  lookups on the hot path — cache the short tag per UUID and invalidate on selection change.
+- **P3-T5 — `/tag`.** `/tag` (self) opens the D16 selection menu; `/tag <player>` (others, permission-gated,
+  **read-only** — never offer to change another player's faction) prints their tags; plus the join message and
+  an optional scoreboard/sidebar line. All read from the cached style.
+- **P3-T6 — Colour/icon config — ✅ DONE in Phase 2.** `config/TagSettings.java` (abstract, `color` + `icon`)
+  with `FactionsSection`/`ProfessionsSection` records per faction and per profession, validated by
+  `ConfigClamp#color` (24-bit) and `ConfigClamp#icon` (single renderable glyph, with a fallback). `FactionId#settings()`
+  and `ProfessionId#settings()` are the only accessors. **Nothing to add** — but `BundledConfigTest` must keep
+  passing, so a new tag key has to land in the bundled `config.json` too.
+- **P3-T7 — Cache invalidation.** Style cache keyed by UUID, invalidated on selection change, job change, rust
+  transition, join and quit. Test: changing faction immediately changes the rendered component.
+- **P3-T8 — Tag selection menu (D16/D17).** The spec never specifies how a player chooses, so this is design,
+  not transcription. `/tag` opens a menu with two sections (Party, Profession); picking one shows a
+  `ConfirmUi` confirmation that **states the 30 h lockout in plain words before the player commits** (D17).
+  Options already on cooldown are rendered as visibly locked with their remaining time, not silently
+  rejected on click — the point of a 30 h commitment is that it is never a surprise. Reuse `MenuUiSupport` /
+  `ConfirmUi` / `ItemPickerUi`; do not invent a new menu style. `MenuUiSupport#openMenu` takes a `MenuProvider`,
+  so this stays inside §1 rule 1 (no registered `MenuType`). Wiring goes in here, but the underlying
+  `selectedAtEpochMillis` fields landed in Phase 2 (P2-T4/P2-T5).
+- **P3-T9 — Team-prefix sync (nametag), if D21 says yes.** One cached `PlayerTeam` per (faction, profession)
+  pair, named for what it is and kept short; `setPlayerPrefix(iconComponent)`, `setCollisionRule(ALWAYS)`
+  explicitly so the tag cannot accidentally make same-party players immune to damage, and no team colour set
+  unless D21 asks for a recoloured name. Cache the `PlayerTeam` handles by name — `Scoreboard#addPlayerTeam`
+  is get-or-create but **logs a warning** when the team already exists, so calling it repeatedly would spam the
+  log. On quit, remove the player from the team (`Scoreboard#removePlayerFromTeam(String)`).
+  ⚠️ Two methods one letter apart, opposite meanings: `addPlayerTeam(String)` = get-or-create **by team name**,
+  `getPlayerTeam(String)` = the team **a player** is on.
+
+**Exit criteria:** ✅ **MET** — baseline recorded (P0-T1); D2 closed (both loaders, NeoForge parity);
+P0-T3 table complete with **no unverified hooks on 26.3**; skeleton compiles on both loaders.
+
+**Phase 0 verification (re-run after the skeleton was added):**
+- `:common:compileJava :fabric:compileJava :neoforge:compileJava` → **EXIT 0** (the only note is the
+  pre-existing `IdentifierCompat` unchecked warning, which predates this phase).
+- `:common:test :fabric:build` → **BUILD SUCCESSFUL**, **61 tests** (40 + 21), unchanged from P0-T1.
+- `:neoforge:build` → **BUILD SUCCESSFUL**.
+- Both `economycraft-fabric-1.10.0_26.3.jar` and `economycraft-neoforge-1.10.0_26.3.jar` produced.
+- **No gameplay behaviour changed.** Phase 0 adds six empty packages plus `CHANGELOG.md`; the regression
+  floor of 61 tests is the proof.
+
+### ✅ Phase 0 closed — zero open items
+
+Both questions asked at the Phase 0 gate were answered:
+
+1. **D1 — decided, original spec.** Full coloured word tag (`[Communism]` in red) in the **tab list** via a
+   `ServerPlayer#getTabListDisplayName()` `RETURN` mixin pushed with
+   `ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME`; short **icon** (`[☭]`) in the **nametag**
+   (`Player#getDisplayName()` mixin) and in **chat**. Two mixins, still no client mod.
+2. **D15 — decided, 26.3 only.** All seven would-be compat forks deleted, and P0-T5's inference gap closed by
+   removal rather than by measuring four more Minecraft versions.
+
+**Phase 0 is ready to commit.** Working tree is exactly 8 paths — `CHANGELOG.md` (modified) plus `TODO.md` and
+the six `package-info.java` files (new). No build output is staged: `.gitignore` already covers `/build/`,
+`/.gradle/` and `logs/`, and `shopguard/libs/` is ignored by that repo. **No gameplay behaviour changed** —
+the 61-test floor is unchanged from P0-T1.
+
+---
+
+### Phase 1 — Tax policy centralisation (pure refactor, zero behaviour change) — ✅ DONE
+*Goal: one place that decides tax. Prerequisite for every faction tax, and the fix for R3/R4.*
+
+- **P1-T1 — Define the vocabulary.** ✅ `tax/TaxScope.java` enum — `TRANSACTION_SHOP`, `TRANSACTION_AUCTION_BUY`,
+  `TRANSACTION_ORDER`, `TOLL`, `AUCTION_LISTING` (the last two reserved for D8/future shop tax). Each value
+  carries its `MutationSource`, so a caller cannot pick the wrong attribution. `tax/TaxQuote.java` record:
+  `base`, `rate`, `amount`, `exempt`, `source`, with `total()` (payer hands over), `net()` (recipient
+  receives) and `taxed()`.
+- **P1-T2 — `tax/TaxPolicy.java`, the single resolver.** ✅ Production entry `resolve(scope, base)` reads
+  `EconomyConfig.get().taxRate`; the pure core is `quote(scope, base, rate)` so tests need no server and no
+  global mutation. Exact old formula: `amount = Math.round(base * rate)`. `tax()`, `net()`, `total()` and
+  `netRate()` are the derived helpers.
+- **P1-T3 — Replace all charge sites.** ✅ **19 sites, not 18** — the P1-T3 and P1-T4 lists in the original
+  plan overlapped (the `AuctionUi`/`OrdersUi` "display" lines *were* part of the 18). Corrected count below.
+  Every site now routes through `TaxPolicy`:
+  `TollManager:152`; `AuctionTrade:48`; `AuctionUi:69,130,165,313,463,561`;
+  `OrdersUi:84,121,154,270,437,537`; `OrderFulfillment:158,309,315`; `EconomyCommands:845,979`.
+  `OrderFulfillment:315` (`netRatePerUnit`) is a `double` sort/filter value, not a charge — it now calls
+  `TaxPolicy.netRate(...)`, which deliberately preserves the old `base * (1 - rate)` expression bit-for-bit
+  (routing it through `base - round(base*rate)` would have changed 6.3 to 6 for a base of 7).
+- **P1-T4 — Display/lore sites.** ✅ Folded into P1-T3; all six `AuctionUi` and six `OrdersUi` mirrors use the
+  same `TaxPolicy` call as the charge they describe, so UI text cannot drift from the amount charged (R4).
+- **P1-T5 — Parity tests.** ✅ `common/src/test/java/com/reazip/economycraft/tax/TaxPolicyTest.java`, **13 tests**:
+  parity across a spread of bases × rates, half-up rounding, zero, negative-base parity, `Long.MAX_VALUE`
+  saturation at rate 1.0, `net`/`total` consistency, `netRate` parity, per-scope source, config read via the
+  production path, and the structural source-scan.
+  ⚠️ *One deliberate deviation from the plan text:* it said "negative-**rejected**". Rejecting negatives would
+  be a **behaviour change**, which Phase 1 forbids, so the test asserts negatives still match the old formula
+  instead. Every real call site validates its base as positive first.
+- **P1-T6 — Parity proof.** ✅ Automated instead of manual: `parityProofForTollAuctionAndOrderFlows` reproduces
+  the toll, `/ah` and order-fulfilment arithmetic pre- and post-refactor and asserts identical amounts, and
+  the base×rate matrix asserts every combination against the literal `Math.round(base * rate)`. This is
+  stronger than a manual smoke run because it covers the whole input grid, not three sampled values.
+
+**Exit criteria:** ✅ **MET** — `TaxPolicyTest` green (13/13); the source-scan asserts no `taxRate` survives
+outside `tax/`, `EconomyConfig` and `AdminSettingsUi`; invariant 1 holds; amounts are provably identical.
+
+**Phase 1 result:** **74 tests** (was 61): `FiscalPolicyTest` 40, `TaxPolicyTest` 13, `TollUiTest` 21 —
+all green, both loaders. **Zero behaviour change:** the 61 pre-existing tests were untouched and still pass.
+
+---
+
+### Phase 2 — Data & save layer — ✅ DONE
+*Goal: the three clocks (R10), the two stores, and the config surface — all persisted and tested.*
+
+**Shipped:** P2-T1…P2-T9. New files: `config/ConfigClamp.java`, `config/TagSettings.java`,
+`config/FactionsSection.java`, `config/ProfessionsSection.java`, `faction/FactionId.java`,
+`faction/ContainerLockMode.java`, `faction/FactionStore.java`, `profession/ProfessionId.java`,
+`profession/ProfessionLevel.java`, `profession/ProfessionStore.java`, `profession/BlockTags.java`,
+`time/OnlineTimeService.java`, `time/CooldownService.java`, `time/WallClock.java`, `time/MutableClock.java`.
+`BundledConfigTest` walks `config.json` and `EconomyConfig` in both directions, because the failure mode of a
+forgotten default is invisible: Gson ignores an unmatched key and a missing key falls back to the field's Java
+initialiser, so the server starts happily with a key the admin cannot see.
+New data files: `online_time.json`, `cooldowns.json`, `parties.json`, `professions.json`.
+192 tests green on 26.3 (was 61).
+
+**Recorded assumptions** (each is a config key, so a designer can correct it without a code change):
+- **Double-value ores and the trigger sets** — the spec enumerates neither; both are config lists, shipped with
+  the spec's names and five reasonable ids. Builder reach was on this list until D11 was re-verified; it is
+  implemented as an attribute modifier in Phase 4 and is no longer an open item.
+
+**Closed by the designer after this phase was written**, and folded back into it:
+- **Monarchy's tax (D19)** — Capitalism's logic, but inflation from the server's total money, at 1.7 %.
+  `factions.monarchy.daily_tax_rate = 0.017`, plus `money_supply_reference_per_player` and
+  `money_supply_inflation_max`; `EconomyManager.totalMoneyInCirculation()` added.
+- **Haste (D20)** — conditional on breaking a trigger block, not a held effect. `haste_duration_seconds` became
+  `haste_refresh_seconds` (1 s), and the Builder's triggers union in `building_blocks`.
+- **Container lock (D10)** — server default `UNLOCKED`, player opt-in `PRIVATE`, Communism's buff grants
+  `PARTY_ONLY`. The global half is the new `container_lock` section; the per-container store is Phase 10.
+- **Double-value ores** — the spec says "each diamond/gold mined counts as 2 ores" without enumerating blocks.
+  Config ships diamond ore, deepslate diamond ore, gold ore, deepslate gold ore and nether gold ore.
+- **`use_global_inflation`** — D14's global half reads the existing read-only inflation signal rather than
+  introducing a fourth independent measure of "who is active".
+
+**Deliberate deviations from the task text above**, all behaviour-preserving:
+- `consumeIfThresholdMet` fires at `>=`, not `>`. A player sitting on exactly 45:00 has met a "45 minutes"
+  threshold, and the boundary is the case a player notices.
+- The 30-hour lockout is a timestamp on the selection (`selectedAtEpochMillis`), not a `CooldownService` entry.
+  The store needs that timestamp anyway — the `/tag` menu shows the remaining time — and the two locks are in
+  two files on purpose, so "one clock disturbing the other" cannot happen by construction.
+- `remainingCooldown(UUID)` takes the configured hours as a parameter rather than reading config inside, keeping
+  both stores free of hidden config reads and the values testable without a loaded config.
+- `everMastered` is one boolean plus `masteredProfessionLeftBehind` rather than a set of professions. For the
+  player's *current* profession the two models produce identical answers, including "mastered two jobs, neither
+  one is rusty" — see `ProfessionStoreTest`. `masteredAt` was dropped: nothing displays it yet.
+- Clamping is covered by a dedicated `TagConfigClampTest` rather than inside `EconomyConfigMergeTest`, which
+  stays about the merge mechanism.
+- The Merchant's two level-up counters are exposed as `recordVillagerTrade` / `recordAuctionPurchase`, and
+  `addProgress` refuses for `MERCHANT`, so half of its condition cannot be applied by accident (P5-T2).
+- **`/eco settings` does not expose the new keys yet.** They are file-only until an AdminSettingsUi phase adds
+  them; the README says so rather than claiming in-game editability.
+
+- **P2-T1 — `time/OnlineTimeService.java` — online-time accumulation (spec line 1 convention).**
+  Per player: accumulated online milliseconds + last-accounted tick. Tick-driven via the existing
+  `TickEvent.SERVER_POST`; **only counts while the player is online**, flushes on quit and on
+  `SERVER_STOPPING`. Exposes `progress(UUID)`, `consumeIfThresholdMet(UUID, long thresholdMs)` which
+  resets to zero **only when the threshold is exceeded** and returns whether it fired, and
+  `addOnlineTime` for migration. Persist to a **new** `data/online_time.json` — never `player_activity.json` (R8).
+  Thresholds (45 min) live in `EconomyConfig`.
+- **P2-T2 — `time/CooldownService.java` — wall-clock cooldowns.** Per player per key
+  (`Map<UUID, Map<String, Long>>` of expiry epoch millis). `ready(UUID, key)`, `start(UUID, key, durationMs)`,
+  `remaining(UUID, key)`. Used by Farmer's 4 min / Miner's 5 min / Soldier's 5 min, and by the 30 h
+  faction/job lockout. Persist to `data/cooldowns.json`. Durations in `EconomyConfig`.
+- **P2-T3 — `faction/FactionId.java` + `profession/ProfessionId.java` + their config-driven definitions.**
+  Factions: `COMMUNISM`, `CAPITALISM`, `MONARCHY`, `ANARCHISM` (`ANARCHISM` = default when unset).
+  Professions: `BUILDER`, `FARMER`, `MINER`, `MERCHANT`, `SOLDIER`. Each carries a colour and a short
+  icon glyph, both from config. Single source of truth for both colour and display name.
+- **P2-T4 — `faction/FactionStore.java`.** `Map<UUID, PartySelection>` where `PartySelection` = faction id +
+  **`selectedAtEpochMillis` for this tag type's own 30 h lockout** (D17: the Party clock is independent of the
+  Profession clock, and the *first* choice starts it). Expose `remainingCooldown(UUID)` for the menu to grey
+  out locked options (D16). `ANARCHISM` is the default for a UUID with no entry — but **do not write an entry
+  until the player actually chooses**, otherwise "never chose" and "chose Anarchism" become indistinguishable
+  and D17's timer cannot tell them apart. Save via `AsyncFileWriter` + `dirty` flag, matching
+  `NotificationManager`'s pattern. File `data/parties.json`.
+- **P2-T5 — `profession/ProfessionStore.java`.** `Map<UUID, ProfessionProgress>`:
+  `profession`, `level` (`APPRENTICE`/`MASTER`), `count` (progress counter), `everMastered` (set of
+  professions), `masteredAt`, **`selectedAtEpochMillis`** (the *Profession* half of D17 — changing job must
+  not disturb the Party clock), `rustStartedAtOnlineMs` (D9), and
+  `Map<String, Integer> villagerTradeTally` (keyed by a stable villager identity — see P7-T2).
+  `remainingCooldown(UUID)` here too. File `data/professions.json`.
+- **P2-T6 — Vendor registry for "items/build blocks".** `profession/BlockTags.java` resolving the
+  Builder building-block list (spec line 43: the `#minecraft:logs` … `minecraft:quartz_bricks` set) via
+  `TagKey<Block>` where the spec gives a tag, and a literal set where it gives an id. Must be **data-driven
+  from config**, so admins can extend it, and must resolve tag keys lazily (tags are not bound at
+  construction time on 26.3). Also the Miner's ore set (all ores, +diamond/gold counted double) and the
+  Haste trigger sets (Builder: stone/cobblestone/dirt/building blocks; Miner: stone/deepslate/tuff/netherack/ores).
+- **P2-T7 — Config migration tests FIRST.** `common/src/test/.../config/EconomyConfigMergeTest.java`
+  covering: missing file, new nested key added to an existing user file, key added inside an existing
+  nested object, out-of-range clamping of each new numeric key with a warning. This directly de-risks R7
+  and must land *before* the first nested config key.
+- **P2-T8 — Wire persistence.** DONE. The four files are owned by `EconomyManager` (constructed from
+  `EconomyPaths.dataDir(server)`, flushed in `manager.save()`, which `SERVER_STOPPING` already calls before
+  `AsyncFileWriter.flush()`). `tickTagServices()` runs from `SERVER_POST` and advances online time plus any
+  rust timer. **Invariant 6 confirmed:** the four files are deliberately absent from
+  `EconomyPaths.DATA_FILES`/`SETTINGS_FILES`, because those lists drive `/eco import` — importing is meant to
+  move a world economy (balances, prices), and copying who is in which party would hand every player a fresh
+  party and profession on migration, while *deleting* the shared copy would destroy the source server's tag
+  state.
+- **P2-T9 — New config keys.** Every rate, threshold, duration, count, colour and icon from the spec, as
+  clamped `EconomyConfig` fields with the bundled-default merge and matching entries in
+  `common/src/main/resources/assets/economycraft/config.json`. Group under `factions` / `professions`
+  sections. Document each in the README table.
+
+**Exit criteria:** three stores round-trip across a simulated restart (extend the `TollUiTest` restart
+pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing save file modified.
+
+---
+
+### Phase 3 — Tag & display pipeline (cross-cutting)
+*Goal: the shared rendering layer both professions and factions use. Implements the **CLOSED D1** decision.*
+
 - **P3-T1 — Implement the CLOSED D1 (per-surface differentiation IS possible).** Full coloured word tag
   (`[Communism]` in red) in the **tab list** via a `ServerPlayer#getTabListDisplayName()` mixin at `RETURN`,
   pushed with `ClientboundPlayerInfoUpdatePacket$Action.UPDATE_DISPLAY_NAME`. Short **icon** (`[☭]`) in the
@@ -479,8 +717,14 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
 - **P3-T7 — Cache invalidation.** Style cache keyed by UUID, invalidated on selection change, job change,
   rust transition, join and quit. Test: changing faction immediately changes the rendered component.
 
-**Exit criteria:** selecting a tag changes the nametag and tab row for a vanilla client without any client
-mod; `/tag` shows the full coloured tag; no NPE or stale cache across join/quit/selection change.
+**Exit criteria:** selecting a tag changes the tab row for a vanilla client without any client mod, and the
+nametag wherever D21 allows it; `/tag` shows the full coloured tag; no NPE or stale cache across
+join/quit/selection change.
+
+⚠️ **If you are reading this in a new session:** D21 and D22 are open questions for the designer, not gaps in
+the plan. Do not guess them. Everything else in this phase (P3-T2, T3, T5, T6, T7, T8) is unblocked — start at
+P3-T2. And do not re-litigate D11 or D21 by re-reading the surface names: both were already disproved by
+`javap`, and the findings are recorded in the P0-T3 table above (rows 15, 16, 18b-e).
 
 ---
 
