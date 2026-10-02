@@ -839,16 +839,14 @@ no framework changes.
 ---
 
 ### Phase 7 — Merchants
-*This is the largest job: it needs an economy flow that does not exist yet.*
-
 - **P7-T1 — Level-up tracking, part A (spec 58).** ✅ **DONE** — 50 villager trades tracked, excluding any trades involving `minecraft:stick` in costs or result (`MerchantEffects.isStickTrade`), capped at 20 per villager in `ProfessionStore.recordVillagerTrade`.
 - **P7-T2 — Stable villager identity.** ✅ **DONE** — Keyed on persistent villager UUID (`AbstractVillager.getUUID().toString()`) stored in per-player map in `ProfessionStore`. Survives restarts, moves, and duplicate coords.
 - **P7-T3 — Level-up tracking, part B (spec 58).** ✅ **DONE** — 5 purchases from `/ah`, hooked into `AuctionTrade.purchase` on successful payment. D6 resolved to strict AND semantics (`totalVillagerTrades >= 50 && auctionPurchases >= 5`).
-- **P7-T4 — `Lưỡi không xương` discount (spec 59).** ✅ **DONE** — Pre-tax discount (5% Apprentice, 15% Master, halved if rusty) routed centrally through `TaxPolicy` and `TaxQuote` across `/ah` (`AuctionTrade`), `/pay` (`TRANSACTION_PAY`), orders (`OrderFulfillment`), and villager trades via `MerchantMenu` `specialPriceDiff`.
-- **P7-T5 — Villager trade economy (new system).** ✅ **DONE** — Implemented `VillagerTradeEconomy` and `VillagerShopUi` with `/eco villager` (and standalone `/villager`). Direct trading with server currency with `TaxPolicy` routing, `PriceRegistry` pricing with fallback emerald values, and `villager_emerald_buy_price`/`villager_emerald_sell_price` configs.
-- **P7-T6 — Merchants tests.** ✅ **DONE** — 10 unit tests in `MerchantEffectsTest` covering stick exclusion, 20-cap per villager, AH purchase counter, D6 AND semantics, rust guards, pre-tax discounts, offer price diffs, and economy pricing.
+- **P7-T4 — `Lưỡi không xương` discount (spec 59).** ✅ **DONE** — Discount applies exclusively when right-clicking a villager with a job (just like Hero of the Village effect) via `specialPriceDiff` in `MerchantMenu`. 5% (Apprentice) / 15% (Master), halved if rusty, min 1 item discount for trades costing 2+, cost clamped >= 1. Entirely removed from player-to-player trading (/pay, /ah, orders).
+- **P7-T5 — Villager trade integration.** ✅ **DONE** — Normal vanilla villager trading right-click interaction with cheaper prices in the native trading GUI. Removed remote `/eco villager` command to preserve vanilla physical interaction gameplay.
+- **P7-T6 — Merchants tests.** ✅ **DONE** — 8 unit tests in `MerchantEffectsTest` covering stick exclusion, 20-cap per villager, AH purchase counter, D6 AND semantics, rust guards, offer discount calculation with Hero of the Village semantics, and specialPriceDiff application/reset.
 
-**Exit criteria:** ✅ **MET** — both progress halves count correctly; D6 AND semantics verified; discount applies via central TaxPolicy pre-tax architecture; 10 new tests pass; both Fabric and NeoForge compile cleanly.
+**Exit criteria:** ✅ **MET** — both progress halves count correctly; D6 AND semantics verified; discount applies exclusively to villagers with jobs like Hero of the Village; 8 new tests pass; both Fabric and NeoForge compile cleanly.
 
 ---
 

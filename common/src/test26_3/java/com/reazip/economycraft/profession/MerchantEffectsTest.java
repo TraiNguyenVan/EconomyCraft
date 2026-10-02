@@ -1,11 +1,9 @@
 package com.reazip.economycraft.profession;
 
-import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxQuote;
 import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.time.WallClock;
-import com.reazip.economycraft.villager.VillagerTradeEconomy;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
@@ -31,8 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - 20-trades-per-villager cap (spec line 58)
  * - Auction purchase progression (spec line 58)
  * - D6 AND level-up semantics (spec line 58, D6)
- * - Lưỡi không xương discount calculations and TaxPolicy integration (spec line 59)
- * - Villager trade economy base pricing and trade logic (P7-T5)
+ * - Lưỡi không xương discount calculations (Hero of the Village style, villager only)
  */
 class MerchantEffectsTest {
 
@@ -131,69 +128,64 @@ class MerchantEffectsTest {
         ProfessionStore store = store(temp);
         store.select(ALICE, ProfessionId.MERCHANT);
 
+        // 1. Give 50 villager trades across 3 villagers (20 + 20 + 10)
         String v1 = UUID.randomUUID().toString();
         String v2 = UUID.randomUUID().toString();
         String v3 = UUID.randomUUID().toString();
 
-        // Complete 50 villager trades across 3 villagers (20 + 20 + 10)
         for (int i = 0; i < 20; i++) store.recordVillagerTrade(ALICE, v1);
         for (int i = 0; i < 20; i++) store.recordVillagerTrade(ALICE, v2);
         for (int i = 0; i < 10; i++) store.recordVillagerTrade(ALICE, v3);
 
         assertEquals(50L, store.totalVillagerTrades(ALICE));
-        assertEquals(0L, store.progressOf(ALICE).progress);
-        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE),
-                "50 trades alone must not promote to Master (D6 AND requirement)");
+        // Still Apprentice because auctionPurchases == 0
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE), "50 trades alone must not promote without AH purchases");
 
-        // 4 auction purchases: still not Master
-        for (int i = 0; i < 4; i++) store.recordAuctionPurchase(ALICE);
-        assertEquals(4L, store.progressOf(ALICE).progress);
-        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE),
-                "50 trades + 4 auction purchases must still be Apprentice");
+        // 2. Perform 4 auction purchases -> still Apprentice
+        for (int i = 0; i < 4; i++) {
+            store.recordAuctionPurchase(ALICE);
+            assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE));
+        }
 
-        // 5th auction purchase: both conditions met -> Promoted to Master!
-        store.recordAuctionPurchase(ALICE);
-        assertEquals(5L, store.progressOf(ALICE).progress);
-        assertEquals(ProfessionLevel.MASTER, store.levelOf(ALICE),
-                "Meeting both 50 trades and 5 auction purchases must promote to Master");
-        assertTrue(store.progressOf(ALICE).everMastered);
+        // 3. 5th auction purchase fulfills the AND condition -> promoted to MASTER!
+        boolean promoted = store.recordAuctionPurchase(ALICE);
+        assertTrue(promoted, "5th AH purchase with 50 trades should promote to Master");
+        assertEquals(ProfessionLevel.MASTER, store.levelOf(ALICE));
     }
 
     @Test
     void auctionPurchasesFirstThenTradesPromotesOn50thTrade(@TempDir Path temp) {
         ProfessionStore store = store(temp);
-        store.select(ALICE, ProfessionId.MERCHANT);
+        store.select(BOB, ProfessionId.MERCHANT);
 
-        // 5 auction purchases completed first
-        for (int i = 0; i < 5; i++) store.recordAuctionPurchase(ALICE);
-        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE),
-                "5 auction purchases alone must not promote");
+        // 5 AH purchases first
+        for (int i = 0; i < 5; i++) {
+            store.recordAuctionPurchase(BOB);
+        }
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(BOB));
 
+        // Now 49 villager trades
         String v1 = UUID.randomUUID().toString();
         String v2 = UUID.randomUUID().toString();
         String v3 = UUID.randomUUID().toString();
 
-        for (int i = 0; i < 20; i++) store.recordVillagerTrade(ALICE, v1);
-        for (int i = 0; i < 20; i++) store.recordVillagerTrade(ALICE, v2);
-        for (int i = 0; i < 9; i++) store.recordVillagerTrade(ALICE, v3);
+        for (int i = 0; i < 20; i++) store.recordVillagerTrade(BOB, v1);
+        for (int i = 0; i < 20; i++) store.recordVillagerTrade(BOB, v2);
+        for (int i = 0; i < 9; i++) store.recordVillagerTrade(BOB, v3);
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(BOB));
 
-        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE),
-                "49 trades + 5 purchases is still Apprentice");
-
-        // 50th trade promotes to Master
-        store.recordVillagerTrade(ALICE, v3);
-        assertEquals(ProfessionLevel.MASTER, store.levelOf(ALICE),
-                "50th trade with 5 purchases must promote to Master");
+        // 50th trade promotes to MASTER
+        boolean promoted = store.recordVillagerTrade(BOB, v3);
+        assertTrue(promoted, "50th villager trade with 5 AH purchases should promote to Master");
+        assertEquals(ProfessionLevel.MASTER, store.levelOf(BOB));
     }
-
-    // --- Rusted State (D13) ---
 
     @Test
     void rustedMerchantCannotEarnProgress(@TempDir Path temp) {
         ProfessionStore store = store(temp);
         store.select(ALICE, ProfessionId.MERCHANT);
 
-        // Manually set Master state and switch away to create rust
+        // Master ALICE
         String v1 = UUID.randomUUID().toString();
         String v2 = UUID.randomUUID().toString();
         String v3 = UUID.randomUUID().toString();
@@ -203,42 +195,54 @@ class MerchantEffectsTest {
         for (int i = 0; i < 5; i++) store.recordAuctionPurchase(ALICE);
         assertEquals(ProfessionLevel.MASTER, store.levelOf(ALICE));
 
-        // Switch to Farmer then back to Merchant -> RUSTED
-        store.select(ALICE, ProfessionId.FARMER);
+        // Switch job and switch back -> RUSTED
+        store.select(ALICE, ProfessionId.BUILDER);
         store.select(ALICE, ProfessionId.MERCHANT);
-
         assertEquals(ProfessionLevel.RUSTED, store.levelOf(ALICE));
-        assertTrue(store.progressOf(ALICE).isRusted());
 
-        // Rusted merchant cannot record trades or purchases
-        assertFalse(store.recordVillagerTrade(ALICE, v1), "Rusted merchant cannot record trades");
-        assertFalse(store.recordAuctionPurchase(ALICE), "Rusted merchant cannot record auction purchases");
+        // Cannot earn progress while rusted
+        assertFalse(store.recordVillagerTrade(ALICE, UUID.randomUUID().toString()));
+        assertFalse(store.recordAuctionPurchase(ALICE));
     }
 
-    // --- P7-T4: Lưỡi không xương Discount Calculations ---
+    // --- Villager Offer Discount (Hero of the Village Style) ---
 
     @Test
-    void taxPolicyAppliesPreTaxDiscountCorrectly() {
-        // Base 100, 10% tax rate, 5% Apprentice discount
-        TaxQuote quoteApprentice = TaxPolicy.quote(TaxScope.TRANSACTION_AUCTION_BUY, 100L, 0.10D, 0.05D);
-        assertEquals(5L, quoteApprentice.discount(), "5% discount on 100 is 5");
-        assertEquals(95L, quoteApprentice.discountedBase(), "Discounted base is 95");
-        assertEquals(10L, quoteApprentice.amount(), "Tax on 95 at 10% is 10 (round(9.5))");
-        assertEquals(105L, quoteApprentice.total(), "Total is 95 + 10 = 105");
+    void calculateOfferDiscountHeroOfTheVillageSemantics() {
+        double apprenticeRate = 0.05D;
+        double masterRate = 0.15D;
+        double masterRustyRate = 0.075D;
 
-        // Base 100, 10% tax rate, 15% Master discount
-        TaxQuote quoteMaster = TaxPolicy.quote(TaxScope.TRANSACTION_AUCTION_BUY, 100L, 0.10D, 0.15D);
-        assertEquals(15L, quoteMaster.discount(), "15% discount on 100 is 15");
-        assertEquals(85L, quoteMaster.discountedBase(), "Discounted base is 85");
-        assertEquals(9L, quoteMaster.amount(), "Tax on 85 at 10% is 9 (round(8.5))");
-        assertEquals(94L, quoteMaster.total(), "Total is 85 + 9 = 94");
+        // 1-item trades never drop below 1
+        assertEquals(0, MerchantEffects.calculateOfferDiscount(1, apprenticeRate));
+        assertEquals(0, MerchantEffects.calculateOfferDiscount(1, masterRate));
 
-        // Without discount: Total is 100 + 10 = 110
-        TaxQuote noDiscount = TaxPolicy.quote(TaxScope.TRANSACTION_AUCTION_BUY, 100L, 0.10D, 0.0D);
-        assertEquals(0L, noDiscount.discount());
-        assertEquals(100L, noDiscount.discountedBase());
-        assertEquals(10L, noDiscount.amount());
-        assertEquals(110L, noDiscount.total());
+        // 2-item trades get 1 discount (Hero of the Village minimum discount)
+        assertEquals(1, MerchantEffects.calculateOfferDiscount(2, apprenticeRate));
+        assertEquals(1, MerchantEffects.calculateOfferDiscount(2, masterRate));
+
+        // 5-item trades: 5 * 0.05 = 0.25 -> round 0, but min 1 for cost >= 2 -> 1
+        assertEquals(1, MerchantEffects.calculateOfferDiscount(5, apprenticeRate));
+        // 5 * 0.15 = 0.75 -> round 1
+        assertEquals(1, MerchantEffects.calculateOfferDiscount(5, masterRate));
+
+        // 24-item trades
+        // 24 * 0.05 = 1.2 -> 1
+        assertEquals(1, MerchantEffects.calculateOfferDiscount(24, apprenticeRate));
+        // 24 * 0.15 = 3.6 -> 4
+        assertEquals(4, MerchantEffects.calculateOfferDiscount(24, masterRate));
+
+        // 32-item trades: 32 * 0.15 = 4.8 -> 5
+        assertEquals(5, MerchantEffects.calculateOfferDiscount(32, masterRate));
+
+        // 64-item trades: 64 * 0.15 = 9.6 -> 10
+        assertEquals(10, MerchantEffects.calculateOfferDiscount(64, masterRate));
+
+        // Rusty Master (7.5%): 24 * 0.075 = 1.8 -> 2
+        assertEquals(2, MerchantEffects.calculateOfferDiscount(24, masterRustyRate));
+
+        // Non-merchants (0.0%): no discount
+        assertEquals(0, MerchantEffects.calculateOfferDiscount(64, 0.0D));
     }
 
     @Test
@@ -252,8 +256,9 @@ class MerchantEffectsTest {
         assertEquals(0, offer.getSpecialPriceDiff());
         assertEquals(20, offer.getCostA().getCount());
 
-        // Applying a 15% discount on 20 emeralds = 3 emeralds discount
-        int discount = (int) Math.round(20 * 0.15D);
+        // Applying a 15% discount on 20 emeralds: 20 * 0.15 = 3 emeralds discount
+        int discount = MerchantEffects.calculateOfferDiscount(20, 0.15D);
+        assertEquals(3, discount);
         offer.addToSpecialPriceDiff(-discount);
 
         assertEquals(-3, offer.getSpecialPriceDiff());
@@ -263,39 +268,5 @@ class MerchantEffectsTest {
         MerchantEffects.resetVillagerTradeDiscount(offers);
         assertEquals(0, offer.getSpecialPriceDiff());
         assertEquals(20, offer.getCostA().getCount(), "Reset restores original cost to 20");
-    }
-
-    // --- P7-T5: Villager Trade Economy Pricing & Direction ---
-
-    @Test
-    void villagerTradeEconomyDirectionClassification() {
-        // Emerald in cost -> buying from villager
-        MerchantOffer buyOffer = new MerchantOffer(
-                new ItemCost(Items.EMERALD, 5), Optional.empty(), new ItemStack(Items.IRON_SWORD, 1), 0, 10, 2, 0.05F
-        );
-        assertTrue(VillagerTradeEconomy.isBuyFromVillager(buyOffer));
-
-        // Emerald in result -> selling to villager
-        MerchantOffer sellOffer = new MerchantOffer(
-                new ItemCost(Items.WHEAT, 32), Optional.empty(), new ItemStack(Items.EMERALD, 1), 0, 10, 2, 0.05F
-        );
-        assertFalse(VillagerTradeEconomy.isBuyFromVillager(sellOffer));
-    }
-
-    @Test
-    void villagerTradeEconomyBasePriceResolution() {
-        // Buying with 5 emeralds cost -> 5 * 100 = 500
-        MerchantOffer buyOffer = new MerchantOffer(
-                new ItemCost(Items.EMERALD, 5), Optional.empty(), new ItemStack(Items.IRON_SWORD, 1), 0, 10, 2, 0.05F
-        );
-        long buyPrice = VillagerTradeEconomy.resolveBasePrice(null, buyOffer, true);
-        assertEquals(500L, buyPrice);
-
-        // Selling for 2 emeralds reward -> 2 * 30 = 60
-        MerchantOffer sellOffer = new MerchantOffer(
-                new ItemCost(Items.CARROT, 24), Optional.empty(), new ItemStack(Items.EMERALD, 2), 0, 10, 2, 0.05F
-        );
-        long sellPrice = VillagerTradeEconomy.resolveBasePrice(null, sellOffer, false);
-        assertEquals(60L, sellPrice);
     }
 }

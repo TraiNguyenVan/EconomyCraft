@@ -292,14 +292,6 @@ public class ProfessionsSection {
         @SerializedName("cost_factor_master")
         public double costFactorMaster = 0.15;
 
-        /** Base price per emerald when buying from a villager with money. */
-        @SerializedName("villager_emerald_buy_price")
-        public long villagerEmeraldBuyPrice = 100L;
-
-        /** Base price per emerald when selling to a villager for money. */
-        @SerializedName("villager_emerald_sell_price")
-        public long villagerEmeraldSellPrice = 30L;
-
         public void clamp() {
             clampTag("professions.merchant");
             villagerTradeCount = ConfigClamp.nonNegative("professions.merchant.villager_trade_count", villagerTradeCount);
@@ -307,8 +299,6 @@ public class ProfessionsSection {
             auctionPurchaseCount = ConfigClamp.nonNegative("professions.merchant.auction_purchase_count", auctionPurchaseCount);
             costFactorApprentice = ConfigClamp.percentage("professions.merchant.cost_factor_apprentice", costFactorApprentice);
             costFactorMaster = ConfigClamp.percentage("professions.merchant.cost_factor_master", costFactorMaster);
-            villagerEmeraldBuyPrice = ConfigClamp.nonNegative("professions.merchant.villager_emerald_buy_price", (int) Math.min(Integer.MAX_VALUE, villagerEmeraldBuyPrice));
-            villagerEmeraldSellPrice = ConfigClamp.nonNegative("professions.merchant.villager_emerald_sell_price", (int) Math.min(Integer.MAX_VALUE, villagerEmeraldSellPrice));
         }
 
         @Override

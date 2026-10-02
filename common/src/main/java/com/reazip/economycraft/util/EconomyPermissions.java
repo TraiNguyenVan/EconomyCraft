@@ -25,7 +25,7 @@ public final class EconomyPermissions {
                 "economycraft.command.shop", "economycraft.command.auction", "economycraft.command.sell",
                 "economycraft.command.orders", "economycraft.command.deliveries", "economycraft.command.daily",
                 "economycraft.command.transactions", "economycraft.command.worth", "economycraft.command.toll",
-                "economycraft.command.tag", "economycraft.command.villager"
+                "economycraft.command.tag"
         };
         public static final String COMMAND_MENU = COMMAND_ALL[0];
         public static final String COMMAND_BALANCE = COMMAND_ALL[1];
@@ -40,7 +40,6 @@ public final class EconomyPermissions {
         public static final String COMMAND_WORTH = COMMAND_ALL[10];
         public static final String COMMAND_TOLL = COMMAND_ALL[11];
         public static final String COMMAND_TAG = COMMAND_ALL[12];
-        public static final String COMMAND_VILLAGER = COMMAND_ALL[13];
     }
 
     public interface Backend {

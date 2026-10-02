@@ -74,8 +74,7 @@ infrastructure and shipped with none. The baseline is now 270 passing tests on 2
 
 ### Added (Phase 7 — Merchant)
 - **Merchant progression** — 50 villager trades (excluding trades with sticks in cost or result) capped at 20 trades per villager (keyed by persistent UUID) AND 5 auction house (`/ah`) purchases.
-- **Merchant `Lưỡi không xương`** — 5% (Apprentice) / 15% (Master) pre-tax discount applied centrally through `TaxPolicy` to auction purchases, player transfers (`/pay`), player orders, and villager trades via `specialPriceDiff`. Halved when rusty.
-- **Villager trade economy** — custom villager trading interface (`/eco villager` or `/villager`) allowing direct purchase and sale of goods for server currency, integrated with `TaxPolicy` and `PriceRegistry` pricing with emerald fallbacks.
+- **Merchant `Lưỡi không xương`** — 5% (Apprentice) / 15% (Master) discount applied directly to villager trading offers (just like Hero of the Village effect) when right-clicking a villager with a job. Minimum 1 item discount on trades of 2+ items; cost never drops below 1. Discount applies exclusively to villager trades (removed from player-to-player transfers, auction house and orders).
 
 ### Added (Phase 8 — Soldier)
 - **Soldier progression** — 100 mob kills by the player (excluding players and passive mobs) tracked via `LivingEntity.die` and `ProfessionHooks.onMobKilled`.

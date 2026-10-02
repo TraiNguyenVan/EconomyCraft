@@ -90,7 +90,6 @@ public final class EconomyCommands {
                 buildTransactions().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_TRANSACTIONS));
         registerStandalone(dispatcher, buildToll("toll"), Nodes.COMMAND_TOLL);
         registerStandalone(dispatcher, buildTag(), Nodes.COMMAND_TAG);
-        registerStandalone(dispatcher, buildVillager(), Nodes.COMMAND_VILLAGER);
         dispatcher.register(withCommandPermission(
                 buildJob().requires(s -> EconomyConfig.get().standaloneCommands),
                 Nodes.COMMAND_TAG)); // Reuse tag permission or add new? Let us check - add new later; for now reuse
@@ -171,7 +170,6 @@ public final class EconomyCommands {
         root.then(withCommandPermission(buildDaily(), Nodes.COMMAND_DAILY));
         root.then(withCommandPermission(buildTransactions(), Nodes.COMMAND_TRANSACTIONS));
         root.then(withCommandPermission(buildToll("toll"), Nodes.COMMAND_TOLL));
-        root.then(withCommandPermission(buildVillager(), Nodes.COMMAND_VILLAGER));
         root.then(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s -> EconomyConfig.get().worthEnabled), Nodes.COMMAND_WORTH));
 
@@ -481,7 +479,7 @@ public final class EconomyCommands {
             return 0;
         }
 
-        TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_PAY, amount, from.getUUID(), manager);
+        TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_PAY, amount);
         long debit = quote.total();
         String detail = "Payment to " + displayName;
         var payment = manager.transferMoney(from.getUUID(), toId, debit, amount, EconomySources.PLAYER_PAYMENT, detail);
@@ -490,15 +488,8 @@ public final class EconomyCommands {
             ServerPlayer executor = tryGetPlayer(source);
             if (executor != null) EconomySounds.success(executor);
 
-            Component msg;
-            if (quote.discounted()) {
-                msg = Component.literal("Paid " + EconomyCraft.formatMoney(amount) + " to " + displayName
-                                + " (" + EconomyCraft.formatMoney(debit) + " charged, " + EconomyCraft.formatMoney(quote.discount()) + " merchant discount)")
-                        .withStyle(ChatFormatting.GREEN);
-            } else {
-                msg = Component.literal("Paid " + EconomyCraft.formatMoney(amount) + " to " + displayName)
-                        .withStyle(ChatFormatting.GREEN);
-            }
+            Component msg = Component.literal("Paid " + EconomyCraft.formatMoney(amount) + " to " + displayName)
+                    .withStyle(ChatFormatting.GREEN);
 
             reply(source, executor, msg, false);
 
@@ -1141,24 +1132,6 @@ public final class EconomyCommands {
         }
         return root;
     }
-
-    private static LiteralArgumentBuilder<CommandSourceStack> buildVillager() {
-        return literal("villager")
-                .executes(ctx -> {
-                    ServerPlayer player = ctx.getSource().getPlayerOrException();
-                    EconomyManager eco = EconomyCraft.getManager(ctx.getSource().getServer());
-                    net.minecraft.world.entity.npc.villager.AbstractVillager villager =
-                            com.reazip.economycraft.villager.VillagerTradeEconomy.findTargetVillager(player);
-                    if (villager == null) {
-                        player.sendSystemMessage(Component.literal("No villager nearby! Look at a villager to trade with money.")
-                                .withStyle(ChatFormatting.RED));
-                        return 0;
-                    }
-                    com.reazip.economycraft.villager.VillagerShopUi.open(player, villager, eco);
-                    return 1;
-                });
-    }
-
 
     @Nullable
     private static ServerPlayer tryGetPlayer(CommandSourceStack source) {

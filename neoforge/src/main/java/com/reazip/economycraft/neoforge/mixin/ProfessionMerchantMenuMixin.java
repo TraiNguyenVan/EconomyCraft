@@ -20,7 +20,7 @@ abstract class ProfessionMerchantMenuMixin {
     @Inject(method = "<init>(ILnet/minecraft/world/entity/player/Inventory;Lnet/minecraft/world/item/trading/Merchant;)V", at = @At("RETURN"))
     private void economycraft$onOpen(int id, Inventory inventory, Merchant trader, CallbackInfo ci) {
         if (inventory.player instanceof ServerPlayer player) {
-            MerchantEffects.applyVillagerTradeDiscount(player, trader.getOffers());
+            MerchantEffects.applyVillagerTradeDiscount(player, trader);
         }
     }
 

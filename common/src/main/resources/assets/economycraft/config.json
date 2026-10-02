@@ -186,9 +186,7 @@
       "max_trades_per_villager": 20,
       "auction_purchase_count": 5,
       "cost_factor_apprentice": 0.05,
-      "cost_factor_master": 0.15,
-      "villager_emerald_buy_price": 100,
-      "villager_emerald_sell_price": 30
+      "cost_factor_master": 0.15
     },
     "soldier": {
       "color": 16733525,

@@ -69,24 +69,15 @@ public final class AuctionUi {
     }
 
     private static boolean canAfford(ServerPlayer player, long price) {
+        long total = TaxPolicy.total(TaxScope.TRANSACTION_AUCTION_BUY, price);
         EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
-        long total = TaxPolicy.total(TaxScope.TRANSACTION_AUCTION_BUY, price, player.getUUID(), eco);
         return eco.getBalance(player.getUUID(), true) >= total;
     }
 
     private static Component createPriceLore(long price, long tax) {
-        return createPriceLore(price, tax, 0L);
-    }
-
-    private static Component createPriceLore(long price, long tax, long discount) {
-        StringBuilder value = new StringBuilder(EconomyCraft.formatMoney(price));
-        if (discount > 0) {
-            value.append(" (-").append(EconomyCraft.formatMoney(discount)).append(" discount)");
-        }
-        if (tax > 0) {
-            value.append(" (+").append(EconomyCraft.formatMoney(tax)).append(" tax)");
-        }
-        return MenuUiSupport.labeledValue("Price", value.toString(), MenuUiSupport.LABEL_PRIMARY_COLOR);
+        String value = EconomyCraft.formatMoney(price) +
+                (tax > 0 ? " (+" + EconomyCraft.formatMoney(tax) + " tax)" : "");
+        return MenuUiSupport.labeledValue("Price", value, MenuUiSupport.LABEL_PRIMARY_COLOR);
     }
 
     private static void startListing(ServerPlayer player, AuctionManager auctions) {
@@ -321,10 +312,9 @@ public final class AuctionUi {
                 String sellerName = MenuUiSupport.resolvePlayerName(viewer.level().getServer(), l.seller);
                 boolean mine = viewer.getUUID().equals(l.seller);
 
-                EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
-                TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, l.price, viewer.getUUID(), eco);
+                TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, l.price);
                 List<Component> lore = new ArrayList<>();
-                lore.add(createPriceLore(l.price, quote.amount(), quote.discount()));
+                lore.add(createPriceLore(l.price, quote.amount()));
                 lore.add(MenuUiSupport.labeledValue("Seller", mine ? "you" : sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(l.expiresAt)));
                 lore.add(MenuUiSupport.labeledValue("Click", mine ? "Remove listing" : "Buy it", MenuUiSupport.LABEL_SECONDARY_COLOR));
@@ -472,10 +462,9 @@ public final class AuctionUi {
             String sellerName = MenuUiSupport.resolvePlayerName(viewer.level().getServer(), listing.seller);
 
             ItemStack item = listing.item.copy();
-            EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
-            TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, listing.price, viewer.getUUID(), eco);
+            TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, listing.price);
             List<Component> lore = new ArrayList<>();
-            lore.add(createPriceLore(listing.price, quote.amount(), quote.discount()));
+            lore.add(createPriceLore(listing.price, quote.amount()));
             lore.add(MenuUiSupport.labeledValue("Seller", sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
             lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)));
             if (MenuUiSupport.hasContainerContents(listing.item)) {
