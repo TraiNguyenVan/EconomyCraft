@@ -50,7 +50,7 @@ public final class BuilderEffects {
                 return;
             }
 
-            ProfessionLevel level = eco.getProfessions().levelOf(player.getUUID());
+            ProfessionLevel level = eco.getProfessions().baseLevelOf(player.getUUID());
             ProfessionsSection.BuilderSettings settings = EconomyConfig.get().professions.builder;
             double bonus = effectiveReach(settings, level,
                     ProfessionEffects.resolveMultiplier(player, ProfessionId.BUILDER));

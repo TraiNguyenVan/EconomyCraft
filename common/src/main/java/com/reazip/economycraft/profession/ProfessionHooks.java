@@ -4,7 +4,9 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -142,6 +144,46 @@ public final class ProfessionHooks {
             }
         } catch (Exception ignored) {
             // A profession hook must never break the interaction that triggered it.
+        }
+    }
+
+    /**
+     * An animal bred by a player gave birth to an offspring.
+     *
+     * <p>Spec 47 awards 1 progress toward the Farmer 300 level-up goal for creating offspring, and spec 49
+     * applies the breeding cooldown discount on parents and accelerated growth on the baby.
+     */
+    public static void onOffspringBred(ServerPlayer player, Animal parent1, Animal parent2, AgeableMob child) {
+        if (player == null) return;
+        try {
+            EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+            if (!EconomyConfig.get().professions.enabled) return;
+
+            if (eco.getProfessions().professionOf(player.getUUID()) == ProfessionId.FARMER) {
+                award(eco, player);
+                FarmerEffects.applyBreedingEffects(player, parent1, parent2, child);
+            }
+        } catch (Exception ignored) {
+            // A profession hook must never break breeding
+        }
+    }
+
+    /**
+     * A player took a crafted or cooked item from a result slot.
+     *
+     * <p>Spec 50 (Khéo léo) rolls for +2 bonus items if the item is edible food.
+     */
+    public static void onFoodTaken(ServerPlayer player, ItemStack stack) {
+        if (player == null || stack == null || stack.isEmpty()) return;
+        try {
+            EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+            if (!EconomyConfig.get().professions.enabled) return;
+
+            if (eco.getProfessions().professionOf(player.getUUID()) == ProfessionId.FARMER) {
+                FarmerEffects.applyBonusFoodOutput(player, stack);
+            }
+        } catch (Exception ignored) {
+            // A profession hook must never break taking items
         }
     }
 }

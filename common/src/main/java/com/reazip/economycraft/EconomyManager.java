@@ -15,6 +15,7 @@ import com.reazip.economycraft.faction.FactionId;
 import com.reazip.economycraft.faction.FactionStore;
 import com.reazip.economycraft.fiscal.FiscalPass;
 import com.reazip.economycraft.profession.BlockTags;
+import com.reazip.economycraft.profession.FarmerEffects;
 import com.reazip.economycraft.profession.ProfessionId;
 import com.reazip.economycraft.profession.ProfessionLevel;
 import com.reazip.economycraft.profession.ProfessionStore;
@@ -860,6 +861,13 @@ public class EconomyManager {
         sweepTagDisplay();
 
         if (!EconomyConfig.get().professions.enabled) return;
+
+        // Periodic crop boost for online Farmers (spec 48: Tươi tốt)
+        if (tickCount % 20 == 0) {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                FarmerEffects.tickCropBoost(this, player);
+            }
+        }
 
         long credited = onlineTime.lastCreditedIntervalMillis();
         if (credited <= 0L) return;

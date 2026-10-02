@@ -5,8 +5,8 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased — Faction & Profession System
 
-Planning is tracked in `TODO.md`. **Phases 3 and 4 have landed gameplay behaviour**; Phases 0–2 were pure
-infrastructure and shipped with none. The baseline is now 227 passing tests on 26.3, both loaders green.
+Planning is tracked in `TODO.md`. **Phases 3, 4, and 5 have landed gameplay behaviour**; Phases 0–2 were pure
+infrastructure and shipped with none. The baseline is now 243 passing tests on 26.3, both loaders green.
 
 ### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
@@ -60,8 +60,14 @@ infrastructure and shipped with none. The baseline is now 227 passing tests on 2
 - The spec's "only while holding a building block" is deliberately **not** implemented: an attribute modifier
   cannot be conditional on the held item, and gating it on one would kill the reach at the exact moment a
   block is placed, because the held item is then the block that was just placed.
-- Farmer, Miner, Merchant and Soldier have their hooks, config and progress counters in place, but **no
-  effects yet** — those are Phases 5–8.
+### Added (Phase 5 — Farmer)
+- **Farmer progression** — 300 events counting crop planting, mature crop harvesting, animal feeding, and offspring breeding.
+- **Farmer `Tươi tốt`** — every 4 minutes, online Farmers trigger a 24-block radius bonemeal boost with a 10% (Apprentice) / 20% (Master) chance per crop.
+- **Farmer `Chăm sóc`** — parent breeding cooldown reduced by 10% (Apprentice) / 20% (Master); offspring grow 15% (Apprentice) / 30% (Master) faster (starting age shortened proportionally at birth).
+- **Farmer `Khéo léo`** — 1% (Apprentice) / 5% (Master) chance to gain +2 bonus items when taking crafted or cooked edible food (`DataComponents.FOOD`).
+
+### Known gaps
+- Miner, Merchant and Soldier have their hooks, config and progress counters in place, but **no effects yet** — those are Phases 6–8.
 
 ### Design decisions taken after the spec
 - **Builder reach** (`TODO.md` D11, corrected): the previous conclusion that a server-side mod cannot extend

@@ -9,7 +9,9 @@
     "ProfessionPlaceMixin",
     "ProfessionBreakMixin",
     "ProfessionHasteMixin",
-    "ProfessionBreedMixin"
+    "ProfessionBreedMixin",
+    "ProfessionCraftMixin",
+    "ProfessionSmeltMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -137,6 +137,18 @@ public final class ProfessionStore {
     }
 
     /**
+     * The player's base level (APPRENTICE or MASTER), ignoring any active rust state.
+     *
+     * <p>Effects read this level and apply rust through {@link ProfessionEffects#resolveMultiplier},
+     * so that a rusty Master still receives their tier's benefits scaled by 0.5 rather than zero.
+     */
+    public ProfessionLevel baseLevelOf(UUID player) {
+        ProfessionProgress progress = progressByPlayer.get(player);
+        if (progress == null || progress.professionId == null) return null;
+        return progress.storedLevel();
+    }
+
+    /**
      * Records a choice, resetting progress and the rust timer.
      *
      * <p>Switching is not a plain overwrite, because it is what creates rust. The three cases:

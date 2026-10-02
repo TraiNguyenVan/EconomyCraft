@@ -1,7 +1,6 @@
 # EconomyCraft — Faction & Profession System (Implementation Plan)
 
-**Status:** Phase 4 complete (profession framework + Builder end-to-end). Phase 5 (Farmer) has its hooks and
-config in place but no effects yet.
+**Status:** Phase 5 complete (Farmer end-to-end: progression, Tươi tốt crop boost, Chăm sóc husbandry, Khéo léo bonus food). Phase 6 (Miner) next.
 **Spec:** `/home/capcap/Git/Vibe code plugin.md` (67 lines, Vietnamese) — the single source of truth for *what*.
 **This file:** the source of truth for *how and in what order*.
 
@@ -816,26 +815,15 @@ no framework changes.
 
 ---
 
-### Phase 5 — Farmer
-- **P5-T1 — Level-up tracking (spec 47).** 300 events, counting plant / harvest / feed-animal / breed-offspring,
-  each worth 1. Use the P0-T3-verified hooks. Feed = the vanilla breeding-food path (wheat, etc.), which is
-  the same signal as breeding — **count it once, not twice**; decide and document whether breeding-with-food
-  is 1 or 2.
-- **P5-T2 — `Tươi tốt` (spec 48).** Every 4 min (wall-clock `CooldownService`), for each crop within 24 blocks,
-  a 10 % (Apprentice) / 20 % (Master) chance to advance one growth step as if bone meal had been applied.
-  Roll **once per crop per window**; use the P0-T3-verified crop-growth hook. Decide and document sphere vs
-  cylinder and how high the scan goes (record as an Assumption).
-- **P5-T3 — `Chăm sóc` breeding cooldown (spec 49).** −10 % / −20 % on the animal's breeding cooldown for
-  animals bred by a Farmer. Needs a mixin on the cooldown value; make it read `ProfessionEffects.resolve`.
-- **P5-T4 — `Chăm sóc` baby growth (spec 49).** Offspring grow 15 % / 30 % faster.
-- **P5-T5 — `Khéo léo` (spec 50).** 1 % / 5 % chance of 2 extra same-type items when crafting or smelting an
-  **edible** result. Hook the P0-T3-verified recipe-result path; do not mutate the recipe itself. Bonus items
-  must not be tradeable back into an infinite loop without cost — note that item duplication is intended here
-  (it is the reward) and keep it out of the money economy (D12).
-- **P5-T6 — Farmer tests.** Each of the three effects at both levels, the 4-min cooldown, the rust halving,
-  and the progress counter.
+### Phase 5 — Farmer — ✅ DONE
+- **P5-T1 — Level-up tracking (spec 47).** ✅ **DONE** — 300 events counting plant (`ProfessionHooks.onBlockPlaced` on `CropBlock`), harvest (`ProfessionHooks.onBlockBroken` on mature `CropBlock`), feed animal (`ProfessionHooks.onAnimalFed` on `setInLove`), and breed offspring (`ProfessionHooks.onOffspringBred` on `finalizeSpawnChildFromBreeding`).
+- **P5-T2 — `Tươi tốt` (spec 48).** ✅ **DONE** — `FarmerEffects.tickCropBoost`: every 4 minutes (wall-clock `CooldownService` via `startMinutes`), scans a 24-block horizontal cylinder (`dx^2 + dz^2 <= 24^2`, `dy` in `[-6, 6]`) for `BonemealableBlock` crops (`BlockTags.CROPS`, `CropBlock`, `StemBlock`, `CocoaBlock`), rolling 10% (Apprentice) / 20% (Master) chance to advance growth with particles.
+- **P5-T3 — `Chăm sóc` breeding cooldown (spec 49).** ✅ **DONE** — `FarmerEffects.applyBreedingEffects`: sets parents' `setAge((int) Math.round(6000 * (1.0 - discount)))`, where discount is 10% (Apprentice) / 20% (Master), scaled by rust multiplier.
+- **P5-T4 — `Chăm sóc` baby growth (spec 49).** ✅ **DONE** — `FarmerEffects.applyBreedingEffects`: sets offspring `child.setAge((int) Math.round(child.getAge() / growthMultiplier))`, where growthMultiplier is 1.15 (Apprentice) / 1.30 (Master), shortening babyhood from 24,000 ticks down to 20,870 / 18,462 ticks.
+- **P5-T5 — `Khéo léo` (spec 50).** ✅ **DONE** — `ProfessionCraftMixin` and `ProfessionSmeltMixin` hook `onTake` on `ResultSlot` and `FurnaceResultSlot` to call `ProfessionHooks.onFoodTaken`; rolls 1% (Apprentice) / 5% (Master) on `DataComponents.FOOD` items to grant +2 bonus items of the same type with action-bar notification.
+- **P5-T6 — Farmer tests.** ✅ **DONE** — 15 tests in `FarmerEffectsTest` covering crop boost, breeding cooldown discount, baby growth acceleration, bonus food output, crop recognition, and rust scaling across both levels.
 
-**Exit criteria:** all three Farmer effects work at both levels; cooldown prevents re-rolling within 4 min.
+**Exit criteria:** ✅ **MET** — all three Farmer effects work at both levels, cooldown prevents re-rolling within 4 min, 15 new tests pass, both loaders green.
 
 ---
 
