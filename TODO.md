@@ -841,26 +841,14 @@ no framework changes.
 ### Phase 7 — Merchants
 *This is the largest job: it needs an economy flow that does not exist yet.*
 
-- **P7-T1 — Level-up tracking, part A (spec 58).** 50 villager trades, **excluding** stick trades
-  (detect a `Stick` in the traded result stack via the P0-T3-verified trade hook), capped at 20 per villager.
-- **P7-T2 — Stable villager identity.** The 20-trade cap needs a key that survives a server restart and
-  distinguishes two villagers at the same coordinates after a rebuild. Prefer the villager's persistent UUID;
-  if that is unavailable on 26.3, fall back to a composite of dimension + block position + profession and
-  document the weakness. Decide here, because the key shape is persisted in `ProfessionStore` (P2-T5).
-- **P7-T3 — Level-up tracking, part B (spec 58).** 5 purchases from `/ah`, hooked into `AuctionTrade`
-  (success path only). Resolve D6 (AND vs OR).
-- **P7-T4 — `Lưỡi không xương` discount (spec 59).** Reduce the buy/sell/trade cost to 5 % (Apprentice) / 15 %
-  (Master) for: villager trades, player-to-player trades (`/pay`, orders), and `/ah`. Route **all** of it
-  through `TaxPolicy` (Phase 1) and the price resolver — do **not** add a second discount mechanism. Decide
-  and document the interaction with the tax itself (a discount on the pre-tax price, or on the total?).
-- **P7-T5 — Villager trade economy (new system).** Selling to / buying from a villager for money does not
-  exist today. Design it as a thin layer over `TaxPolicy` + `transferMoney`, with a price source for
-  unpriced items. This is a genuinely new subsystem — expect to need a config table and a `/eco villager`
-  (or reuse `/shop`) surface. **Flag as the largest scope item in this phase.**
-- **P7-T6 — Merchants tests.** Stick trades excluded, the 20-per-villager cap, the `/ah` purchase counter,
-  D6 semantics, and the discount at both levels.
+- **P7-T1 — Level-up tracking, part A (spec 58).** ✅ **DONE** — 50 villager trades tracked, excluding any trades involving `minecraft:stick` in costs or result (`MerchantEffects.isStickTrade`), capped at 20 per villager in `ProfessionStore.recordVillagerTrade`.
+- **P7-T2 — Stable villager identity.** ✅ **DONE** — Keyed on persistent villager UUID (`AbstractVillager.getUUID().toString()`) stored in per-player map in `ProfessionStore`. Survives restarts, moves, and duplicate coords.
+- **P7-T3 — Level-up tracking, part B (spec 58).** ✅ **DONE** — 5 purchases from `/ah`, hooked into `AuctionTrade.purchase` on successful payment. D6 resolved to strict AND semantics (`totalVillagerTrades >= 50 && auctionPurchases >= 5`).
+- **P7-T4 — `Lưỡi không xương` discount (spec 59).** ✅ **DONE** — Pre-tax discount (5% Apprentice, 15% Master, halved if rusty) routed centrally through `TaxPolicy` and `TaxQuote` across `/ah` (`AuctionTrade`), `/pay` (`TRANSACTION_PAY`), orders (`OrderFulfillment`), and villager trades via `MerchantMenu` `specialPriceDiff`.
+- **P7-T5 — Villager trade economy (new system).** ✅ **DONE** — Implemented `VillagerTradeEconomy` and `VillagerShopUi` with `/eco villager` (and standalone `/villager`). Direct trading with server currency with `TaxPolicy` routing, `PriceRegistry` pricing with fallback emerald values, and `villager_emerald_buy_price`/`villager_emerald_sell_price` configs.
+- **P7-T6 — Merchants tests.** ✅ **DONE** — 10 unit tests in `MerchantEffectsTest` covering stick exclusion, 20-cap per villager, AH purchase counter, D6 AND semantics, rust guards, pre-tax discounts, offer price diffs, and economy pricing.
 
-**Exit criteria:** both progress halves count correctly; the discount applies through one mechanism only.
+**Exit criteria:** ✅ **MET** — both progress halves count correctly; D6 AND semantics verified; discount applies via central TaxPolicy pre-tax architecture; 10 new tests pass; both Fabric and NeoForge compile cleanly.
 
 ---
 

@@ -24,7 +24,9 @@ public enum TaxScope {
     TRANSACTION_AUCTION_BUY(EconomySources.AUCTION_PURCHASE),
     AUCTION_LISTING(EconomySources.AUCTION_PURCHASE),
     TRANSACTION_ORDER(EconomySources.ORDER_FULFILLMENT),
-    TOLL(EconomySources.TOLL_PAYMENT);
+    TOLL(EconomySources.TOLL_PAYMENT),
+    TRANSACTION_PAY(EconomySources.PLAYER_PAYMENT),
+    TRANSACTION_VILLAGER(EconomySources.VILLAGER_TRADE);
 
     private final MutationSource source;
 

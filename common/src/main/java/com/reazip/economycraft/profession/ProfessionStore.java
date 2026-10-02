@@ -235,39 +235,79 @@ public final class ProfessionStore {
      * Records one Merchant trade against a villager, honouring the per-villager cap.
      *
      * @return {@code true} if the trade counted towards the level-up; {@code false} if that villager is already
-     *         at its cap, or the player is not a Merchant
+     *         at its cap, or the player is not a Merchant, or player is rusted/mastered
      */
     public boolean recordVillagerTrade(UUID player, String villagerId) {
         ProfessionProgress progress = progressByPlayer.get(player);
         if (progress == null || progress.professionId != ProfessionId.MERCHANT || villagerId == null) return false;
+        if (progress.isRusted() || progress.everMastered) return false;
 
         int cap = com.reazip.economycraft.EconomyConfig.get().professions.merchant.maxTradesPerVillager;
         long count = progress.tradesPerVillager.getOrDefault(villagerId, 0L);
         if (count >= cap) return false;
 
+        int neededTrades = com.reazip.economycraft.EconomyConfig.get().professions.merchant.villagerTradeCount;
+        if (totalVillagerTrades(progress) >= neededTrades) return false;
+
         progress.tradesPerVillager.put(villagerId, count + 1L);
         dirty = true;
+        checkMerchantPromotion(player, progress);
         return true;
     }
 
-    /** Trade count for one villager, for the Merchant's own level-up check in Phase 5. */
+    /** Trade count for one villager, for the Merchant's own level-up check. */
     public long tradesWith(UUID player, String villagerId) {
         ProfessionProgress progress = progressByPlayer.get(player);
         if (progress == null) return 0L;
         return progress.tradesPerVillager.getOrDefault(villagerId, 0L);
     }
 
+    /** Total qualifying villager trades across all villagers for this player. */
+    public long totalVillagerTrades(UUID player) {
+        ProfessionProgress progress = progressByPlayer.get(player);
+        return totalVillagerTrades(progress);
+    }
+
+    /** Total qualifying villager trades across all villagers in the given progress record. */
+    public static long totalVillagerTrades(ProfessionProgress progress) {
+        if (progress == null || progress.tradesPerVillager == null) return 0L;
+        return progress.tradesPerVillager.values().stream().mapToLong(Long::longValue).sum();
+    }
+
     /** Records one Merchant auction purchase, which counts separately from villager trades. */
     public boolean recordAuctionPurchase(UUID player) {
         ProfessionProgress progress = progressByPlayer.get(player);
         if (progress == null || progress.professionId != ProfessionId.MERCHANT) return false;
+        if (progress.isRusted() || progress.everMastered) return false;
 
         int cap = com.reazip.economycraft.EconomyConfig.get().professions.merchant.auctionPurchaseCount;
         if (progress.progress >= cap) return false;
 
         progress.progress += 1L;
         dirty = true;
+        checkMerchantPromotion(player, progress);
         return true;
+    }
+
+    /**
+     * Checks D6 level-up condition (AND): total villager trades >= 50 AND auction purchases >= 5.
+     * Promotes to Master if both are satisfied.
+     *
+     * @return true if player was just promoted to Master
+     */
+    public boolean checkMerchantPromotion(UUID player, ProfessionProgress progress) {
+        if (progress == null || progress.professionId != ProfessionId.MERCHANT) return false;
+        if (progress.isRusted() || progress.everMastered) return false;
+
+        int neededTrades = com.reazip.economycraft.EconomyConfig.get().professions.merchant.villagerTradeCount;
+        int neededPurchases = com.reazip.economycraft.EconomyConfig.get().professions.merchant.auctionPurchaseCount;
+
+        if (totalVillagerTrades(progress) >= neededTrades && progress.progress >= neededPurchases) {
+            progress.everMastered = true;
+            dirty = true;
+            return true;
+        }
+        return false;
     }
 
     /**

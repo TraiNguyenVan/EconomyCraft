@@ -5,8 +5,8 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased — Faction & Profession System
 
-Planning is tracked in `TODO.md`. **Phases 3, 4, 5, and 6 have landed gameplay behaviour**; Phases 0–2 were pure
-infrastructure and shipped with none. The baseline is now 253 passing tests on 26.3, both loaders green.
+Planning is tracked in `TODO.md`. **Phases 3, 4, 5, 6, and 7 have landed gameplay behaviour**; Phases 0–2 were pure
+infrastructure and shipped with none. The baseline is now 263 passing tests on 26.3, both loaders green.
 
 ### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
@@ -72,8 +72,13 @@ infrastructure and shipped with none. The baseline is now 253 passing tests on 2
 - **Miner `Khéo tay`** — 5% (Apprentice) / 15% (Master) chance of doubled ore drops upon mining any ore block.
 - **Miner `Bảo hộ lao động`** — Master only: touching lava grants Regeneration II for 4 s on a 5-minute cooldown.
 
+### Added (Phase 7 — Merchant)
+- **Merchant progression** — 50 villager trades (excluding trades with sticks in cost or result) capped at 20 trades per villager (keyed by persistent UUID) AND 5 auction house (`/ah`) purchases.
+- **Merchant `Lưỡi không xương`** — 5% (Apprentice) / 15% (Master) pre-tax discount applied centrally through `TaxPolicy` to auction purchases, player transfers (`/pay`), player orders, and villager trades via `specialPriceDiff`. Halved when rusty.
+- **Villager trade economy** — custom villager trading interface (`/eco villager` or `/villager`) allowing direct purchase and sale of goods for server currency, integrated with `TaxPolicy` and `PriceRegistry` pricing with emerald fallbacks.
+
 ### Known gaps
-- Merchant and Soldier have their hooks, config and progress counters in place, but **no effects yet** — those are Phases 7–8.
+- Soldier has its hooks, config and progress counters in place, but **no effects yet** — that is Phase 8.
 
 ### Design decisions taken after the spec
 - **Builder reach** (`TODO.md` D11, corrected): the previous conclusion that a server-side mod cannot extend

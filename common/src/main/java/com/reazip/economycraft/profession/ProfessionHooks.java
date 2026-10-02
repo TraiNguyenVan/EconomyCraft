@@ -7,7 +7,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.npc.villager.AbstractVillager;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.level.block.CropBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -193,6 +195,59 @@ public final class ProfessionHooks {
             }
         } catch (Exception ignored) {
             // A profession hook must never break taking items
+        }
+    }
+
+    /**
+     * A player completed a trade with a villager.
+     *
+     * <p>Spec 58: 50 villager trades, excluding stick trades, capped at 20 trades per unique villager.
+     */
+    public static void onVillagerTrade(ServerPlayer player, AbstractVillager villager, MerchantOffer offer) {
+        if (player == null || villager == null || offer == null) return;
+        try {
+            EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+            if (!EconomyConfig.get().professions.enabled) return;
+
+            ProfessionStore store = eco.getProfessions();
+            if (store.professionOf(player.getUUID()) != ProfessionId.MERCHANT) return;
+
+            if (MerchantEffects.isStickTrade(offer)) {
+                return;
+            }
+
+            String villagerId = villager.getUUID().toString();
+            if (store.recordVillagerTrade(player.getUUID(), villagerId)) {
+                if (store.levelOf(player.getUUID()) == ProfessionLevel.MASTER) {
+                    ProfessionEffects.applyPersistent(player);
+                }
+            }
+        } catch (Exception ignored) {
+            // A profession hook must never break trading
+        }
+    }
+
+    /**
+     * A player completed an auction purchase from /ah.
+     *
+     * <p>Spec 58: 5 purchases from /ah, counting towards the Merchant level-up (D6).
+     */
+    public static void onAuctionPurchase(ServerPlayer buyer) {
+        if (buyer == null) return;
+        try {
+            EconomyManager eco = EconomyCraft.getManager(buyer.level().getServer());
+            if (!EconomyConfig.get().professions.enabled) return;
+
+            ProfessionStore store = eco.getProfessions();
+            if (store.professionOf(buyer.getUUID()) != ProfessionId.MERCHANT) return;
+
+            if (store.recordAuctionPurchase(buyer.getUUID())) {
+                if (store.levelOf(buyer.getUUID()) == ProfessionLevel.MASTER) {
+                    ProfessionEffects.applyPersistent(buyer);
+                }
+            }
+        } catch (Exception ignored) {
+            // A profession hook must never break auctions
         }
     }
 }

@@ -157,7 +157,7 @@ public final class OrderFulfillment {
 
     private static PaymentOutcome settleOrderPayment(EconomyManager eco, UUID requester, UUID fulfillerId, long payment,
                                                        long escrowUsed, String detail) {
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment, fulfillerId, eco);
         long payout = payment - tax;
         long shortfall = payment - escrowUsed;
 

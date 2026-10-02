@@ -7,6 +7,7 @@ import com.reazip.economycraft.config.TagSettings;
 import com.reazip.economycraft.faction.FactionId;
 import com.reazip.economycraft.faction.FactionStore;
 import com.reazip.economycraft.profession.ProfessionId;
+import com.reazip.economycraft.profession.ProfessionLevel;
 import com.reazip.economycraft.profession.ProfessionStore;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
@@ -284,6 +285,33 @@ public final class TagUi {
                     .withStyle(s -> s.withItalic(false).withBold(true).withColor(settings.color)));
             List<Component> lore = new ArrayList<>();
             lore.add(MenuUiSupport.hint("Current: " + currentLabel()));
+
+            ProfessionStore store = eco.getProfessions();
+            ProfessionId current = store.professionOf(viewer.getUUID());
+            if (current == profession) {
+                ProfessionLevel level = store.levelOf(viewer.getUUID());
+                if (level == ProfessionLevel.APPRENTICE) {
+                    if (profession == ProfessionId.MERCHANT) {
+                        long trades = store.totalVillagerTrades(viewer.getUUID());
+                        int neededTrades = EconomyConfig.get().professions.merchant.villagerTradeCount;
+                        long ahBuys = store.progressOf(viewer.getUUID()).progress;
+                        int neededAh = EconomyConfig.get().professions.merchant.auctionPurchaseCount;
+                        lore.add(MenuUiSupport.line("Trades: " + trades + " / " + neededTrades, ChatFormatting.AQUA));
+                        lore.add(MenuUiSupport.line("AH Buys: " + ahBuys + " / " + neededAh, ChatFormatting.AQUA));
+                    } else {
+                        long prog = store.progressOf(viewer.getUUID()).progress;
+                        int needed = ProfessionStore.levelUpCountFor(profession);
+                        lore.add(MenuUiSupport.line("Progress: " + prog + " / " + needed, ChatFormatting.AQUA));
+                    }
+                } else if (level == ProfessionLevel.MASTER) {
+                    lore.add(MenuUiSupport.line("Status: Mastered", ChatFormatting.GOLD));
+                } else if (level == ProfessionLevel.RUSTED) {
+                    long rustMin = store.rustOnlineMillis(viewer.getUUID()) / 60_000L;
+                    int targetMin = EconomyConfig.get().professions.rustOnlineMinutes;
+                    lore.add(MenuUiSupport.line("Status: Rusted (" + rustMin + "/" + targetMin + "m online)", ChatFormatting.RED));
+                }
+            }
+
             long lockout = EconomyConfig.get().professions.selectionLockoutHours;
             if (!eco.getProfessions().canChange(viewer.getUUID(), lockout)) {
                 lore.add(MenuUiSupport.line("Locked for "

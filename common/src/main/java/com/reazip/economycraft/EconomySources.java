@@ -18,6 +18,7 @@ public final class EconomySources {
     public static final MutationSource TOLL_PAYMENT = MutationSource.of("economycraft:toll_payment");
     public static final MutationSource WEALTH_TAX = MutationSource.of("economycraft:wealth_tax");
     public static final MutationSource WEALTH_REBATE = MutationSource.of("economycraft:wealth_rebate");
+    public static final MutationSource VILLAGER_TRADE = MutationSource.of("economycraft:villager_trade");
 
     private EconomySources() {}
 }

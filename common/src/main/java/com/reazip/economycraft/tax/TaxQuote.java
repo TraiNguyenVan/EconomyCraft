@@ -17,19 +17,31 @@ import com.reazip.economycraft.api.v1.MutationSource;
  *
  * @param exempt whether a faction rule waived this tax (always {@code false} until Phase 9)
  */
-public record TaxQuote(long base, double rate, long amount, boolean exempt, MutationSource source) {
+public record TaxQuote(long base, double rate, long amount, long discount, boolean exempt, MutationSource source) {
 
-    /** What the payer hands over: the base plus tax. Callers must bounds-check before using it as a debit. */
-    public long total() {
-        return base + amount;
+    public TaxQuote(long base, double rate, long amount, boolean exempt, MutationSource source) {
+        this(base, rate, amount, 0L, exempt, source);
     }
 
-    /** What the recipient receives: the base minus tax. */
+    /** What the payer hands over: the discounted base plus tax. Callers must bounds-check before using it as a debit. */
+    public long total() {
+        return Math.max(0L, base - discount) + amount;
+    }
+
+    /** What the recipient receives: the discounted base minus tax. */
     public long net() {
-        return base - amount;
+        return Math.max(0L, base - discount) - amount;
     }
 
     public boolean taxed() {
         return !exempt && amount > 0;
+    }
+
+    public boolean discounted() {
+        return discount > 0;
+    }
+
+    public long discountedBase() {
+        return Math.max(0L, base - discount);
     }
 }

@@ -1,25 +1,27 @@
 package com.reazip.economycraft.tax;
 
 import com.reazip.economycraft.EconomyConfig;
+import com.reazip.economycraft.EconomyCraft;
+import com.reazip.economycraft.EconomyManager;
+import com.reazip.economycraft.profession.MerchantEffects;
+import net.minecraft.server.level.ServerPlayer;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.UUID;
 
 /**
  * The single place any tax amount is decided.
  *
  * <p>Phase 1 is a <strong>pure refactor</strong>: this reproduces {@code Math.round(base * taxRate)}
- * bit-for-bit, so charges, lore text and affordability checks are unchanged. The point is structural — the
- * 18 duplicated call sites now all pass through here, so Phase 9's faction rules ("Anarchism pays no tax",
- * "purchase from a Capitalism seller is exempt", "Monarchy halves claim cost") have exactly one place to
- * land instead of eighteen that must not be missed.
+ * bit-for-bit, so charges, lore text and affordability checks are unchanged.
+ *
+ * <p>Phase 7 (Merchants): The {@code Lưỡi không xương} discount reduces the pre-tax base cost by 5 %
+ * (Apprentice) or 15 % (Master), scaled by 0.5 when rusty. Tax is then levied on the discounted base,
+ * so both the purchase price and the tax are discounted through this single mechanism.
  *
  * <p>{@link #quote(TaxScope, long, double)} is the pure core and takes the rate explicitly, so it is
  * testable without touching {@link EconomyConfig}. {@link #resolve(TaxScope, long)} is the production entry
  * point and reads the configured rate.
- *
- * <p><strong>Parity note.</strong> The old formula applied {@code Math.round} <em>unconditionally</em>,
- * including for non-positive bases. This class does the same, deliberately: "reject negative" would be a
- * behaviour change, and Phase 1 is not allowed one. Every real call site validates its base as positive
- * beforehand (the toll checks {@code fee > 0} at {@code TollManager.java:152}), so the point is moot in
- * practice and is pinned by a test instead.
  */
 public final class TaxPolicy {
 
@@ -31,10 +33,41 @@ public final class TaxPolicy {
         return quote(scope, base, EconomyConfig.get().taxRate);
     }
 
-    /** Pure core: prices {@code base} at an explicit rate. No server, no config, no I/O. */
+    /** Prices {@code base} at the configured rate, applying player discounts if eligible. */
+    public static TaxQuote resolve(TaxScope scope, long base, @Nullable UUID player, @Nullable EconomyManager eco) {
+        if (player == null || eco == null) {
+            return resolve(scope, base);
+        }
+        double discountRate = MerchantEffects.discountRate(player, eco);
+        return quote(scope, base, EconomyConfig.get().taxRate, discountRate);
+    }
+
+    /** Prices {@code base} at the configured rate, applying player discounts if eligible. */
+    public static TaxQuote resolve(TaxScope scope, long base, @Nullable ServerPlayer player) {
+        if (player == null) return resolve(scope, base);
+        try {
+            EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+            return resolve(scope, base, player.getUUID(), eco);
+        } catch (Exception ignored) {
+            return resolve(scope, base);
+        }
+    }
+
+    /** Pure core: prices {@code base} at an explicit rate with no discount. No server, no config, no I/O. */
     public static TaxQuote quote(TaxScope scope, long base, double rate) {
         long amount = Math.round(base * rate);
-        return new TaxQuote(base, rate, amount, false, scope.source());
+        return new TaxQuote(base, rate, amount, 0L, false, scope.source());
+    }
+
+    /** Pure core: prices {@code base} at an explicit tax rate and discount rate. */
+    public static TaxQuote quote(TaxScope scope, long base, double rate, double discountRate) {
+        if (discountRate <= 0.0) {
+            return quote(scope, base, rate);
+        }
+        long discount = Math.round(base * discountRate);
+        long discountedBase = Math.max(0L, base - discount);
+        long amount = Math.round(discountedBase * rate);
+        return new TaxQuote(base, rate, amount, discount, false, scope.source());
     }
 
     /** The tax amount alone — for lore text that mirrors a charge. */
@@ -42,14 +75,26 @@ public final class TaxPolicy {
         return resolve(scope, base).amount();
     }
 
+    public static long tax(TaxScope scope, long base, @Nullable UUID player, @Nullable EconomyManager eco) {
+        return resolve(scope, base, player, eco).amount();
+    }
+
     /** What the recipient receives after tax — order fulfilment. */
     public static long net(TaxScope scope, long base) {
         return resolve(scope, base).net();
     }
 
+    public static long net(TaxScope scope, long base, @Nullable UUID player, @Nullable EconomyManager eco) {
+        return resolve(scope, base, player, eco).net();
+    }
+
     /** What the payer hands over including tax — toll and auction purchase. */
     public static long total(TaxScope scope, long base) {
         return resolve(scope, base).total();
+    }
+
+    public static long total(TaxScope scope, long base, @Nullable UUID player, @Nullable EconomyManager eco) {
+        return resolve(scope, base, player, eco).total();
     }
 
     /**

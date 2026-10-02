@@ -13,7 +13,9 @@
     "ProfessionHasteMixin",
     "ProfessionBreedMixin",
     "ProfessionCraftMixin",
-    "ProfessionSmeltMixin"
+    "ProfessionSmeltMixin",
+    "ProfessionTradeMixin",
+    "ProfessionMerchantMenuMixin"
   ],
   "injectors": {
     "defaultRequire": 1

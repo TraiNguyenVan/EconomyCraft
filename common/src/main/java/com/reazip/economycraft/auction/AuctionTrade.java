@@ -4,7 +4,9 @@ import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.api.v1.PaymentResult;
+import com.reazip.economycraft.profession.ProfessionHooks;
 import com.reazip.economycraft.tax.TaxPolicy;
+import com.reazip.economycraft.tax.TaxQuote;
 import com.reazip.economycraft.tax.TaxScope;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -46,8 +48,8 @@ public final class AuctionTrade {
         }
 
         long cost = claimed.price;
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_AUCTION_BUY, cost);
-        long total = cost + tax;
+        TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, cost, buyer.getUUID(), eco);
+        long total = quote.total();
 
         String detail = EconomyCraft.describeItem(claimed.item.getCount(), claimed.item.getHoverName().getString());
         PaymentResult payment = eco.transferMoney(buyer.getUUID(), claimed.seller, total, cost, EconomySources.AUCTION_PURCHASE, detail);
@@ -57,6 +59,8 @@ public final class AuctionTrade {
                     ? PurchaseStatus.SELLER_CANT_RECEIVE : PurchaseStatus.CANT_AFFORD;
             return new PurchaseResult(status, claimed.item.copy(), 0, claimed.seller, false);
         }
+
+        ProfessionHooks.onAuctionPurchase(buyer);
 
         auctions.notifySellerSale(claimed, buyer);
 
