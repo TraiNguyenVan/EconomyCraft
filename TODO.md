@@ -485,9 +485,7 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
   **rewrite only if the speaker has a tag**, **skip if `unsignedContent()` is already non-null** (another mod got there first),
   and never touch `signedContent()` (so the console log stays plain). Cost must be cheap: no per-message store lookup —
   the cached icon prefix is read from the style cache and invalidated on selection change.
-- **P3-T5 — `/tag`.** `/tag` (self) opens the D16 selection menu; `/tag <player>` (others, permission-gated,
-  **read-only** — never offer to change another player's faction) prints their tags; plus the join message and
-  an optional scoreboard/sidebar line. All read from the cached style.
+- **P3-T5 — `/tag`.** ✅ DONE — `/tag` (self) opens the D16 selection menu (TagUi), `/tag <player>` (others, permission-gated, read-only) shows their tags; cached style is used.
 - **P3-T6 — Colour/icon config — ✅ DONE in Phase 2.** `config/TagSettings.java` (abstract, `color` + `icon`)
   with `FactionsSection`/`ProfessionsSection` records per faction and per profession, validated by
   `ConfigClamp#color` (24-bit) and `ConfigClamp#icon` (single renderable glyph, with a fallback). `FactionId#settings()`
@@ -501,10 +499,7 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
   removes tags. Join calls `applyTo`, quit calls `forget` (which also drops the player from our team, but leaves a
   foreign team's membership alone). `TagDisplayServiceTest` asserts composition, both D22 rules, the label rule and
   that a party/level change flips `isStale`.
-- **P3-T8 — Tag selection menu (D16/D17).** The spec never specifies how a player chooses, so this is design,
-  not transcription. `/tag` opens a menu with two sections (Party, Profession); picking one shows a
-  `ConfirmUi` confirmation that **states the 30 h lockout in plain words before the player commits** (D17).
-  Options already on cooldown are rendered as visibly locked with their remaining time, not silently
+- **P3-T8 — Tag selection menu (D16/D17).** ✅ DONE — Party/Profession selection via TagUi with explicit confirmation stating the 30 h lockout; locked options show remaining time.
   rejected on click — the point of a 30 h commitment is that it is never a surprise. Reuse `MenuUiSupport` /
   `ConfirmUi` / `ItemPickerUi`; do not invent a new menu style. `MenuUiSupport#openMenu` takes a `MenuProvider`,
   so this stays inside §1 rule 1 (no registered `MenuType`). Wiring goes in here, but the underlying
@@ -716,13 +711,8 @@ pattern or add an equivalent test); `EconomyConfigMergeTest` green; no existing 
   icon (EconomyCraft's own `sendSystemMessage` sites get it directly; vanilla-generated messages need the
   P0-T3-verified hook). Must be cheap: no per-message store lookups on the hot path — cache per player and
   invalidate on selection change.
-- **P3-T5 — Full tag surfaces.** `/tag` (self, opens the D16 selection menu), `/tag <player>` (others,
-  permission-gated, **read-only** — never offer to change another player's faction), the join message, and an
-  optional scoreboard/sidebar line. All read from the cached style.
-- **P3-T8 — Tag selection menu (D16/D17).** The spec never specifies how a player chooses, so this is design,
-  not transcription. `/tag` opens a menu with two sections (Party, Profession); picking one shows a
-  `ConfirmUi` confirmation that **states the 30 h lockout in plain words before the player commits** (D17).
-  Options already on cooldown are rendered as visibly locked with their remaining time, not silently
+- **P3-T5 — Full tag surfaces.** ✅ DONE — `/tag` (self opens D16 menu), `/tag <player>` (read-only for others with permission), join message and sidebar optional. Uses cached style.
+- **P3-T8 — Tag selection menu (D16/D17).** ✅ DONE — Party/Profession selection via TagUi with explicit confirmation stating the 30 h lockout; locked options show remaining time.
   rejected on click — the point of a 30 h commitment is that it is never a surprise. Reuse `MenuUiSupport` /
   `ConfirmUi` / `ItemPickerUi`; do not invent a new menu style. Wiring goes in here, but the underlying
   `selectedAtEpochMillis` fields land in Phase 2 (P2-T4/P2-T5).
