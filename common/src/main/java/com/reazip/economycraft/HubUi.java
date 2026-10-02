@@ -14,6 +14,7 @@ import com.reazip.economycraft.util.ItemPickerUi;
 import com.reazip.economycraft.util.MenuUiSupport;
 import com.reazip.economycraft.util.NumberInputUi;
 import com.reazip.economycraft.util.PlayerPickerUi;
+import com.reazip.economycraft.tag.TagUi;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -48,6 +49,7 @@ public final class HubUi {
     private static final int TRANSACTIONS = 28;
     private static final int DELIVERIES = 30;
     private static final int HELP = 32;
+    private static final int TAGS_SLOT = 33;
     private static final int TOLLS = 34;
     private static final int CLOSE = 40;
     private static final int ADMIN = 44;
@@ -239,6 +241,11 @@ public final class HubUi {
                         MenuUiSupport.hint("Your recent balance history.")));
             }
 
+            if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_TAG)) {
+                container.setItem(TAGS_SLOT, MenuUiSupport.button(Items.NAME_TAG, "Tags", ChatFormatting.YELLOW,
+                        MenuUiSupport.hint("Manage your party and profession.")));
+            }
+
             if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_DELIVERIES)) {
                 container.setItem(DELIVERIES, MenuUiSupport.button(Items.ENDER_CHEST, "Deliveries",
                         ChatFormatting.LIGHT_PURPLE,
@@ -322,6 +329,13 @@ public final class HubUi {
                     if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_BALANCE)) {
                         EconomySounds.click(viewer);
                         openLeaderboards(viewer);
+                    }
+                }
+                case TAGS_SLOT -> {
+                    if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_TAG)) {
+                        EconomySounds.click(viewer);
+                        viewer.closeContainer();
+                        TagUi.open(viewer);
                     }
                 }
                 case PAY -> {

@@ -26,6 +26,7 @@ import net.minecraft.commands.arguments.GameProfileArgument;
 import net.minecraft.commands.arguments.item.ItemArgument;
 import net.minecraft.commands.arguments.item.ItemInput;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
@@ -41,6 +42,9 @@ import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.orders.OrderRequest;
 import com.reazip.economycraft.orders.OrdersUi;
+import com.reazip.economycraft.tag.TagDisplayService;
+import com.reazip.economycraft.tag.TagStyle;
+import com.reazip.economycraft.tag.TagUi;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
 import net.minecraft.world.item.ItemStack;
@@ -83,6 +87,7 @@ public final class EconomyCommands {
         dispatcher.register(withCommandPermission(
                 buildTransactions().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_TRANSACTIONS));
         registerStandalone(dispatcher, buildToll("toll"), Nodes.COMMAND_TOLL);
+        registerStandalone(dispatcher, buildTag(), Nodes.COMMAND_TAG);
         dispatcher.register(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s ->
                         EconomyConfig.get().standaloneCommands && EconomyConfig.get().worthEnabled),
@@ -1051,6 +1056,37 @@ public final class EconomyCommands {
             source.sendFailure(Component.literal("Failed to open transactions. Check server logs."));
             return 0;
         }
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildTag() {
+        return literal("tag")
+                .executes(ctx -> {
+                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                    TagUi.open(player);
+                    return 1;
+                })
+                .then(argument("player", GameProfileArgument.gameProfile())
+                        .requires(src -> EconomyPermissions.checkAdmin(src, Nodes.ADMIN_PLAYERS))
+                        .executes(ctx -> {
+                            ServerPlayer executor = tryGetPlayer(ctx.getSource());
+                            EconomyManager eco = EconomyCraft.getManager(ctx.getSource().getServer());
+                            TagDisplayService display = eco.getTagDisplay();
+                            for (IdentityCompat.PlayerRef ref : IdentityCompat.getArgAsPlayerRefs(ctx, "player")) {
+                                List<TagStyle.Tagged> tags = display.tagsOf(ref.id());
+                                MutableComponent msg = Component.literal(ref.name() + "'s tags: ")
+                                        .withStyle(ChatFormatting.YELLOW);
+                                if (tags.isEmpty()) {
+                                    msg = msg.append(Component.literal("none").withStyle(ChatFormatting.GRAY));
+                                } else {
+                                    for (int i = 0; i < tags.size(); i++) {
+                                        if (i > 0) msg = msg.append(Component.literal(", ").withStyle(ChatFormatting.GRAY));
+                                        msg = msg.append(tags.get(i).full());
+                                    }
+                                }
+                                reply(ctx.getSource(), executor, msg, false);
+                            }
+                            return 1;
+                        }));
     }
 
     @Nullable
