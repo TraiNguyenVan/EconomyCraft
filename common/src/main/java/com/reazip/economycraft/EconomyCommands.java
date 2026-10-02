@@ -45,6 +45,7 @@ import com.reazip.economycraft.orders.OrdersUi;
 import com.reazip.economycraft.tag.TagDisplayService;
 import com.reazip.economycraft.tag.TagStyle;
 import com.reazip.economycraft.tag.TagUi;
+import com.reazip.economycraft.profession.ProfessionId;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
 import net.minecraft.world.item.ItemStack;
@@ -88,6 +89,9 @@ public final class EconomyCommands {
                 buildTransactions().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_TRANSACTIONS));
         registerStandalone(dispatcher, buildToll("toll"), Nodes.COMMAND_TOLL);
         registerStandalone(dispatcher, buildTag(), Nodes.COMMAND_TAG);
+        dispatcher.register(withCommandPermission(
+                buildJob().requires(s -> EconomyConfig.get().standaloneCommands),
+                Nodes.COMMAND_TAG)); // Reuse tag permission or add new? Let us check - add new later; for now reuse
         dispatcher.register(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s ->
                         EconomyConfig.get().standaloneCommands && EconomyConfig.get().worthEnabled),
@@ -1088,6 +1092,43 @@ public final class EconomyCommands {
                             return 1;
                         }));
     }
+
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildJob() {
+        LiteralArgumentBuilder<CommandSourceStack> root = literal("job")
+                .executes(ctx -> {
+                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                    TagUi.open(player);
+                    return 1;
+                })
+                .then(literal("leave")
+                        .executes(ctx -> {
+                            ServerPlayer player = ctx.getSource().getPlayerOrException();
+                            EconomyManager eco = EconomyCraft.getManager(ctx.getSource().getServer());
+                            eco.getProfessions().reset(player.getUUID());
+                            eco.getTagDisplay().refresh(player);
+                            player.sendSystemMessage(Component.literal("Profession cleared").withStyle(ChatFormatting.YELLOW));
+                            return 1;
+                        }));
+
+        for (ProfessionId p : ProfessionId.values()) {
+            root.then(literal(p.name().toLowerCase(Locale.ROOT)).executes(ctx -> {
+                ServerPlayer player = ctx.getSource().getPlayerOrException();
+                EconomyManager eco = EconomyCraft.getManager(ctx.getSource().getServer());
+                long lockout = EconomyConfig.get().professions.selectionLockoutHours;
+                if (!eco.getProfessions().canChange(player.getUUID(), lockout)) {
+                    player.sendSystemMessage(Component.literal("You cannot change profession yet").withStyle(ChatFormatting.RED));
+                    return 0;
+                }
+                eco.getProfessions().select(player.getUUID(), p);
+                eco.getTagDisplay().refresh(player);
+                player.sendSystemMessage(Component.literal("Profession set to " + p.displayName()).withStyle(ChatFormatting.GREEN));
+                return 1;
+            }));
+        }
+        return root;
+    }
+
 
     @Nullable
     private static ServerPlayer tryGetPlayer(CommandSourceStack source) {
