@@ -13,7 +13,8 @@
     "ProfessionCraftMixin",
     "ProfessionSmeltMixin",
     "ProfessionTradeMixin",
-    "ProfessionMerchantMenuMixin"
+    "ProfessionMerchantMenuMixin",
+    "ProfessionCombatMixin"
   ],
   "injectors": {
     "defaultRequire": 1

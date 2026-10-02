@@ -6,6 +6,7 @@ import com.reazip.economycraft.EconomyManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.AgeableMob;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.npc.villager.AbstractVillager;
 import net.minecraft.world.item.ItemStack;
@@ -248,6 +249,27 @@ public final class ProfessionHooks {
             }
         } catch (Exception ignored) {
             // A profession hook must never break auctions
+        }
+    }
+
+    /**
+     * A player killed a mob.
+     *
+     * <p>Spec 62: 100 mobs killed by the player towards Soldier level-up.
+     */
+    public static void onMobKilled(ServerPlayer player, LivingEntity victim) {
+        if (player == null || victim == null) return;
+        try {
+            EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+            if (!EconomyConfig.get().professions.enabled) return;
+
+            if (eco.getProfessions().professionOf(player.getUUID()) != ProfessionId.SOLDIER) return;
+
+            if (SoldierEffects.isQualifyingMob(victim)) {
+                award(eco, player);
+            }
+        } catch (Exception ignored) {
+            // A profession hook must never break entity death
         }
     }
 }

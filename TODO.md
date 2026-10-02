@@ -853,21 +853,12 @@ no framework changes.
 ---
 
 ### Phase 8 — Soldier
-- **P8-T1 — Level-up tracking (spec 62).** 100 mobs killed **by the player** (not deaths). Use the P0-T3-verified
-  death event and check the killer.
-- **P8-T2 — `Sắt được tôi thế đấy` (spec 63).** −5 % damage taken / +5 % damage dealt (Apprentice),
-  ±15 % (Master). Use the P0-T3-verified damage hooks — attribute modifiers are **not** sufficient for
-  "damage taken", which covers falls, fire, void, etc. Document the chosen hook.
-- **P8-T3 — `Andrenaline` (spec 65).** **Master only.** On receiving a negative effect, halve the duration of
-  the player's currently active negative effects, but only if the *first* negative effect was received less
-  than 4 s ago; afterwards a 5-min cooldown blocks re-activation. Automatic, never manual.
-  Implement with a single "first negative effect at" timestamp per player plus the 4 s window check — the
-  window semantics are subtle and must be unit-tested against the wording.
-- **P8-T4 — Soldier tests.** Player kills only; both damage percentages at both levels; the 4 s window,
-  the 5-min cooldown, and that Master-only gating holds.
+- **P8-T1 — Level-up tracking (spec 62).** ✅ **DONE** — 100 mobs killed by the player tracked in `ProfessionCombatMixin#economycraft$onDie` via `ProfessionHooks.onMobKilled(ServerPlayer, LivingEntity)`. Excludes players and non-monster entities via `SoldierEffects.isQualifyingMob`. Promotes to Master upon reaching 100 kills.
+- **P8-T2 — `Sắt được tôi thế đấy` (spec 63).** ✅ **DONE** — −5 % damage taken / +5 % damage dealt (Apprentice), ±15 % (Master), rust-scaled by 0.5. Hooked via `ProfessionCombatMixin#economycraft$modifyHurtServerDamage` targeting `LivingEntity#hurtServer(ServerLevel, DamageSource, float)` with `@ModifyVariable` on `amount`.
+- **P8-T3 — `Andrenaline` (spec 65).** ✅ **DONE** — Master only. On receiving a harmful effect (`MobEffectCategory.HARMFUL`), halves duration of incoming and currently active negative effects if inside a 4 s window from the first negative effect; afterwards enters 5-minute cooldown blocking re-activation. Hooked via `ProfessionCombatMixin#economycraft$modifyIncomingEffect` on `LivingEntity#addEffect`.
+- **P8-T4 — Soldier tests.** ✅ **DONE** — 7 unit tests in `SoldierEffectsTest` covering mob kill counting, Master promotion at 100 kills, rust progress lockout, damage multipliers at both levels, rust halving, Adrenaline duration calculation, Master gating, and the 4 exit criteria scenarios.
 
-**Exit criteria:** `Andrenaline`'s window logic is covered by at least four tests (in-window, out-of-window,
-post-cooldown, second effect inside the same window).
+**Exit criteria:** ✅ **MET** — `Andrenaline`'s window logic is covered by the 4 required test cases (in-window, second effect inside same window, out-of-window during 5-min cooldown, post-cooldown); all 270 tests pass; both Fabric and NeoForge compile cleanly.
 
 ---
 

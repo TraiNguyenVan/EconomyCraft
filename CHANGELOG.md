@@ -5,8 +5,8 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased — Faction & Profession System
 
-Planning is tracked in `TODO.md`. **Phases 3, 4, 5, 6, and 7 have landed gameplay behaviour**; Phases 0–2 were pure
-infrastructure and shipped with none. The baseline is now 263 passing tests on 26.3, both loaders green.
+Planning is tracked in `TODO.md`. **Phases 3, 4, 5, 6, 7, and 8 have landed gameplay behaviour**; Phases 0–2 were pure
+infrastructure and shipped with none. The baseline is now 270 passing tests on 26.3, both loaders green.
 
 ### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
@@ -77,8 +77,13 @@ infrastructure and shipped with none. The baseline is now 263 passing tests on 2
 - **Merchant `Lưỡi không xương`** — 5% (Apprentice) / 15% (Master) pre-tax discount applied centrally through `TaxPolicy` to auction purchases, player transfers (`/pay`), player orders, and villager trades via `specialPriceDiff`. Halved when rusty.
 - **Villager trade economy** — custom villager trading interface (`/eco villager` or `/villager`) allowing direct purchase and sale of goods for server currency, integrated with `TaxPolicy` and `PriceRegistry` pricing with emerald fallbacks.
 
+### Added (Phase 8 — Soldier)
+- **Soldier progression** — 100 mob kills by the player (excluding players and passive mobs) tracked via `LivingEntity.die` and `ProfessionHooks.onMobKilled`.
+- **Soldier `Sắt được tôi thế đấy`** — −5% damage taken / +5% damage dealt (Apprentice), ±15% (Master), scaled by 0.5 when rusty. Applied server-side via `LivingEntity.hurtServer` mixin with `@ModifyVariable` on damage amount.
+- **Soldier `Andrenaline`** — Master only: on receiving any harmful status effect (`MobEffectCategory.HARMFUL`), halves duration of incoming and active negative effects if within 4 s of the first negative effect, followed by a 5-minute cooldown. Intercepted via `LivingEntity.addEffect`.
+
 ### Known gaps
-- Soldier has its hooks, config and progress counters in place, but **no effects yet** — that is Phase 8.
+- All five professions (Builder, Farmer, Miner, Merchant, Soldier) are complete! Faction-specific non-claim behaviours are Phase 9, and claim-dependent faction mechanics are Phase 10.
 
 ### Design decisions taken after the spec
 - **Builder reach** (`TODO.md` D11, corrected): the previous conclusion that a server-side mod cannot extend
