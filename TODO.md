@@ -386,9 +386,7 @@ New data files: `online_time.json`, `cooldowns.json`, `parties.json`, `professio
   two files on purpose, so "one clock disturbing the other" cannot happen by construction.
 - `remainingCooldown(UUID)` takes the configured hours as a parameter rather than reading config inside, keeping
   both stores free of hidden config reads and the values testable without a loaded config.
-- `everMastered` is one boolean plus `masteredProfessionLeftBehind` rather than a set of professions. For the
-  player's *current* profession the two models produce identical answers, including "mastered two jobs, neither
-  one is rusty" — see `ProfessionStoreTest`. `masteredAt` was dropped: nothing displays it yet.
+- `masteredProfessions` is a persistent `Set<ProfessionId>` tracking every profession the player has ever reached Master at, paired with a `rusted` boolean for the current profession. Returning to any previously mastered job restores Master effects with the 45-min online rust penalty, while unmastered jobs start fresh as Apprentice.
 - Clamping is covered by a dedicated `TagConfigClampTest` rather than inside `EconomyConfigMergeTest`, which
   stays about the merge mechanism.
 - The Merchant's two level-up counters are exposed as `recordVillagerTrade` / `recordAuctionPurchase`, and
@@ -626,9 +624,7 @@ New data files: `online_time.json`, `cooldowns.json`, `parties.json`, `professio
   two files on purpose, so "one clock disturbing the other" cannot happen by construction.
 - `remainingCooldown(UUID)` takes the configured hours as a parameter rather than reading config inside, keeping
   both stores free of hidden config reads and the values testable without a loaded config.
-- `everMastered` is one boolean plus `masteredProfessionLeftBehind` rather than a set of professions. For the
-  player's *current* profession the two models produce identical answers, including "mastered two jobs, neither
-  one is rusty" — see `ProfessionStoreTest`. `masteredAt` was dropped: nothing displays it yet.
+- `masteredProfessions` is a persistent `Set<ProfessionId>` tracking every profession the player has ever reached Master at, paired with a `rusted` boolean for the current profession. Returning to any previously mastered job restores Master effects with the 45-min online rust penalty, while unmastered jobs start fresh as Apprentice.
 - Clamping is covered by a dedicated `TagConfigClampTest` rather than inside `EconomyConfigMergeTest`, which
   stays about the merge mechanism.
 - The Merchant's two level-up counters are exposed as `recordVillagerTrade` / `recordAuctionPurchase`, and

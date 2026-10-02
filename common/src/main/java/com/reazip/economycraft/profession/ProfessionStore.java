@@ -13,7 +13,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -21,21 +23,12 @@ import java.util.UUID;
  *
  * <h2>What is stored, and what is derived</h2>
  *
- * <p>Five fields per player, and the third state is deliberately not one of them:
- *
  * <ul>
- *   <li><strong>Apprentice</strong> — a fresh choice.</li>
- *   <li><strong>Master</strong> — {@code everMastered}, reached without switching away.</li>
- *   <li><strong>Rusted</strong> ({@code Lụt nghề}) — never written to disk. It is
- *       {@link ProfessionProgress#isRusted()}: currently at a profession that was left while mastered and has
- *       now come back. Persisting the word "rusted" would mean storing the answer to a question whose inputs
- *       are already on disk, and then keeping the two in agreement through every code path that could touch
- *       either.</li>
+ *   <li><strong>Apprentice</strong> — a fresh choice or an unmastered profession.</li>
+ *   <li><strong>Master</strong> — any profession in {@link ProfessionProgress#masteredProfessions}.</li>
+ *   <li><strong>Rusted</strong> ({@code Lụt nghề}) — returning to any previously mastered profession.
+ *       Takes 45 minutes of online play to clear rust and restore full Master effects.</li>
  * </ul>
- *
- * <p>That is what {@link ProfessionProgress#masteredProfessionLeftBehind} is: a single field carrying "the
- * profession the player walked away from at Master", which is the entire input the rust rule needs. Losing it
- * would silently make every returning player a non-rusted Master, so it is written and read with the rest.
  *
  * <p>Like {@code FactionStore}, this writes nothing until a choice is made, and it keeps its own 30-hour
  * {@code selectedAtEpochMillis} so changing party never disturbs it (D17).
@@ -62,14 +55,10 @@ public final class ProfessionStore {
         public ProfessionId professionId;
         /** Progress towards the current profession's level-up. Reset on every choice. */
         public long progress;
-        /** Whether the player has reached Master at {@link #professionId}. */
-        public boolean everMastered;
-        /**
-         * The profession the player left while at Master, or {@code null}.
-         *
-         * <p>Returning to it is what makes the player rusty until the 45-minute online timer fires.
-         */
-        public ProfessionId masteredProfessionLeftBehind;
+        /** All professions the player has ever reached Master at. Persisted permanently. */
+        public Set<ProfessionId> masteredProfessions = new HashSet<>();
+        /** Whether the player is currently serving rust on their current profession. */
+        public boolean rusted;
         /** Wall-clock instant of the current choice; drives the 30-hour lockout. */
         public long selectedAtEpochMillis;
         /** Online time in ms spent rusty, feeding the {@code Lụt nghề} timer. */
@@ -77,19 +66,27 @@ public final class ProfessionStore {
         /** Per-villager trade counts for the Merchant's cap. Cleared when the profession changes. */
         public Map<String, Long> tradesPerVillager = new HashMap<>();
 
+        // Legacy fields for JSON deserialization backwards compatibility:
+        public Boolean everMastered;
+        public ProfessionId masteredProfessionLeftBehind;
+
         public boolean hasProfession() {
             return professionId != null;
+        }
+
+        public boolean isCurrentMastered() {
+            return professionId != null && masteredProfessions != null && masteredProfessions.contains(professionId);
         }
 
         /** The persisted level. {@link ProfessionLevel#RUSTED} never comes from here — see the class docs. */
         public ProfessionLevel storedLevel() {
             if (professionId == null) return null;
-            return everMastered ? ProfessionLevel.MASTER : ProfessionLevel.APPRENTICE;
+            return isCurrentMastered() ? ProfessionLevel.MASTER : ProfessionLevel.APPRENTICE;
         }
 
-        /** Derived, never stored. */
+        /** Derived. */
         public boolean isRusted() {
-            return professionId != null && everMastered && professionId == masteredProfessionLeftBehind;
+            return professionId != null && rusted && isCurrentMastered();
         }
     }
 
@@ -156,9 +153,9 @@ public final class ProfessionStore {
      * <ul>
      *   <li>First choice — a clean Apprentice.</li>
      *   <li>Same profession — ignored, so a double-clicked confirm button cannot reset a player's progress.</li>
-     *   <li>Different profession — if the player leaves at Master, that profession is remembered as
-     *       {@link ProfessionProgress#masteredProfessionLeftBehind}; coming back to it later starts rusty.
-     *       Moving to a different profession always starts a fresh Apprentice.</li>
+     *   <li>Different profession — if returning to a profession the player previously mastered, they become
+     *       {@link ProfessionLevel#RUSTED} ("Lụt nghề") and must spend 45 minutes online to recover full effects.
+     *       If the profession has never been mastered, they start fresh as an Apprentice ("Tập sự").</li>
      * </ul>
      */
     public void select(UUID player, ProfessionId profession) {
@@ -167,18 +164,15 @@ public final class ProfessionStore {
         ProfessionProgress progress = progressOf(player);
         if (progress.professionId == profession) return;
 
-        if (progress.professionId != null && progress.everMastered
-                && progress.masteredProfessionLeftBehind == null) {
-            progress.masteredProfessionLeftBehind = progress.professionId;
-        }
-
-        // Returning to the profession that was left at Master restores Master — and with it the rust rule.
-        progress.everMastered = profession == progress.masteredProfessionLeftBehind;
         progress.professionId = profession;
         progress.progress = 0L;
         progress.rustStartedAtOnlineMs = 0L;
         progress.selectedAtEpochMillis = clock.millis();
         progress.tradesPerVillager.clear();
+
+        // Returning to any previously mastered profession makes the player rusty ("Lụt nghề").
+        // Otherwise they start as a fresh Apprentice ("Tập sự").
+        progress.rusted = progress.masteredProfessions.contains(profession);
         dirty = true;
     }
 
@@ -197,7 +191,7 @@ public final class ProfessionStore {
         if (player == null || amount <= 0) return false;
         ProfessionProgress progress = progressByPlayer.get(player);
         if (progress == null || progress.professionId == null) return false;
-        if (progress.professionId == ProfessionId.MERCHANT || progress.isRusted() || progress.everMastered) {
+        if (progress.professionId == ProfessionId.MERCHANT || progress.isRusted() || progress.isCurrentMastered()) {
             return false;
         }
 
@@ -207,7 +201,8 @@ public final class ProfessionStore {
         int needed = levelUpCountFor(progress.professionId);
         if (progress.progress >= needed) {
             progress.progress = needed;
-            progress.everMastered = true;
+            progress.masteredProfessions.add(progress.professionId);
+            progress.rusted = false;
             return true;
         }
         return false;
@@ -240,7 +235,7 @@ public final class ProfessionStore {
     public boolean recordVillagerTrade(UUID player, String villagerId) {
         ProfessionProgress progress = progressByPlayer.get(player);
         if (progress == null || progress.professionId != ProfessionId.MERCHANT || villagerId == null) return false;
-        if (progress.isRusted() || progress.everMastered) return false;
+        if (progress.isRusted() || progress.isCurrentMastered()) return false;
 
         int cap = com.reazip.economycraft.EconomyConfig.get().professions.merchant.maxTradesPerVillager;
         long count = progress.tradesPerVillager.getOrDefault(villagerId, 0L);
@@ -278,7 +273,7 @@ public final class ProfessionStore {
     public boolean recordAuctionPurchase(UUID player) {
         ProfessionProgress progress = progressByPlayer.get(player);
         if (progress == null || progress.professionId != ProfessionId.MERCHANT) return false;
-        if (progress.isRusted() || progress.everMastered) return false;
+        if (progress.isRusted() || progress.isCurrentMastered()) return false;
 
         int cap = com.reazip.economycraft.EconomyConfig.get().professions.merchant.auctionPurchaseCount;
         if (progress.progress >= cap) return false;
@@ -297,13 +292,14 @@ public final class ProfessionStore {
      */
     public boolean checkMerchantPromotion(UUID player, ProfessionProgress progress) {
         if (progress == null || progress.professionId != ProfessionId.MERCHANT) return false;
-        if (progress.isRusted() || progress.everMastered) return false;
+        if (progress.isRusted() || progress.isCurrentMastered()) return false;
 
         int neededTrades = com.reazip.economycraft.EconomyConfig.get().professions.merchant.villagerTradeCount;
         int neededPurchases = com.reazip.economycraft.EconomyConfig.get().professions.merchant.auctionPurchaseCount;
 
         if (totalVillagerTrades(progress) >= neededTrades && progress.progress >= neededPurchases) {
-            progress.everMastered = true;
+            progress.masteredProfessions.add(ProfessionId.MERCHANT);
+            progress.rusted = false;
             dirty = true;
             return true;
         }
@@ -329,7 +325,7 @@ public final class ProfessionStore {
 
         if (progress.rustStartedAtOnlineMs < thresholdMinutes * 60_000L) return false;
 
-        progress.masteredProfessionLeftBehind = null;
+        progress.rusted = false;
         progress.rustStartedAtOnlineMs = 0L;
         return true;
     }
@@ -345,6 +341,12 @@ public final class ProfessionStore {
         if (player != null && progressByPlayer.remove(player) != null) {
             dirty = true;
         }
+    }
+
+    /** Whether the player has ever achieved Master in the given profession. */
+    public boolean hasMastered(UUID player, ProfessionId profession) {
+        ProfessionProgress progress = progressByPlayer.get(player);
+        return progress != null && progress.masteredProfessions != null && progress.masteredProfessions.contains(profession);
     }
 
     /** Milliseconds until the player may choose a different profession; {@code 0} when they may choose now. */
@@ -386,6 +388,19 @@ public final class ProfessionStore {
                 if (progress.professionId == null) {
                     LOGGER.warn("[EconomyCraft] A saved profession record has no readable profession; the player " +
                             "is treated as having no profession until the id is valid again.");
+                }
+                if (progress.masteredProfessions == null) {
+                    progress.masteredProfessions = new HashSet<>();
+                }
+                // Backwards compatibility migration from legacy fields:
+                if (Boolean.TRUE.equals(progress.everMastered) && progress.professionId != null) {
+                    progress.masteredProfessions.add(progress.professionId);
+                }
+                if (progress.masteredProfessionLeftBehind != null) {
+                    progress.masteredProfessions.add(progress.masteredProfessionLeftBehind);
+                    if (progress.professionId == progress.masteredProfessionLeftBehind) {
+                        progress.rusted = true;
+                    }
                 }
                 if (progress.tradesPerVillager == null) progress.tradesPerVillager = new HashMap<>();
                 progressByPlayer.put(entry.getKey(), progress);

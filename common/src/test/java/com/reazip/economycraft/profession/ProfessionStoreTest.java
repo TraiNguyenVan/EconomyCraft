@@ -210,7 +210,7 @@ class ProfessionStoreTest {
     }
 
     @Test
-    void masterOfTwoDifferentProfessionsDoesNotRust() {
+    void masterOfTwoDifferentProfessionsDoesNotRustImmediately() {
         ProfessionStore store = store();
         master(store, ALICE, ProfessionId.BUILDER);
 
@@ -218,6 +218,38 @@ class ProfessionStoreTest {
         master(store, ALICE, ProfessionId.MINER);
 
         assertEquals(ProfessionLevel.MASTER, store.levelOf(ALICE), "the Miner was mastered here, not merely returned to");
+        assertTrue(store.hasMastered(ALICE, ProfessionId.BUILDER));
+        assertTrue(store.hasMastered(ALICE, ProfessionId.MINER));
+        assertFalse(store.hasMastered(ALICE, ProfessionId.FARMER));
+    }
+
+    @Test
+    void multipleMasteredProfessionsArePermanentlyRememberedAndRustOnReturn() {
+        ProfessionStore store = store();
+        master(store, ALICE, ProfessionId.BUILDER);
+        store.select(ALICE, ProfessionId.MINER);
+        master(store, ALICE, ProfessionId.MINER);
+
+        // Returning to Builder triggers rust
+        store.select(ALICE, ProfessionId.BUILDER);
+        assertEquals(ProfessionLevel.RUSTED, store.levelOf(ALICE));
+
+        // Returning to Miner triggers rust
+        store.select(ALICE, ProfessionId.MINER);
+        assertEquals(ProfessionLevel.RUSTED, store.levelOf(ALICE));
+
+        // Switching to Farmer (never mastered before) gives Apprentice (Tập sự, fresh new)
+        store.select(ALICE, ProfessionId.FARMER);
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE));
+        assertEquals(0L, store.progressOf(ALICE).progress);
+
+        // Making progress in Farmer without mastering, then switching away and back resets to fresh Apprentice
+        store.addProgress(ALICE, 50L);
+        assertEquals(50L, store.progressOf(ALICE).progress);
+        store.select(ALICE, ProfessionId.BUILDER);
+        store.select(ALICE, ProfessionId.FARMER);
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE), "unmastered job returns as fresh Apprentice");
+        assertEquals(0L, store.progressOf(ALICE).progress, "progress is reset to 0 just like fresh new");
     }
 
     @Test
