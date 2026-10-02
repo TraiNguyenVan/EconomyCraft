@@ -381,5 +381,9 @@ public final class IdentifierCompat {
         public String asString() {
             return namespace + ":" + path;
         }
+        
+        public Object mcId() {
+            return handle;
+        }
     }
 }
