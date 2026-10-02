@@ -1,6 +1,7 @@
 # EconomyCraft — Faction & Profession System (Implementation Plan)
 
-**Status:** Phase 2 complete (data & save layer). No gameplay behaviour yet.
+**Status:** Phase 4 complete (profession framework + Builder end-to-end). Phase 5 (Farmer) has its hooks and
+config in place but no effects yet.
 **Spec:** `/home/capcap/Git/Vibe code plugin.md` (67 lines, Vietnamese) — the single source of truth for *what*.
 **This file:** the source of truth for *how and in what order*.
 
@@ -193,7 +194,7 @@ Blocking decisions are marked 🔴. Nothing in the blocking phase may start unti
   | # | Need | 26.3 target | Status |
   |---|---|---|---|
   | 1 | Builder: block placed | `BlockItem#place`, `ServerPlayerGameMode#useItemOn` | ✅ |
-  | 2 | Progress / Haste on break | `ServerPlayerGameMode#destroyAndAck(BlockPos,int,String)` | ✅ (note: not `destroyBlock`) |
+  | 2 | Progress / Haste on break | `ServerPlayerGameMode#destroyAndAck(BlockPos,int,String)` | ✅ (note: not `destroyBlock`) — ⚠️ **re-verified in Phase 4; the parenthetical was too strong.** The live path is `handleBlockBreakAction` → `destroyAndAck` → `destroyBlock`, and `destroyBlock` is called from **nowhere else in the jar** (the identically-named `Level#destroyBlock` is a different method, called by ~30 block classes). So `destroyBlock` is an equally valid target and a *better* one for counting: it returns the break's success boolean and still has the pre-break `BlockState` in scope, which is the only way to know a crop was mature or a stone was an ore. Haste uses `incrementDestroyProgress`, whose sole caller is `ServerPlayerGameMode#tick` under the `isDestroyingBlock` guard ⇒ **it fires every tick the player is mining, not per packet.** |
   | 3 | Farmer: crop growth | `CropBlock#advanceStage`, `BonemealableBlock#performBonemeal` | ✅ |
   | 4 | Farmer: breeding | `Animal` (`getBreedIfReady`/`canBreed`/`loveTick`), `BreedGoal` | ✅ — ⚠️ **`AnimalBreed` does not exist**; it is `BreedGoal` |
   | 5 | Farmer: baby growth | **`net.minecraft.world.entity.AgeableMob`** | ⚠️ **MOVED** — was `…entity.mob.AgeableMob` in ≤1.21.11. `tickAge`/`getAge`/`setAge` all present |
@@ -746,23 +747,33 @@ P3-T2. And do not re-litigate D11 or D21 by re-reading the surface names: both w
 *Goal: the shared profession machinery, then the first complete job end-to-end as the template.*
 
 - **P4-T1 — `profession/ProfessionLevel.java` + `ProfessionState.java`.**
+  ✅ **DONE** — `ProfessionLevel` (2 persisted states + the derived, never-written `RUSTED`), `ProfessionState`,
+  `ProfessionStore` persistence and rust via `OnlineTimeService`.
   `APPRENTICE` → `MASTER` on reaching the level-up count; job change resets to `APPRENTICE` with `count = 0`
   (unless the player has a prior `MASTER` record → `RUSTED`, per D9). Rust = effects × 0.5 while the
   45-min **online** timer from `OnlineTimeService` has not fired, then back to `MASTER`.
 - **P4-T2 — `profession/ProfessionEffects.java` — the one place that reads level.**
+  ✅ **DONE** — `resolve`/`resolveMultiplier` is the only reader of level; `applyPersistent` splits the
+  player-carried effects (reach) from the conditioned ones (Haste, in `ProfessionHaste`).
   `apprenticeEffect(UUID, profession)`, `masterEffect(UUID, profession)`, and
   `resolve(UUID, profession)` returning the effective multiplier (1.0, the apprentice value, the master
   value, or `rust × 0.5` blended). All professions must read their numbers **only** through this, so the
   rust rule cannot be forgotten in one job. Status-effect applications go through
   `ServerPlayer#addEffect` with an explicit duration each time the source fires — never a permanent effect
   that would ignore the rust state.
-- **P4-T3 — Selection & the 30 h lockout.** `/eco job` (menu), `/eco job <profession>`, `/eco job leave`.
+- **P4-T3 — Selection & the 30 h lockout.**
+  ✅ **DONE** — `/eco job` (menu), `/eco job <profession>`, `/eco job leave`; lockout checked in the one place
+  party and job share it, ops bypass. `/eco job` (menu), `/eco job <profession>`, `/eco job leave`.
   Enforce the 30 h wall-clock lockout from `CooldownService` after **any** party or profession change
   (spec: after choosing a Party/profession, neither can change for 30 h). Show remaining time. Ops bypass.
   Must be checked in **one** place so party and job share it.
-- **P4-T4 — Builder: level-up tracking (spec 41).** 1000 building-block placements counted via the
+- **P4-T4 — Builder: level-up tracking (spec 41).**
+  ✅ **DONE** — counted in `ProfessionHooks.onBlockPlaced` via the loader mixins on `BlockItem#place`
+  (Fabric API has no placement event, per D2's P0-T3 row 1), filtered by `BlockTags.isBuildingBlock`. 1000 building-block placements counted via the
   P0-T3-verified place hook, filtered by `BlockTags.isBuildingBlock`. Count from `BlockTags`, not a literal list.
-- **P4-T5 — Builder: `Thành thạo` reach (spec 44), per D11 — an attribute modifier, not a hook.** No mixin is
+- **P4-T5 — Builder: `Thành thạo` reach (spec 44), per D11 — an attribute modifier, not a hook.**
+  ✅ **DONE** — two ids, transient modifiers, remove-then-add on a level change, re-applied on join; rust
+  scales the bonus rather than clearing it. The documented side effect below stands. No mixin is
   needed and no client mod is needed. Take the player's `Attributes.BLOCK_INTERACTION_RANGE` instance and add
   one modifier per level: `new AttributeModifier(Identifier, amount, Operation.ADD_VALUE)` with
   `reach_bonus_apprentice_blocks` (1.0) or `reach_bonus_master_blocks` (2.0), so the base 4.5 becomes 5.5 / 6.5.
@@ -779,14 +790,22 @@ P3-T2. And do not re-litigate D11 or D21 by re-reading the surface names: both w
   deliberately **not** implemented: a modifier cannot be conditional on held item, and hiding reach behind an
   item check would break the reach the moment the block is placed, since the held item is the block that was
   just placed.
-- **P4-T6 — Builder: `Sửa lỗi` Haste I (spec 45), per D20.** **Conditional, not a timed grant:** Haste I
+- **P4-T6 — Builder: `Sửa lỗi` Haste I (spec 45), per D20.**
+  ✅ **DONE** — `ProfessionHaste`: granted from the destroy-progress path only for a block in the trigger
+  set, refreshed by `haste_refresh_seconds`, and expired by a per-tick `expireStale` pass that removes it on the
+  first tick the player is not mining. Shared with Miner by design (P6-T2 reuses it). Both mandatory tests are in
+  `ProfessionHasteTest`, which asserts the decisions; the `addEffect`/`removeEffect` calls still need a
+  gametest harness. **Conditional, not a timed grant:** Haste I
   applies *only* while the player is breaking a block in `BlockTags.triggersBuilderHaste` — stone, cobblestone,
   dirt and every building block — and must be **removed on the first tick they are not**. The break hook from
   P0-T3 gives the position and the block; re-apply each tick while the target qualifies, clear otherwise, and
   use `haste_refresh_seconds` (1 s) purely as the anti-flicker window. Two tests are mandatory: breaking a
   non-trigger block leaves no Haste on the player, and stopping mid-block removes it. Do **not** grant it on
   break completion alone — that is what produced the "permanently Hasted Builder" reading.
-- **P4-T7 — Builder tests.** Progress reaches 1000 → `MASTER`; the buff tier changes with level; rust halves
+- **P4-T7 — Builder tests.**
+  ✅ **DONE, with one gap recorded** — promotion, per-level bonus, rust halving, job-change reset and the
+  30 h lockout are covered; the Haste pair is covered by `ProfessionHasteTest`. ⚠️ **Still uncovered:** asserting
+  `blockInteractionRange()` itself on a real player, per the last line of this task. Needs the gametest harness. Progress reaches 1000 → `MASTER`; the buff tier changes with level; rust halves
   it; job change resets progress; the 30 h lockout blocks a switch. **Reach specifically:** the modifier is
   present at the right amount per level, absent with no Builder profession, and removing it returns the value to
   the vanilla 4.5 — assert on `blockInteractionRange()`, not on the modifier list, since that is what the client

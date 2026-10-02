@@ -5,8 +5,8 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased — Faction & Profession System
 
-Planning is tracked in `TODO.md`. **No gameplay behaviour has landed yet**; the baseline is 192 passing tests
-on 26.3, both loaders green. Phases 0–2 are pure infrastructure and ship with zero behaviour change.
+Planning is tracked in `TODO.md`. **Phases 3 and 4 have landed gameplay behaviour**; Phases 0–2 were pure
+infrastructure and shipped with none. The baseline is now 227 passing tests on 26.3, both loaders green.
 
 ### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
@@ -14,7 +14,7 @@ on 26.3, both loaders green. Phases 0–2 are pure infrastructure and ship with 
 - Profession tags: Builder, Farmer, Miner, Merchant, Soldier.
 - Online-time accumulator (`OnlineTimeService`), wall-clock cooldown service (`CooldownService`), and the
   `FactionStore` / `ProfessionStore` pair, persisted to `online_time.json`, `cooldowns.json`, `parties.json` and
-  `professions.json`. Data only — no effect reads them yet.
+  `professions.json`. Data only when Phases 0–2 landed; Phases 3–4 added the readers.
 - `BlockTags`: the config-driven building-block, ore, double-value-ore and Haste-trigger sets, with tags
   resolved lazily so a `/reload` is honoured and a bad entry is dropped with a warning instead of failing.
 - `factions` and `professions` config sections, with the spec's defaults and clamping for every key.
@@ -24,7 +24,7 @@ on 26.3, both loaders green. Phases 0–2 are pure infrastructure and ship with 
 ### Changed
 - Config merge now covers nested sections, so an existing server gains the new keys without losing any
   hand-tuned values (`EconomyConfigMergeTest`).
-- Nothing user-visible. The only behavioural changes in this phase are the four new data files existing at all.
+- Phases 3–4 are user-visible: see the Phase 3 and Phase 4 entries below. Phases 0–2 changed no behaviour.
 
 ### Fixed
 - A hand-edited `"factions": null` (or `"container_lock": null`) no longer leaves the section null; it is rebuilt
@@ -42,7 +42,26 @@ on 26.3, both loaders green. Phases 0–2 are pure infrastructure and ship with 
 - Party and profession tags now render on a vanilla client, with no client mod: the full coloured word in the tab
   list (`[Communism][Builder] Steve`), the icons above the head (`[☭][⚒] Steve`) and in front of the player's own
   chat. Colours come from the existing per-faction and per-profession config keys.
-- `/tag`-driven surfaces are not in this entry yet; only the rendering layer is.
+- `/tag` opens the selection menu, and `/tag <player>` shows another player's tags read-only. Choosing a Party or a
+  Profession goes through an explicit confirmation that states the 30-hour lockout before you commit, and a
+  locked option shows its remaining time rather than only refusing the click.
+
+### Added (Phase 4 — profession framework + Builder)
+- `/eco job` opens the profession menu; `/eco job <profession>` and `/eco job leave` work directly from the
+  command line. Choosing a job starts the spec's 30-hour lockout, shown as remaining time; ops bypass it.
+- **Builder `Thành thạo`** — placement progress toward Master at 1000 building blocks placed, and a reach bonus
+  of +1 block (Apprentice) / +2 (Master) over vanilla's 4.5.
+- **Builder `Sửa lỗi`** — Haste I while breaking a trigger block, removed the first tick they are not.
+
+### Known gaps (Phase 4)
+- ⚠️ **The reach bonus widens *block interaction* range, not building range.** A Master Builder also reaches 6.5
+  blocks to open a chest, read a sign or click an item frame. This is inherent to how the effect is
+  implemented (one vanilla attribute both sides already read) and is intended, but it is a real side effect.
+- The spec's "only while holding a building block" is deliberately **not** implemented: an attribute modifier
+  cannot be conditional on the held item, and gating it on one would kill the reach at the exact moment a
+  block is placed, because the held item is then the block that was just placed.
+- Farmer, Miner, Merchant and Soldier have their hooks, config and progress counters in place, but **no
+  effects yet** — those are Phases 5–8.
 
 ### Design decisions taken after the spec
 - **Builder reach** (`TODO.md` D11, corrected): the previous conclusion that a server-side mod cannot extend

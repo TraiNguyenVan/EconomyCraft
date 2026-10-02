@@ -8,7 +8,10 @@
     "TollBasePressurePlateMixin",
     "TollHopperMixin",
     "TabListDisplayNameMixin",
-    "ChatIconMixin"
+    "ChatIconMixin",
+    "ProfessionPlaceMixin",
+    "ProfessionHasteMixin",
+    "ProfessionBreedMixin"
   ],
   "injectors": {
     "defaultRequire": 1

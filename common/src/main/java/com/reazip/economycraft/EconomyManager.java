@@ -18,6 +18,7 @@ import com.reazip.economycraft.profession.BlockTags;
 import com.reazip.economycraft.profession.ProfessionId;
 import com.reazip.economycraft.profession.ProfessionLevel;
 import com.reazip.economycraft.profession.ProfessionStore;
+import com.reazip.economycraft.profession.ProfessionEffects;
 import com.reazip.economycraft.tag.TagDisplayService;
 import com.reazip.economycraft.time.CooldownService;
 import com.reazip.economycraft.time.OnlineTimeService;
@@ -866,7 +867,11 @@ public class EconomyManager {
         int rustMinutes = EconomyConfig.get().professions.rustOnlineMinutes;
         for (UUID player : onlineScratch) {
             try {
-                professions.completeRustIfEarned(player, credited, rustMinutes);
+                if (!professions.completeRustIfEarned(player, credited, rustMinutes)) continue;
+                // The level just moved, so any persistent effect derived from it has to be re-applied. Only the
+                // players whose timer actually completed do any work.
+                ServerPlayer online = server.getPlayerList().getPlayer(player);
+                if (online != null) ProfessionEffects.applyPersistent(online);
             } catch (Exception e) {
                 LOGGER.error("[EconomyCraft] Failed to advance the rust timer for {}", player, e);
             }

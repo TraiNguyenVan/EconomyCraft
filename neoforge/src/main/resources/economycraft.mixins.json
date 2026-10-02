@@ -5,7 +5,11 @@
   "compatibilityLevel": "JAVA_25",
   "mixins": [
     "TabListDisplayNameMixin",
-    "ChatIconMixin"
+    "ChatIconMixin",
+    "ProfessionPlaceMixin",
+    "ProfessionBreakMixin",
+    "ProfessionHasteMixin",
+    "ProfessionBreedMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -9,6 +9,8 @@ import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.ProfileCompat;
+import com.reazip.economycraft.profession.ProfessionHaste;
+import com.reazip.economycraft.profession.ProfessionEffects;
 import dev.architectury.event.events.common.CommandRegistrationEvent;
 import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.PlayerEvent;
@@ -61,6 +63,9 @@ public final class EconomyCraft {
 
     private static void onServerTick(MinecraftServer server) {
         TollHud.tick(server);
+        // D20's removal half: the break hook only fires on ticks where a mining packet arrived, so without this
+        // a player who stops mid-block would keep the bridged window's worth of Haste indefinitely.
+        ProfessionHaste.expireStale(server, server.getTickCount());
         try {
             EconomyCraft.getManager(server).runFiscalPassIfDue();
         } catch (Exception e) {
@@ -107,6 +112,9 @@ public final class EconomyCraft {
             eco.markActive(player.getUUID());
             eco.getTagDisplay().applyTo(player);
             eco.getNotifications().sendPending(player);
+            // A join is the one moment a Builder's reach is guaranteed missing: attribute instances are rebuilt
+            // per player, so a store entry saying "Master" with no modifier on them is a broken feature.
+            ProfessionEffects.applyPersistent(player);
 
             if (eco.getDeliveries().hasDeliveries(player.getUUID())) {
                 sendPrompt(player, "You have unclaimed items: ", "[Claim]", "/eco deliveries");
@@ -128,6 +136,8 @@ public final class EconomyCraft {
      * state, and a tag is derived from it.
      */
     private static void onPlayerQuit(ServerPlayer player) {
+        // Drop the Haste refresh bookkeeping; a reconnect starts clean rather than inheriting a stale window.
+        ProfessionHaste.forget(player.getUUID());
         try {
             EconomyManager eco = getManager(player.level().getServer());
             eco.getTagDisplay().forget(player);
