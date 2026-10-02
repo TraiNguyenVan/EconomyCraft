@@ -56,7 +56,7 @@ public final class EconomyCraftFabric implements ModInitializer {
             if (player instanceof ServerPlayer serverPlayer) {
                 // AFTER means the break already succeeded, and `state` is the pre-break one, which is the only
                 // way to know a crop was mature or a stone was an ore. Counting lives in common.
-                ProfessionHooks.onBlockBroken(serverPlayer, state);
+                ProfessionHooks.onBlockBroken(serverPlayer, pos, state);
             }
             TollManager manager = TollManager.of(serverLevel.getServer());
             String dimension = level.dimension().identifier().toString();

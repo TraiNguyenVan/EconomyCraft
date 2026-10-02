@@ -16,6 +16,7 @@ import com.reazip.economycraft.faction.FactionStore;
 import com.reazip.economycraft.fiscal.FiscalPass;
 import com.reazip.economycraft.profession.BlockTags;
 import com.reazip.economycraft.profession.FarmerEffects;
+import com.reazip.economycraft.profession.MinerEffects;
 import com.reazip.economycraft.profession.ProfessionId;
 import com.reazip.economycraft.profession.ProfessionLevel;
 import com.reazip.economycraft.profession.ProfessionStore;
@@ -866,6 +867,13 @@ public class EconomyManager {
         if (tickCount % 20 == 0) {
             for (ServerPlayer player : server.getPlayerList().getPlayers()) {
                 FarmerEffects.tickCropBoost(this, player);
+            }
+        }
+
+        // Miner lava contact check (spec 55: Bảo hộ lao động)
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (player.isInLava()) {
+                MinerEffects.onLavaContact(this, player);
             }
         }
 

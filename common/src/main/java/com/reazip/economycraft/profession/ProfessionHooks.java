@@ -3,6 +3,7 @@ package com.reazip.economycraft.profession;
 import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.animal.Animal;
@@ -94,6 +95,13 @@ public final class ProfessionHooks {
      * know a crop was mature or a stone was an ore.
      */
     public static void onBlockBroken(ServerPlayer player, BlockState broken) {
+        onBlockBroken(player, player != null ? player.blockPosition() : BlockPos.ZERO, broken);
+    }
+
+    /**
+     * A block was broken by a player at a specific world position.
+     */
+    public static void onBlockBroken(ServerPlayer player, BlockPos pos, BlockState broken) {
         if (player == null || broken == null) return;
         try {
             EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
@@ -106,6 +114,7 @@ public final class ProfessionHooks {
                 case MINER -> {
                     int worth = eco.getBlockTags().minerProgressFor(broken);
                     award(eco, player, worth);
+                    MinerEffects.applyDoubleOreDrop(eco, player, pos, broken);
                 }
                 case FARMER -> {
                     if (broken.getBlock() instanceof CropBlock crop && crop.isMaxAge(broken)) {

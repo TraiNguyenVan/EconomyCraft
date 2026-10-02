@@ -45,7 +45,7 @@ abstract class ProfessionBreakMixin {
         BlockState preBreak = economycraft$preBreak;
         economycraft$preBreak = null;
         if (preBreak != null && !preBreak.isAir()) {
-            ProfessionHooks.onBlockBroken(player, preBreak);
+            ProfessionHooks.onBlockBroken(player, pos, preBreak);
         }
     }
 }

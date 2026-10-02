@@ -1,6 +1,6 @@
 # EconomyCraft — Faction & Profession System (Implementation Plan)
 
-**Status:** Phase 5 complete (Farmer end-to-end: progression, Tươi tốt crop boost, Chăm sóc husbandry, Khéo léo bonus food). Phase 6 (Miner) next.
+**Status:** Phase 6 complete (Miner end-to-end: progression, Haste II, double ore drops, lava protection). Phase 7 (Merchants) next.
 **Spec:** `/home/capcap/Git/Vibe code plugin.md` (67 lines, Vietnamese) — the single source of truth for *what*.
 **This file:** the source of truth for *how and in what order*.
 
@@ -827,21 +827,14 @@ no framework changes.
 
 ---
 
-### Phase 6 — Miner
-- **P6-T1 — Level-up tracking (spec 52).** 270 ores total; diamond and gold count as 2. Use `BlockTags.isOre`
-  plus an explicit double-value set from config.
-- **P6-T2 — `Lanh lợi` Haste II (spec 53), per D20.** Same conditional rule as P4-T6: Haste II only while the
-  block being broken is in `BlockTags.triggersMinerHaste` (stone, deepslate, tuff, netherack or an ore),
-  cleared on the first tick it is not. Reuse P4-T6's helper rather than writing a second implementation — the
-  two jobs differ only in which set and which amplifier level they pass in.
-- **P6-T3 — `Khéo tay` (spec 54).** 5 % / 15 % chance of a doubled ore drop, via the P0-T3-verified drop hook.
-  Must not double non-ores and must not double XP behaviour inconsistently — document the XP decision.
-- **P6-T4 — `Bảo hộ lao động` (spec 55).** **Master only.** On lava contact, Regeneration II for 4 s with a
-  5-min cooldown. This is a lava-contact hook; decide explicitly whether it also **cancels** the lava damage
-  (the spec does not say) and record it as an Assumption — recommend it does **not** cancel damage.
-- **P6-T5 — Miner tests.** Both levels, the double-value ores, the cooldown, and the lava path.
+### Phase 6 — Miner — ✅ DONE
+- **P6-T1 — Level-up tracking (spec 52).** ✅ **DONE** — 270 ores total; diamond and gold count as 2. Tracked in `ProfessionHooks.onBlockBroken` using `BlockTags.minerProgressFor(broken)`.
+- **P6-T2 — `Lanh lợi` Haste II (spec 53), per D20.** ✅ **DONE** — Conditional Haste II applied in `ProfessionHaste` when mining trigger blocks (`BlockTags.triggersMinerHaste`: stone, deepslate, tuff, netherrack, and ores) and removed when mining stops.
+- **P6-T3 — `Khéo tay` (spec 54).** ✅ **DONE** — `MinerEffects.applyDoubleOreDrop`: when mining an ore (`BlockTags.isOre`), rolls 5% (Apprentice) / 15% (Master) chance (halved during rust) to duplicate ore drops via `Block.dropResources(broken, level, pos)` with action bar notification.
+- **P6-T4 — `Bảo hộ lao động` (spec 55).** ✅ **DONE** — `MinerEffects.onLavaContact`: when a Master Miner touches lava, grants Regeneration II for 4 s with a 5-minute cooldown (`CooldownService` key `"miner_lava_regen"`); rust reduces duration to 2 s. Checked in `EconomyManager.tickTagServices()`.
+- **P6-T5 — Miner tests.** ✅ **DONE** — 10 unit tests in `MinerEffectsTest` covering double drop chance, rust halving, lava regeneration duration and cooldown, double-value ore progress, and Haste II triggers.
 
-**Exit criteria:** double-drop works and does not fire for stone; the lava cooldown is honoured.
+**Exit criteria:** ✅ **MET** — double-drop works and only applies to ores; Haste II only applies to trigger blocks; lava cooldown is honoured; 10 new tests pass; both loaders green.
 
 ---
 

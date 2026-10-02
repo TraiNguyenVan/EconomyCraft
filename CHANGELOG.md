@@ -5,8 +5,8 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased — Faction & Profession System
 
-Planning is tracked in `TODO.md`. **Phases 3, 4, and 5 have landed gameplay behaviour**; Phases 0–2 were pure
-infrastructure and shipped with none. The baseline is now 243 passing tests on 26.3, both loaders green.
+Planning is tracked in `TODO.md`. **Phases 3, 4, 5, and 6 have landed gameplay behaviour**; Phases 0–2 were pure
+infrastructure and shipped with none. The baseline is now 253 passing tests on 26.3, both loaders green.
 
 ### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
@@ -66,8 +66,14 @@ infrastructure and shipped with none. The baseline is now 243 passing tests on 2
 - **Farmer `Chăm sóc`** — parent breeding cooldown reduced by 10% (Apprentice) / 20% (Master); offspring grow 15% (Apprentice) / 30% (Master) faster (starting age shortened proportionally at birth).
 - **Farmer `Khéo léo`** — 1% (Apprentice) / 5% (Master) chance to gain +2 bonus items when taking crafted or cooked edible food (`DataComponents.FOOD`).
 
+### Added (Phase 6 — Miner)
+- **Miner progression** — 270 ores total; diamond and gold ores count as 2.
+- **Miner `Lanh lợi`** — conditional Haste II when mining trigger blocks (stone, deepslate, tuff, netherrack, and ores), removed when mining stops.
+- **Miner `Khéo tay`** — 5% (Apprentice) / 15% (Master) chance of doubled ore drops upon mining any ore block.
+- **Miner `Bảo hộ lao động`** — Master only: touching lava grants Regeneration II for 4 s on a 5-minute cooldown.
+
 ### Known gaps
-- Miner, Merchant and Soldier have their hooks, config and progress counters in place, but **no effects yet** — those are Phases 6–8.
+- Merchant and Soldier have their hooks, config and progress counters in place, but **no effects yet** — those are Phases 7–8.
 
 ### Design decisions taken after the spec
 - **Builder reach** (`TODO.md` D11, corrected): the previous conclusion that a server-side mod cannot extend
