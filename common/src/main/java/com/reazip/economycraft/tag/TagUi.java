@@ -111,19 +111,29 @@ public final class TagUi {
         return Component.literal(text).withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.GOLD));
     }
 
-    private static Component perkLine(String title, String desc) {
+    private static Component perk(String title, String mainDesc) {
         return Component.literal("• ").withStyle(s -> s.withItalic(false).withColor(ChatFormatting.DARK_GRAY))
                 .append(Component.literal(title + ": ").withStyle(s -> s.withItalic(false).withColor(ChatFormatting.YELLOW)))
-                .append(Component.literal(desc).withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GRAY)));
+                .append(Component.literal(mainDesc).withStyle(s -> s.withItalic(false).withColor(ChatFormatting.WHITE)));
+    }
+
+    private static Component debuffPerk(String title, String mainDesc) {
+        return Component.literal("• ").withStyle(s -> s.withItalic(false).withColor(ChatFormatting.DARK_GRAY))
+                .append(Component.literal(title + ": ").withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GOLD)))
+                .append(Component.literal(mainDesc).withStyle(s -> s.withItalic(false).withColor(ChatFormatting.WHITE)));
+    }
+
+    private static Component textLine(String mainDesc) {
+        return Component.literal("  " + mainDesc).withStyle(s -> s.withItalic(false).withColor(ChatFormatting.WHITE));
+    }
+
+    private static Component addition(String extraInfo) {
+        return Component.literal("  " + extraInfo).withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GRAY));
     }
 
     private static Component bullet(String text) {
         return Component.literal("• ").withStyle(s -> s.withItalic(false).withColor(ChatFormatting.DARK_GRAY))
-                .append(Component.literal(text).withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GRAY)));
-    }
-
-    private static Component subBullet(String text) {
-        return Component.literal("  " + text).withStyle(s -> s.withItalic(false).withColor(ChatFormatting.DARK_GRAY));
+                .append(Component.literal(text).withStyle(s -> s.withItalic(false).withColor(ChatFormatting.WHITE)));
     }
 
     private static List<Component> professionBuffsAndReqs(ProfessionId profession) {
@@ -132,52 +142,52 @@ public final class TagUi {
         list.add(header("[Kỹ năng & Đặc quyền]"));
         switch (profession) {
             case BUILDER -> {
-                list.add(perkLine("Thành thạo", "Tăng tầm với đặt & tương tác block"));
-                list.add(subBullet("+1 block (Học nghề) / +2 block (Thợ thầy)"));
-                list.add(perkLine("Sửa lỗi", "Nhận Haste I khi đào đá, đất,"));
-                list.add(subBullet("cobblestone & các block xây dựng (Thợ thầy)"));
+                list.add(perk("Thành thạo", "Tăng tầm với khi đặt & tương tác khối"));
+                list.add(addition("(+1 block ở Học nghề / +2 block ở Thợ thầy)"));
+                list.add(perk("Sửa lỗi", "Nhận Haste I khi đào đá, đất & khối xây"));
+                list.add(addition("(Mở khóa khi đạt cấp Thợ thầy)"));
                 list.add(Component.empty());
                 list.add(header("[Điều kiện thăng cấp]"));
-                list.add(bullet("Đặt đủ 1,000 block xây dựng"));
-                list.add(subBullet("(gỗ, đá, kính, tường, rào, thạch anh, đất...)"));
+                list.add(bullet("Đặt đủ 1,000 khối xây dựng"));
+                list.add(addition("(Gỗ, đá, kính, tường, rào, thạch anh, đất...)"));
             }
             case FARMER -> {
-                list.add(perkLine("Tươi tốt", "Quét 24 block mỗi 4 phút, có 10%"));
-                list.add(subBullet("(Học nghề) / 20% (Thợ thầy) thúc đẩy cây"));
-                list.add(perkLine("Chăm sóc", "Giảm 10% / 20% thời gian chờ phối"));
-                list.add(subBullet("giống; con non lớn nhanh hơn +15% / +30%"));
-                list.add(perkLine("Khéo léo", "Có 1% (Học nghề) / 5% (Thợ thầy) cơ hội"));
-                list.add(subBullet("nhận thêm +2 đồ ăn khi nấu nướng / chế tạo"));
+                list.add(perk("Tươi tốt", "Tự động kích thích cây trồng phát triển"));
+                list.add(addition("(Quét 24 block mỗi 4p: 10% Học nghề / 20% Thợ thầy)"));
+                list.add(perk("Chăm sóc", "Động vật phối giống hồi nhanh và mau lớn"));
+                list.add(addition("(-10%/-20% hồi chiêu, con non lớn nhanh +15%/+30%)"));
+                list.add(perk("Khéo léo", "Cơ hội nhận thêm +2 đồ ăn khi nấu nướng/chế tạo"));
+                list.add(addition("(Tỉ lệ 1% ở Học nghề / 5% ở Thợ thầy)"));
                 list.add(Component.empty());
                 list.add(header("[Điều kiện thăng cấp]"));
                 list.add(bullet("Đạt 300 lượt thao tác nông nghiệp"));
-                list.add(subBullet("(trồng, gặt, cho ăn hoặc phối giống gia súc)"));
+                list.add(addition("(Trồng cây, thu hoạch, cho ăn hoặc phối giống)"));
             }
             case MINER -> {
-                list.add(perkLine("Lanh lợi", "Nhận Haste II khi đào các loại đá,"));
-                list.add(subBullet("deepslate, tuff, netherrack và quặng"));
-                list.add(perkLine("Khéo tay", "Có 5% (Học nghề) / 15% (Thợ thầy) cơ hội"));
-                list.add(subBullet("nhân đôi quặng rơi ra"));
-                list.add(perkLine("Bảo hộ", "Hồi máu II trong 4s khi chạm dung nham"));
-                list.add(subBullet("(Thợ thầy, thời gian hồi chiêu 5 phút)"));
+                list.add(perk("Lanh lợi", "Nhận Haste II khi đào đá, deepslate & quặng"));
+                list.add(addition("(Áp dụng cho mọi loại đá, tuff, netherrack và quặng)"));
+                list.add(perk("Khéo tay", "Cơ hội nhân đôi lượng quặng rơi ra khi khai thác"));
+                list.add(addition("(Tỉ lệ 5% ở Học nghề / 15% ở Thợ thầy)"));
+                list.add(perk("Bảo hộ", "Nhận Hồi máu II (Regen II) khi chạm dung nham"));
+                list.add(addition("(Kéo dài 4 giây, hồi chiêu 5 phút - Thợ thầy)"));
                 list.add(Component.empty());
                 list.add(header("[Điều kiện thăng cấp]"));
                 list.add(bullet("Khai thác đủ 270 quặng các loại"));
-                list.add(subBullet("(Quặng Kim cương & Vàng được tính gấp đôi: x2)"));
+                list.add(addition("(Quặng Kim cương & Quặng Vàng được tính gấp đôi: x2)"));
             }
             case MERCHANT -> {
-                list.add(perkLine("Lưỡi không xương", "Giảm giá khi giao dịch Dân làng:"));
-                list.add(subBullet("giảm 5% (Học nghề) / 15% (Thợ thầy)"));
+                list.add(perk("Lưỡi không xương", "Giảm giá khi giao dịch với Dân làng"));
+                list.add(addition("(Giảm 5% ở Học nghề / 15% ở Thợ thầy)"));
                 list.add(Component.empty());
                 list.add(header("[Điều kiện thăng cấp]"));
-                list.add(bullet("Giao dịch Dân làng 50 lần & mua /ah 5 lần"));
-                list.add(subBullet("(Không tính gậy; tối đa 20 lần mỗi dân làng)"));
+                list.add(bullet("Giao dịch Dân làng 50 lần & mua 5 lần trên /ah"));
+                list.add(addition("(Không tính giao dịch que gỗ; tối đa 20 lần/dân làng)"));
             }
             case SOLDIER -> {
-                list.add(perkLine("Tôi thép", "-5% nhận / +5% gây sát thương (Học nghề)"));
-                list.add(subBullet("-> Nâng lên ±15% sát thương (Thợ thầy)"));
-                list.add(perkLine("Adrenaline", "Giảm 50% thời gian hiệu ứng xấu"));
-                list.add(subBullet("trong 4 giây đầu (Thợ thầy, hồi chiêu 5 phút)"));
+                list.add(perk("Tôi thép", "Tăng sát thương gây ra & giảm sát thương nhận"));
+                list.add(addition("(±5% ở Học nghề / ±15% ở Thợ thầy)"));
+                list.add(perk("Adrenaline", "Giảm 50% thời gian của các hiệu ứng xấu"));
+                list.add(addition("(Kích hoạt trong 4 giây đầu, hồi chiêu 5 phút - Thợ thầy)"));
                 list.add(Component.empty());
                 list.add(header("[Điều kiện thăng cấp]"));
                 list.add(bullet("Tiêu diệt đủ 100 quái vật thù địch"));
@@ -192,41 +202,45 @@ public final class TagUi {
         list.add(header("[Lợi ích - Buff]"));
         switch (faction) {
             case COMMUNISM -> {
-                list.add(perkLine("Cộng đồng", "Khóa rương (/eco lock party)"));
-                list.add(subBullet("cho phép các thành viên cùng phe dùng chung"));
-                list.add(perkLine("Đầu tư công", "50% tỉ lệ miễn thuế khi qua Toll"));
+                list.add(perk("Cộng đồng", "Khóa rương dùng chung cho thành viên cùng phe"));
+                list.add(addition("(Sử dụng lệnh /eco lock party)"));
+                list.add(perk("Đầu tư công", "Cơ hội miễn phí thuế khi đi qua trạm Toll"));
+                list.add(addition("(Tỉ lệ 50%, chủ trạm vẫn nhận đủ tiền phí)"));
                 list.add(Component.empty());
                 list.add(Component.literal("[Trách nhiệm - Debuff]").withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.RED)));
-                list.add(perkLine("Đảng phí", "Trừ $10 mỗi 45 phút tích lũy online"));
-                list.add(perkLine("Thuế thu nhập", "Thuế 0.5% - 1.25% mỗi 45 phút online"));
-                list.add(subBullet("khi số dư tài khoản vượt mốc $10,000"));
+                list.add(debuffPerk("Đảng phí", "Trừ $10 nộp vào quỹ Đảng Cộng sản"));
+                list.add(addition("(Thu định kỳ mỗi 45 phút tích lũy online)"));
+                list.add(debuffPerk("Thuế thu nhập", "Đánh thuế tài khoản chống đầu cơ"));
+                list.add(addition("(Thu từ 0.5% đến 1.25% mỗi 45p khi số dư trên $10,000)"));
             }
             case CAPITALISM -> {
-                list.add(perkLine("Thị trường", "Miễn phí thuế cho người mua hàng"));
-                list.add(subBullet("khi bạn đăng bán trên chợ /ah"));
+                list.add(perk("Thị trường", "Người mua đồ của bạn trên /ah được miễn thuế"));
+                list.add(addition("(Giúp bạn có lợi thế giá bán cạnh tranh hơn)"));
                 list.add(Component.empty());
                 list.add(Component.literal("[Trách nhiệm - Debuff]").withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.RED)));
-                list.add(perkLine("Thuế tư bản", "Thuế tài sản hàng ngày 5%"));
-                list.add(subBullet("(nhân hệ số thị phần & lạm phát)"));
-                list.add(perkLine("Thuế cầu đường", "Thuế khi qua trạm Toll tăng +25%"));
+                list.add(debuffPerk("Thuế tư bản", "Đóng thuế tài sản hàng ngày 5%"));
+                list.add(addition("(Tỉ lệ nhân theo thị phần tài sản của phe & lạm phát)"));
+                list.add(debuffPerk("Cầu đường", "Thuế giao dịch khi qua trạm Toll tăng thêm 25%"));
             }
             case MONARCHY -> {
-                list.add(perkLine("Tự trị", "Giảm 50% chi phí tạo & mở rộng claim"));
-                list.add(perkLine("Phép vua", "+15% sát thương gây ra & giảm 15%"));
-                list.add(subBullet("sát thương nhận vào khi đứng trong đất claim"));
+                list.add(perk("Tự trị", "Giảm một nửa chi phí tạo & mở rộng vùng claim"));
+                list.add(addition("(Giảm 50% tiền bảo vệ đất đai qua ShopGuard)"));
+                list.add(perk("Phép vua", "Tăng 15% sát thương & chống chịu trong đất claim"));
+                list.add(addition("(Chỉ áp dụng khi đứng trong vùng đất của chính mình)"));
                 list.add(Component.empty());
                 list.add(Component.literal("[Trách nhiệm - Debuff]").withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.RED)));
-                list.add(perkLine("Cống nạp", "Nộp thêm thuế cống nạp 1.7% hàng ngày"));
-                list.add(perkLine("Nhập khẩu", "50% tỉ lệ chịu thêm 50% thuế khi mua đồ"));
+                list.add(debuffPerk("Cống nạp", "Nộp thêm thuế cống nạp 1.7% hàng ngày cho triều đình"));
+                list.add(debuffPerk("Nhập khẩu", "Có 50% tỉ lệ phải trả thêm 50% thuế khi mua đồ"));
             }
             case ANARCHISM -> {
-                list.add(perkLine("Tự do", "Miễn hoàn toàn tất cả mọi loại thuế"));
-                list.add(perkLine("Thoải mái", "+15% tốc độ chạy & tốc độ trên ngựa"));
-                list.add(subBullet("khi đứng ở vùng đất hoang dã chưa bị claim"));
+                list.add(perk("Tự do", "Miễn hoàn toàn tất cả mọi loại thuế trên server"));
+                list.add(addition("(Thuế giao dịch, thuế hàng ngày, thuế toll đều về 0)"));
+                list.add(perk("Thoải mái", "Tăng 15% tốc độ chạy và tốc độ trên ngựa"));
+                list.add(addition("(Khi đứng trên vùng đất hoang dã chưa bị claim)"));
                 list.add(Component.empty());
                 list.add(Component.literal("[Trách nhiệm - Debuff]").withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.RED)));
-                list.add(perkLine("Vô chính phủ", "Không thể sở hữu vùng claim hoặc"));
-                list.add(subBullet("được thêm vào danh sách tin tưởng (/claim trust)"));
+                list.add(debuffPerk("Vô chính phủ", "Không được phép sở hữu hoặc claim đất"));
+                list.add(addition("(Không thể nhận chuyển nhượng hoặc nhận /claim trust)"));
             }
         }
         return list;

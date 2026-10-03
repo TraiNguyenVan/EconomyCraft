@@ -145,7 +145,7 @@ public final class FactionLevyService {
 
         if (fee <= 0L && incomeTax <= 0L) return;
 
-        MutableComponent message = Component.literal("[Đảng] ").withStyle(ChatFormatting.RED)
+        MutableComponent message = Component.literal("[Đảng Cộng sản] ").withStyle(ChatFormatting.RED)
                 .append(Component.literal("Đảng phí: ").withStyle(ChatFormatting.GRAY))
                 .append(money(feePaid ? -fee : 0L));
         if (incomeTax > 0L) {

@@ -18,7 +18,7 @@ import java.util.Locale;
  * actually chooses, so "no choice yet" and "chose Anarchism" never become indistinguishable in the save file.
  */
 public enum FactionId {
-    COMMUNISM("Communism", "Đảng"),
+    COMMUNISM("Communism", "Đảng Cộng sản"),
     CAPITALISM("Capitalism", "Tư bản"),
     MONARCHY("Monarchy", "Vương triều"),
     ANARCHISM("Anarchism", "Vô chế");
