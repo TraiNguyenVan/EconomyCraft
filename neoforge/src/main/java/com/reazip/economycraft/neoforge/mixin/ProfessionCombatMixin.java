@@ -1,5 +1,6 @@
 package com.reazip.economycraft.neoforge.mixin;
 
+import com.reazip.economycraft.faction.FactionEffects;
 import com.reazip.economycraft.profession.ProfessionHooks;
 import com.reazip.economycraft.profession.SoldierEffects;
 import net.minecraft.server.level.ServerLevel;
@@ -30,9 +31,11 @@ abstract class ProfessionCombatMixin {
         LivingEntity self = (LivingEntity) (Object) this;
         if (damageSource != null && damageSource.getEntity() instanceof ServerPlayer attacker) {
             amount = SoldierEffects.modifyDamageDealt(attacker, amount);
+            amount = FactionEffects.modifyDamageDealt(attacker, amount);
         }
         if (self instanceof ServerPlayer victim) {
             amount = SoldierEffects.modifyDamageTaken(victim, amount);
+            amount = FactionEffects.modifyDamageTaken(victim, amount);
         }
         return amount;
     }

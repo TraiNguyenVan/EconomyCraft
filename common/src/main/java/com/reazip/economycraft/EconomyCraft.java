@@ -9,6 +9,7 @@ import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.ProfileCompat;
+import com.reazip.economycraft.faction.FactionEffects;
 import com.reazip.economycraft.profession.ProfessionHaste;
 import com.reazip.economycraft.profession.ProfessionEffects;
 import dev.architectury.event.EventResult;
@@ -175,6 +176,7 @@ public final class EconomyCraft {
     private static void onPlayerQuit(ServerPlayer player) {
         // Drop the Haste refresh bookkeeping; a reconnect starts clean rather than inheriting a stale window.
         ProfessionHaste.forget(player.getUUID());
+        FactionEffects.forget(player);
         try {
             EconomyManager eco = getManager(player.level().getServer());
             eco.getTagDisplay().forget(player);

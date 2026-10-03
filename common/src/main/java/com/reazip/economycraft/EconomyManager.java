@@ -12,6 +12,7 @@ import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.auction.AuctionManager;
 import com.reazip.economycraft.faction.ContainerLockStore;
+import com.reazip.economycraft.faction.FactionEffects;
 import com.reazip.economycraft.faction.FactionFiscalPass;
 import com.reazip.economycraft.faction.FactionId;
 import com.reazip.economycraft.faction.FactionLevyService;
@@ -872,6 +873,15 @@ public class EconomyManager {
 
         onlineTime.tick(tickCount, onlineScratch);
         sweepTagDisplay();
+
+        // Faction gameplay effects: Monarchy claim damage and Anarchism speed (spec 28, 35)
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            try {
+                FactionEffects.tick(this, player);
+            } catch (Exception e) {
+                LOGGER.error("[EconomyCraft] Failed to advance faction effects for {}", player.getUUID(), e);
+            }
+        }
 
         // Communism 45-min online party fee and income tax (spec 14, 15-18)
         try {

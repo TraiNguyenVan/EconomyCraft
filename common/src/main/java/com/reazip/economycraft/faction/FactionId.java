@@ -41,6 +41,19 @@ public enum FactionId {
         return vietnameseName;
     }
 
+    /**
+     * The stable lowercase id: the {@code /eco party} subcommand, the {@link #fromKey} input, and the value
+     * {@code FactionApi.factionId} hands to other mods.
+     *
+     * <p>One method rather than three {@code name().toLowerCase(Locale.ROOT)} call sites, because that
+     * expression is what a copy-paste gets subtly wrong (a locale-sensitive one, or one that uppercases).
+     * {@code FactionRulesTest} pins every id against the {@code FactionIds} constants in the API module,
+     * so a party renamed here fails the build rather than silently never matching in ShopGuard.
+     */
+    public String key() {
+        return name().toLowerCase(Locale.ROOT);
+    }
+
     /** The party a player belongs to when they have not chosen: the one that taxes them least. */
     public static FactionId defaultFaction() {
         return ANARCHISM;
