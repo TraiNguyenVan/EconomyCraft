@@ -80,6 +80,30 @@ public final class AuctionUi {
         return MenuUiSupport.labeledValue("Price", value, MenuUiSupport.LABEL_PRIMARY_COLOR);
     }
 
+    private static Component createPriceLore(long price, TaxQuote quote) {
+        String value = EconomyCraft.formatMoney(price);
+        if (quote.exempt()) {
+            value += " (tax-free)";
+        } else if (quote.amount() > 0) {
+            value += " (+" + EconomyCraft.formatMoney(quote.amount()) + " tax)";
+        }
+        return MenuUiSupport.labeledValue("Price", value, MenuUiSupport.LABEL_PRIMARY_COLOR);
+    }
+
+    /**
+     * " (buyers pay $X)" at the seller-aware quote, or " (tax-free for buyers)" when a faction rule waived
+     * it — the suffix for the two "Listed …" chat lines.
+     */
+    public static String buyerTaxSuffix(TaxQuote quote) {
+        if (quote.exempt()) {
+            return " (tax-free for buyers)";
+        }
+        if (quote.amount() > 0) {
+            return " (buyers pay " + EconomyCraft.formatMoney(quote.total()) + ")";
+        }
+        return "";
+    }
+
     private static void startListing(ServerPlayer player, AuctionManager auctions) {
         if (auctions.hasReachedLimit(player.getUUID())) {
             EconomySounds.failure(player);
@@ -114,7 +138,7 @@ public final class AuctionUi {
 
     private static void choosePrice(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount) {
         NumberInputUi.openMoney(player, "Set your price", prototype.copyWithCount(amount), "Price",
-                100, 1, EconomyManager.MAX, "Confirm and list", price -> listingLore(amount, price),
+                100, 1, EconomyManager.MAX, "Confirm and list", price -> listingLore(player, amount, price),
                 (p, price) -> createListing(p, auctions, prototype, amount, price),
                 p -> backFromPrice(player, auctions, prototype));
     }
@@ -128,14 +152,17 @@ public final class AuctionUi {
         }
     }
 
-    private static List<Component> listingLore(int amount, long price) {
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_AUCTION_BUY, price);
+    private static List<Component> listingLore(ServerPlayer seller, int amount, long price) {
+        EconomyManager eco = EconomyCraft.getManager(seller.level().getServer());
+        TaxQuote quote = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, price, seller.getUUID(), eco);
         List<Component> lore = new ArrayList<>();
         lore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
         lore.add(MenuUiSupport.labeledValue("You receive", EconomyCraft.formatMoney(price),
                 MenuUiSupport.LABEL_PRIMARY_COLOR));
-        if (tax > 0) {
-            lore.add(MenuUiSupport.hint("The buyer pays " + EconomyCraft.formatMoney(price + tax)));
+        if (quote.exempt()) {
+            lore.add(MenuUiSupport.hint("Buyers pay " + EconomyCraft.formatMoney(price) + " — tax-free"));
+        } else if (quote.amount() > 0) {
+            lore.add(MenuUiSupport.hint("The buyer pays " + EconomyCraft.formatMoney(quote.total())));
         }
         return lore;
     }
@@ -164,11 +191,12 @@ public final class AuctionUi {
         listing.expiresAt = ExpirationUtil.expiresAt(listing.createdAt, EconomyConfig.get().auctionExpirationHours);
         auctions.addListing(listing);
 
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_AUCTION_BUY, price);
+        EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+        TaxQuote quote = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, price, player.getUUID(), eco);
         EconomySounds.success(player);
         player.sendSystemMessage(Component.literal("Listed " + amount + "x " + prototype.getHoverName().getString()
                         + " for " + EconomyCraft.formatMoney(price)
-                        + (tax > 0 ? " (buyers pay " + EconomyCraft.formatMoney(price + tax) + ")" : ""))
+                        + buyerTaxSuffix(quote))
                 .withStyle(ChatFormatting.GREEN));
         open(player, auctions);
     }
@@ -561,9 +589,11 @@ public final class AuctionUi {
             container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Confirm"));
 
             ItemStack item = listing.item.copy();
-            long tax = TaxPolicy.tax(TaxScope.TRANSACTION_AUCTION_BUY, listing.price);
+            EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
+            TaxQuote quote = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, listing.price,
+                    listing.seller, eco);
             item.set(DataComponents.LORE, new ItemLore(List.of(
-                    createPriceLore(listing.price, tax),
+                    createPriceLore(listing.price, quote),
                     MenuUiSupport.labeledValue("Seller", "you", MenuUiSupport.LABEL_PRIMARY_COLOR),
                     MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)),
                     MenuUiSupport.line("This will remove the listing", ChatFormatting.RED))));

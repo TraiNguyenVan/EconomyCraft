@@ -1,5 +1,6 @@
 package com.reazip.economycraft.faction;
 
+import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.config.FactionsSection;
 import com.reazip.economycraft.tax.FactionTaxRules;
 import com.reazip.economycraft.tax.TaxExemption;
@@ -228,6 +229,95 @@ class FactionRulesTest {
         TaxQuote quoted = quote(TaxScope.TRANSACTION_AUCTION_BUY, 1000L, 0.10, buyer, seller, alwaysRoll());
         assertTrue(quoted.exempt(), "the seller-side rule wins, so there is no base tax to surcharge");
         assertEquals(0L, quoted.amount());
+    }
+
+    // --- Seller-side /ah preview: quoteForSale ---
+
+    @Test
+    void quoteForSaleExemptsACapitalismSellerWithNoBuyerKnown() {
+        // The /ah listing screens quote with the seller as counterparty and no payer, because the buyer does
+        // not exist yet. A Capitalism seller's exemption must fire on exactly that shape.
+        double original = EconomyConfig.get().taxRate;
+        try {
+            EconomyConfig.get().taxRate = 0.10;
+            UUID seller = memberOf(FactionId.CAPITALISM);
+            TaxQuote quoted = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, 5000L, seller, null,
+                    alwaysRoll());
+            assertTrue(quoted.exempt(), "a Capitalism seller's listing is tax-free before any buyer exists");
+            assertEquals(0L, quoted.amount());
+            assertEquals(5000L, quoted.total(), "the previewed buyer payment is the bare listing price");
+        } finally {
+            EconomyConfig.get().taxRate = original;
+        }
+    }
+
+    @Test
+    void quoteForSalePricesTheBareRateForASellerWithNoParty() {
+        double original = EconomyConfig.get().taxRate;
+        try {
+            EconomyConfig.get().taxRate = 0.10;
+            UUID stranger = UUID.randomUUID();
+            TaxQuote quoted = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, 1000L, stranger, null,
+                    alwaysRoll());
+            assertFalse(quoted.exempt(), "no choice means no exemption, even in a preview");
+            assertEquals(100L, quoted.amount());
+            assertEquals(1100L, quoted.total());
+        } finally {
+            EconomyConfig.get().taxRate = original;
+        }
+    }
+
+    @Test
+    void quoteForSaleLeavesBuyerSideEffectsOut() {
+        // The buyer is unknown at listing time, so the Monarchy import surcharge — a payer-keyed roll —
+        // cannot apply. neverRoll and alwaysRoll must agree.
+        double original = EconomyConfig.get().taxRate;
+        try {
+            EconomyConfig.get().taxRate = 0.10;
+            UUID seller = memberOf(FactionId.MONARCHY);
+            for (TaxExemption ex : new TaxExemption[]{alwaysRoll(), neverRoll()}) {
+                TaxQuote quoted = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, 1000L, seller, null, ex);
+                assertFalse(quoted.exempt());
+                assertEquals(100L, quoted.amount(), "no payer, no import surcharge");
+                assertEquals(1100L, quoted.total());
+            }
+        } finally {
+            EconomyConfig.get().taxRate = original;
+        }
+    }
+
+    @Test
+    void quoteForSaleDoesNotTreatAnAnarchismSellerAsExempt() {
+        // D8 is Capitalism-only; the Anarchism exemption is keyed on the payer, who is unknown here.
+        double original = EconomyConfig.get().taxRate;
+        try {
+            EconomyConfig.get().taxRate = 0.10;
+            UUID seller = memberOf(FactionId.ANARCHISM);
+            TaxQuote quoted = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, 1000L, seller, null,
+                    alwaysRoll());
+            assertFalse(quoted.exempt());
+            assertEquals(100L, quoted.amount());
+        } finally {
+            EconomyConfig.get().taxRate = original;
+        }
+    }
+
+    @Test
+    void quoteForSaleWithNoRulesMatchesTheBlindQuote() {
+        // The relaxed short-circuit (eco == null, payer == null, exemption == null) must keep returning
+        // exactly what the party-blind overload returns.
+        double original = EconomyConfig.get().taxRate;
+        try {
+            EconomyConfig.get().taxRate = 0.10;
+            TaxQuote previewed = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, 1000L,
+                    UUID.randomUUID(), null, null);
+            TaxQuote blind = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, 1000L);
+            assertEquals(blind.amount(), previewed.amount());
+            assertEquals(blind.total(), previewed.total());
+            assertFalse(previewed.exempt());
+        } finally {
+            EconomyConfig.get().taxRate = original;
+        }
     }
 
     // --- P9-T8: Capitalism "Nhà nước tư bản" toll tax +25 % (spec 23) ---

@@ -59,7 +59,7 @@ public final class TaxPolicy {
      */
     public static TaxQuote resolve(TaxScope scope, long base, @Nullable UUID player, @Nullable UUID counterparty,
                                    @Nullable EconomyManager eco, @Nullable TaxExemption exemption) {
-        if (eco == null && player == null) {
+        if (eco == null && player == null && exemption == null) {
             return quote(scope, base, EconomyConfig.get().taxRate);
         }
 
@@ -134,6 +134,30 @@ public final class TaxPolicy {
     /** The tax amount alone — for lore text that mirrors a charge. */
     public static long tax(TaxScope scope, long base) {
         return resolve(scope, base).amount();
+    }
+
+    /**
+     * Seller-side preview for a sale whose buyer is not yet known — the {@code /ah} listing screens and
+     * confirmation chat.
+     *
+     * <p>The faction rules are keyed on the <em>seller</em> as counterparty with the payer unknown, which is
+     * exactly the D8 auction rule: a purchase from a Capitalism seller is exempt no matter who buys. Every
+     * buyer-side effect stays out by construction — with no payer there is no Merchant discount and no
+     * Monarchy import surcharge roll. The number is therefore exact for every buyer except a Monarchy one,
+     * whose surcharge cannot be known until the purchase happens.
+     */
+    public static TaxQuote quoteForSale(TaxScope scope, long base, @Nullable UUID counterparty,
+                                        @Nullable EconomyManager eco) {
+        return resolve(scope, base, null, counterparty, eco);
+    }
+
+    /**
+     * {@link #quoteForSale(TaxScope, long, UUID, EconomyManager)} with the faction decisions supplied rather
+     * than looked up — for tests and for any caller that already knows the rules.
+     */
+    public static TaxQuote quoteForSale(TaxScope scope, long base, @Nullable UUID counterparty,
+                                        @Nullable EconomyManager eco, @Nullable TaxExemption exemption) {
+        return resolve(scope, base, null, counterparty, eco, exemption);
     }
 
     public static long tax(TaxScope scope, long base, @Nullable UUID player, @Nullable EconomyManager eco) {

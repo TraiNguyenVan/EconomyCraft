@@ -866,10 +866,11 @@ public final class EconomyCommands {
         hand.shrink(count);
         auctions.addListing(listing);
 
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_AUCTION_BUY, price);
+        TaxQuote quote = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, price, player.getUUID(),
+                EconomyCraft.getManager(source.getServer()));
 
         Component msg = Component.literal("Listed item for " + EconomyCraft.formatMoney(price) +
-                        (tax > 0 ? " (buyers pay " + EconomyCraft.formatMoney(price + tax) + ")" : ""))
+                        AuctionUi.buyerTaxSuffix(quote))
                 .withStyle(ChatFormatting.GREEN);
 
         EconomySounds.success(player);
