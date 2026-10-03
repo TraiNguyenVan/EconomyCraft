@@ -25,7 +25,16 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import com.reazip.economycraft.faction.ContainerLockMode;
+import com.reazip.economycraft.faction.ContainerLockStore;
+import com.reazip.economycraft.faction.ContainerLockUi;
+import com.reazip.economycraft.util.PermissionCompat;
+import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -68,12 +77,43 @@ public final class EconomyCraft {
 
         InteractionEvent.RIGHT_CLICK_BLOCK.register((player, hand, pos, direction) -> {
             if (player instanceof ServerPlayer sp && sp.level() instanceof ServerLevel sl) {
-                EconomyManager eco = getManager(sl.getServer());
-                if (eco != null && !eco.getContainerLocks().canAccess(sp, sl, pos, eco)) {
-                    if (hand == InteractionHand.MAIN_HAND) {
+                if (hand != InteractionHand.MAIN_HAND) {
+                    return EventResult.pass();
+                }
+                BlockEntity be = sl.getBlockEntity(pos);
+                if (be instanceof Container) {
+                    EconomyManager eco = getManager(sl.getServer());
+                    if (eco != null && !eco.getContainerLocks().canAccess(sp, sl, pos, eco)) {
                         sp.sendSystemMessage(Component.literal("Rương này đã bị khóa!").withStyle(ChatFormatting.RED));
+                        return EventResult.interruptFalse();
                     }
-                    return EventResult.interruptFalse();
+
+                    // Sneak + Right Click with non-block item (or empty hand) opens ContainerLockUi!
+                    if (sp.isShiftKeyDown()) {
+                        ItemStack held = sp.getItemInHand(hand);
+                        if (!(held.getItem() instanceof BlockItem)) {
+                            ContainerLockUi.open(sp, sl, pos);
+                            return EventResult.interruptFalse();
+                        }
+                    }
+
+                    // On normal open: show current lock status in Action Bar
+                    if (eco != null) {
+                        ContainerLockStore locks = eco.getContainerLocks();
+                        String dim = sl.dimension().identifier().toString();
+                        var entry = locks.get(dim, pos, sl);
+                        UUID owner = locks.ownerOf(entry);
+                        if (owner == null || owner.equals(sp.getUUID()) || PermissionCompat.isAdmin(sp)) {
+                            ContainerLockMode effective = locks.effectiveMode(entry, owner, eco);
+                            String modeName = switch (effective) {
+                                case UNLOCKED -> "§aMở khóa";
+                                case PRIVATE -> "§cKhóa cá nhân";
+                                case PARTY_ONLY -> "§6Khóa Đảng Cộng sản";
+                            };
+                            sp.sendSystemMessage(Component.literal("§6[Khóa rương] §fChế độ: " + modeName
+                                    + " §7• §e[Shift + Chuột phải] §7để đổi cài đặt"), true);
+                        }
+                    }
                 }
             }
             return EventResult.pass();

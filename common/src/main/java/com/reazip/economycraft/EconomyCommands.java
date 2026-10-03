@@ -47,6 +47,7 @@ import com.reazip.economycraft.tag.TagStyle;
 import com.reazip.economycraft.tag.TagUi;
 import com.reazip.economycraft.faction.ContainerLockMode;
 import com.reazip.economycraft.faction.ContainerLockStore;
+import com.reazip.economycraft.faction.ContainerLockUi;
 import com.reazip.economycraft.faction.FactionId;
 import com.reazip.economycraft.profession.ProfessionId;
 import com.reazip.economycraft.tax.TaxPolicy;
@@ -1221,13 +1222,35 @@ public final class EconomyCommands {
      */
     private static LiteralArgumentBuilder<CommandSourceStack> buildLock() {
         LiteralArgumentBuilder<CommandSourceStack> root = literal("lock")
-                .executes(ctx -> lockCommand(ctx.getSource(), "info"))
+                .executes(ctx -> lockMenuCommand(ctx.getSource()))
+                .then(literal("menu").executes(ctx -> lockMenuCommand(ctx.getSource())))
                 .then(literal("info").executes(ctx -> lockCommand(ctx.getSource(), "info")))
                 .then(literal("private").executes(ctx -> lockCommand(ctx.getSource(), "private")))
                 .then(literal("party").executes(ctx -> lockCommand(ctx.getSource(), "party")))
                 .then(literal("unlock").executes(ctx -> lockCommand(ctx.getSource(), "unlock")))
                 .then(literal("clear").executes(ctx -> lockCommand(ctx.getSource(), "clear")));
         return root;
+    }
+
+    private static int lockMenuCommand(CommandSourceStack source) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can manage container locks."));
+            return 0;
+        }
+        var hit = player.pick(5.0, 1.0f, false);
+        if (!(hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) || hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+            source.sendFailure(Component.literal("Hãy nhìn vào một rương hoặc khối chứa đồ trong phạm vi 5 block."));
+            return 0;
+        }
+        var pos = blockHit.getBlockPos();
+        net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) player.level();
+        var be = level.getBlockEntity(pos);
+        if (be == null || !(be instanceof net.minecraft.world.Container)) {
+            source.sendFailure(Component.literal("Khối đó không phải là thùng chứa đồ (Container)."));
+            return 0;
+        }
+        return ContainerLockUi.open(player, level, pos) ? 1 : 0;
     }
 
     private static int lockCommand(CommandSourceStack source, String action) {
