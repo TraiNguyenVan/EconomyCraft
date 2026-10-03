@@ -1119,7 +1119,7 @@ public final class EconomyCommands {
         LiteralArgumentBuilder<CommandSourceStack> root = literal("job")
                 .executes(ctx -> {
                     ServerPlayer player = ctx.getSource().getPlayerOrException();
-                    TagUi.open(player);
+                    TagUi.openProfession(player);
                     return 1;
                 })
                 .then(literal("leave")
@@ -1164,7 +1164,7 @@ public final class EconomyCommands {
         LiteralArgumentBuilder<CommandSourceStack> root = literal("party")
                 .executes(ctx -> {
                     ServerPlayer player = ctx.getSource().getPlayerOrException();
-                    TagUi.open(player);
+                    TagUi.openParty(player);
                     return 1;
                 })
                 .then(literal("leave").executes(ctx -> {
@@ -1182,7 +1182,7 @@ public final class EconomyCommands {
                 }));
 
         for (FactionId f : FactionId.values()) {
-            root.then(literal(f.name().toLowerCase(Locale.ROOT)).executes(ctx -> {
+            root.then(literal(f.key()).executes(ctx -> {
                 ServerPlayer player = ctx.getSource().getPlayerOrException();
                 EconomyManager eco = EconomyCraft.getManager(ctx.getSource().getServer());
                 if (!partyUnlocked(player, eco)) return 0;
