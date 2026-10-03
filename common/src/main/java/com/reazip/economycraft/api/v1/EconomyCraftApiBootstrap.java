@@ -1,5 +1,6 @@
 package com.reazip.economycraft.api.v1;
 
+import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.PriceRegistry;
@@ -33,6 +34,7 @@ final class EconomyCraftApiImpl implements EconomyCraftApi {
     private final PriceApi prices;
     private final LeaderboardApi leaderboard;
     private final BalanceEvents events;
+    private final FactionApi factions;
 
     EconomyCraftApiImpl(MinecraftServer server) {
         if (!server.isSameThread()) {
@@ -42,6 +44,7 @@ final class EconomyCraftApiImpl implements EconomyCraftApi {
         this.balances = new BalanceApiImpl(server);
         this.prices = new PriceApiImpl(server);
         this.leaderboard = new LeaderboardApiImpl(server);
+        this.factions = new FactionApiImpl(server);
         this.events = listener -> {
             requireServerThread();
             ListenerRegistration registration = manager().getBalanceEvents().register(listener);
@@ -79,6 +82,12 @@ final class EconomyCraftApiImpl implements EconomyCraftApi {
     public LeaderboardApi leaderboard() {
         requireServerThread();
         return leaderboard;
+    }
+
+    @Override
+    public FactionApi factions() {
+        requireServerThread();
+        return factions;
     }
 
     @Override
@@ -170,6 +179,57 @@ final class BalanceApiImpl implements BalanceApi {
     public PaymentResult pay(java.util.UUID senderId, java.util.UUID receiverId, long amount,
                              MutationSource source) {
         return manager().pay(senderId, receiverId, amount, Objects.requireNonNull(source, "source"));
+    }
+}
+
+/**
+ * Phase 10's cross-repository contract: ShopGuard asks "what party is this player in" through here, because
+ * it implements claim pricing and claim permissions but cannot see {@code common}'s {@code FactionId}.
+ *
+ * <p>Every read is the store's own read — no caching — so a party chosen one tick ago is visible to a claim
+ * command on the next, which is what {@code Tự trị} and {@code Vô chính phủ} need to agree on. The store is a
+ * small in-memory map keyed by UUID, so this is a hash lookup, not a file read.
+ */
+final class FactionApiImpl implements FactionApi {
+    private final MinecraftServer server;
+
+    FactionApiImpl(MinecraftServer server) {
+        this.server = server;
+    }
+
+    private com.reazip.economycraft.faction.FactionStore store() {
+        if (!server.isSameThread()) {
+            throw new IllegalStateException("EconomyCraft API must be called from the server thread");
+        }
+        return EconomyCraft.getManager(server).getFactions();
+    }
+
+    @Override
+    public String factionId(java.util.UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        // factionOf already applies the fallback for both "never chose" and "the record names a party this
+        // build no longer has", so the api contract of "never null, always a known id" holds by construction.
+        return store().factionOf(playerId).key();
+    }
+
+    @Override
+    public String factionDisplayName(java.util.UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        return store().factionOf(playerId).displayName();
+    }
+
+    @Override
+    public String defaultFactionId() {
+        return com.reazip.economycraft.faction.FactionId.defaultFaction().key();
+    }
+
+    @Override
+    public double claimCostMultiplier(java.util.UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        if (!EconomyConfig.get().factions.enabled) return 1.0;
+        return store().factionOf(playerId) == com.reazip.economycraft.faction.FactionId.MONARCHY
+                ? EconomyConfig.get().factions.monarchy.claimCostMultiplier
+                : 1.0;
     }
 }
 

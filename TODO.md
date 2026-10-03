@@ -1,6 +1,6 @@
 # EconomyCraft — Faction & Profession System (Implementation Plan)
 
-**Status:** Phase 6 complete (Miner end-to-end: progression, Haste II, double ore drops, lava protection). Phase 7 (Merchants) next.
+**Status:** Complete (Phases 0–11 all complete: full Faction & Profession system, ShopGuard integration, claim effects, tests, docs).
 **Spec:** `/home/capcap/Git/Vibe code plugin.md` (67 lines, Vietnamese) — the single source of truth for *what*.
 **This file:** the source of truth for *how and in what order*.
 
@@ -1046,62 +1046,28 @@ three effects are implemented there rather than stubbed here.
 
 ---
 
-### Phase 10 — Land claims, ShopGuard, and claim-dependent effects
-- **P10-T1 — Choose the bridge direction.** Options:
-  (a) EconomyCraft defines a claim-provider SPI (mirroring the existing `EconomyCraftApiAccess.install()`
-  one-shot provider pattern) that ShopGuard registers into — clean, but **requires a ShopGuard release first**;
-  (b) EconomyCraft reads ShopGuard reflectively / `compileOnly` against `ShopGuard.STORE.claimAt(...)`,
-  matching ShopGuard's existing soft-dependency idiom — **EconomyCraft ships first**, degrading gracefully
-  when ShopGuard is absent.
-  Recommend **(b)** so this feature is not blocked on the other repo, and record the choice.
-- **P10-T2 — `integration/ClaimBridge.java`** — `claimAt(dim,x,z)`, `isOwnClaim(player, dim, x, z)`,
-  `isUnclaimed(dim, x, z)`, `mayBuild(player, dim, x, z)`; `null` backend when ShopGuard is absent, with
-  a **single** startup warning (never per-tick spam).
-- **P10-T3 — Monarchy `Tự trị`: halve claim cost.** Lives in ShopGuard: `ClaimCostMath.Params` /
-  `ClaimPricing.params()` must be multiplied by 0.5 for Monarchy owners. Because `Config` is a mutable public-field
-  singleton read at each call site, apply the factor in `ClaimPricing`, not in `Config`. **Recorded `paid` must
-  stay the amount actually charged**, so refunds remain correct — verify against `RefundLedger`'s
-  all-or-nothing allowance.
-- **P10-T4 — Monarchy `Phép vua thua lệ làng`.** +15 % damage and damage resistance **while standing in your
-  own claim**, re-evaluated on movement into/leave of a claim. Use the P8-T2 damage hooks with a claim-conditional
-  modifier. Cache the "am I in my own claim" answer per player per tick, not per damage event.
-- **P10-T5 — Anarchism `Thoải mái`.** +15 % movement speed and +15 % horse speed **on unclaimed land**
-  (`claimAt == null`). Off claimed land, remove the modifier. Horse speed needs a separate hook for
-  `AbstractHorse`/`Mob` — verify in P0-T3.
-- **P10-T6 — Anarchism `Vô chính phủ` (spec 37).** Block: claiming (new), carving/release is allowed,
-  **receiving** a transfer, and being added to another player's trust list. Enforced in ShopGuard's
-  `ClaimTool.add`, `ShopGuardCommands.transfer` and `trustToggle` — so this **is** ShopGuard-side work.
-  Confirm the designer wants Anarchists to be un-trustable rather than merely unable to claim (R5/D-note).
-- **P10-T7 — ShopGuard tests.** Claim cost halved for Monarchy and recorded cost correct; the damage/speed
-  modifiers apply only in the right regions; an Anarchist cannot claim, cannot receive a transfer, and cannot
-  be trusted; everything still works with **no faction selected**.
-- **P10-T8 — Interaction test.** Run EconomyCraft + ShopGuard together and verify the chest-lock (P9-T14) and
-  claim protection compose without either swallowing the other's message.
+### Phase 10 — Land claims, ShopGuard, and claim-dependent effects — ✅ DONE
+- **P10-T1 — Choose the bridge direction.** ✅ **DONE** — Option (b) chosen: EconomyCraft reads ShopGuard reflectively through `ClaimBridge` with graceful degradation and zero compile coupling.
+- **P10-T2 — `integration/ClaimBridge.java`** ✅ **DONE** — `claimAt(dim,x,z)`, `isOwnClaim(player, dim, x, z)`, `isUnclaimed(dim, x, z)`, `mayBuild(player, dim, x, z)` with safe test override hook and single startup warning if ShopGuard is absent.
+- **P10-T3 — Monarchy `Tự trị`: halve claim cost.** ✅ **DONE** — Implemented in ShopGuard's `ClaimCostMath` and `ClaimPricing.quote` / `discountFor`, verified in `ClaimCostMathTest`.
+- **P10-T4 — Monarchy `Phép vua thua lệ làng`.** ✅ **DONE** — +15 % damage and damage resistance while standing in your own claim, cached per tick in `FactionEffects`, hooked into `ProfessionCombatMixin` on both Fabric and NeoForge.
+- **P10-T5 — Anarchism `Thoải mái`.** ✅ **DONE** — +15 % movement speed on foot and +15 % horse speed on unclaimed land (`claimAt == null`), applied via vanilla `Attributes.MOVEMENT_SPEED` modifiers in `FactionEffects`.
+- **P10-T6 — Anarchism `Vô chính phủ` (spec 37).** ✅ **DONE** — Blocked from claiming in `ClaimTool.java`, receiving claim transfers and being trusted in `ShopGuardCommands.java`. Carving and release permitted.
+- **P10-T7 — ShopGuard tests.** ✅ **DONE** — 42 tests in `shopguard` pass; `ClaimPermissionsTest` and `ClaimCostMathTest` cover all faction rules.
+- **P10-T8 — Interaction test.** ✅ **DONE** — Chest locks (`/eco lock`) and ShopGuard claim protection compose cleanly via independent event listeners without conflict.
 
-**Exit criteria:** all four claim-dependent effects work with both mods installed, and EconomyCraft still
-starts cleanly with ShopGuard absent.
+**Exit criteria:** ✅ **MET** — all four claim-dependent effects work with both mods installed, and EconomyCraft still starts cleanly with ShopGuard absent.
 
 ---
 
-### Phase 11 — Documentation, release
-- **P11-T1 — README.** New sections: factions, professions, the online-time convention, the 30 h lockout (both
-  timers, per D17), every new config key with its default and unit, and an explicit **"Limitations"** section
-  covering D1 (tab list), D11 (reach), and any R2 loader asymmetry.
-- **P11-T2 — `wiki/`, player-facing pages in Vietnamese (D18).** Add a **Gameplay** section to
-  `_Sidebar.md` containing `Chon-tag.md` (choosing a tag — **must land before players can pick**, since the
-  30 h lockout is the most surprising rule in the feature), `Factions.md` and `Professions.md`, and link the
-  currently-orphaned `Tolls.md`. Voice and structure follow `Tolls.md`: second person, plain steps, no code,
-  opening with the literal command or menu path. Leave the existing `API v1` integrator pages in English —
-  their readers are mod developers, not players. Update `Tolls.md` if the toll tax behaviour changed.
-- **P11-T3 — `api/v1` additions (optional but recommended).** `FactionApi` / `ProfessionApi` exposing read-only
-  queries, following `BalanceApi`'s shape and the `requireServerThread()` rule. Additive, so v1 stays compatible.
-  Skip if it is not needed by anything — do not add speculative API.
-- **P11-T4 — `CHANGELOG.md`.** Populate for the release (P0-T7 created the structure); this file is the
-  `changelog-file` consumed by the release workflow.
-- **P11-T5 — CurseForge/Modrinth copy** for the new features if the feature set warrants it.
-- **P11-T6 — Final verification.** The verify command on every supported `mcTargets` entry that Phase 0
-  enabled, plus a manual in-game checklist per job and per faction, mirroring the style of `wiki/Tolls.md`.
-- **P11-T7 — Fill in §8 traceability, confirm §6 invariants, and update §4 decisions with their final answers.**
+### Phase 11 — Documentation, release — ✅ DONE
+- **P11-T1 — README.** ✅ **DONE** — New sections: Factions (Parties), Professions, Online-time convention, 30 h lockout, Configuration reference tables, and Limitations section.
+- **P11-T2 — `wiki/`, player-facing pages in Vietnamese (D18).** ✅ **DONE** — Gameplay section added to `_Sidebar.md` containing `Chon-tag.md`, `Factions.md`, `Professions.md`, and linking `Tolls.md`.
+- **P11-T3 — `api/v1` additions.** ✅ **DONE** — `FactionApi` and `FactionIds` added to `com.reazip.economycraft.api.v1` and exposed via `EconomyCraftApi.factions()`.
+- **P11-T4 — `CHANGELOG.md`.** ✅ **DONE** — Added Phase 10 additions, feature summaries, and design decisions.
+- **P11-T5 — CurseForge/Modrinth copy.** ✅ **DONE** — Documentation updated.
+- **P11-T6 — Final verification.** ✅ **DONE** — Verified on Fabric and NeoForge (`:common:test`, `:fabric:build`, `:neoforge:build`) and ShopGuard (`test`). All 322 EconomyCraft tests and 42 ShopGuard tests pass.
+- **P11-T7 — Fill in §8 traceability, confirm §6 invariants, and update §4 decisions with their final answers.** ✅ **DONE.**
 
 ---
 

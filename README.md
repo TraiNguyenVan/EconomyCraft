@@ -327,10 +327,12 @@ The editor also writes a few extra keys:
 
 ---
 
+---
+
 ## Party and profession tags
 
 Each player can hold one **party** (Communism, Capitalism, Monarchy, Anarchism) and one **profession** (Builder,
-Farmer, Miner, Merchant, Soldier). Both are chosen with `/tag` and both are drawn on a vanilla client, with no
+Farmer, Miner, Merchant, Soldier). Both are chosen with `/tag` (or `/eco party` / `/eco job`) and both are drawn on a vanilla client, with no
 client mod:
 
 | Surface | What it shows | Example |
@@ -345,15 +347,83 @@ The icon and colour for each are config keys (`factions.<party>.icon` / `.color`
 the tab list only once it is `Master` or `Rusted` — `Apprentice` is the default and is not worth interrupting a
 name for.
 
-Two deliberate limits, both settled by reading the game rather than by guessing:
+### The online-time convention
+Certain faction debuffs (Communism party fee and income tax) and profession mechanics (the 45-minute rust recovery) use **accumulated online time**:
+- The timer increments **only while the player is logged in and active on the server**.
+- The timer **freezes when the player logs off**.
+- The timer only resets once it reaches the configured threshold (e.g. 45 minutes), at which point the corresponding action executes and the timer restarts from zero.
 
-- **A player's chat badge.** Chat's `<Name>` slot is built by the client from the account name, so the icon has to
-  go in the message body. A message rewritten this way renders as *server-modified*, so the signed-chat badge is
-  grey for messages from players who have a tag. Players with no tag are never rewritten and keep their badge.
-- **Scoreboard teams.** The nametag is drawn by client code, so the only server-side way to reach it is the team
-  prefix — which means EconomyCraft puts a tagged player in a team of its own (`ec_…`). A player already on a team
-  from another plugin is moved off it when they take a tag, and their nametag prefix follows the party. If your
-  server uses scoreboard teams for ranks, this will conflict; the two features cannot both own the same slot.
+### The 30-hour lockout
+- Choosing a party or profession initiates an independent **30-hour real-time lockout** for that category.
+- The lockout begins on your very first selection.
+- During the lockout, you cannot change or leave your selected party or profession (operators bypass this restriction).
+
+### Factions (Parties)
+1. **Communism (`☭`, Red):**
+   - *Community Chest Lock:* `/eco lock party` restricts container access exclusively to members of Communism.
+   - *Public Investment:* 50% chance toll tax is waived (the toll owner still receives their fee).
+   - *Party Fee:* $10 deducted every 45 minutes of accumulated online time (burned from circulation).
+   - *Income Tax:* Assessed every 45 online minutes after the party fee: 0.5% over $10,000; 0.75% over $15,000; 1.25% over $22,000.
+2. **Capitalism (`$`, Gold):**
+   - *Competitive Market:* Purchases from your `/ah` listings are exempt from transaction tax for buyers.
+   - *Capitalist State:* 5% daily wealth tax scaled by inflation and party wealth concentration; toll tax increased by +25%.
+3. **Monarchy (`♔`, Purple):**
+   - *Autonomy:* Land claim costs in ShopGuard are halved (-50%).
+   - *Royal Prerogative:* +15% damage dealt and +15% damage resistance while standing inside your own land claim.
+   - *Tribute:* Pays an additional daily corruption levy equal to the daily tax rate (burned).
+   - *Import Tax:* 50% chance of a 50% surcharge on transaction taxes when purchasing goods.
+4. **Anarchism (`Ⓐ`, White/Gray - Default):**
+   - *Freedom:* Fully exempt from all sales, purchase, toll and daily taxes.
+   - *Unbound:* +15% movement speed and +15% horse riding speed on unclaimed wilderness land.
+   - *No Government:* Cannot create claims, receive claim transfers, or be added to claim trust lists (`/claim trust`).
+
+### Professions
+- Progression: **Apprentice** (default) &rarr; **Master** (on completing goals).
+- Switching professions resets prior progress. Returning to a previously mastered profession inflicts **Rusted** status (effects at 50%) for 45 online minutes before Master rank restores.
+1. **Builder:** Place 1,000 building blocks. +1 (Apprentice) / +2 (Master) block interaction range; Master receives Haste I while mining stone/dirt/building blocks.
+2. **Farmer:** 300 farming events (plant/harvest/feed/breed). 10%/20% 4-min crop growth pulse in 24-block radius; 10%/20% breeding cooldown reduction; 15%/30% faster baby animal growth; 1%/5% chance for +2 bonus food items when crafting/cooking.
+3. **Miner:** Mine 270 ores (diamond/gold count x2). Haste II while mining stone/deepslate/tuff/netherrack/ores; 5%/15% double ore drop chance; Master receives Regeneration II for 4s upon contacting lava (5-min cooldown).
+4. **Merchant:** 50 villager trades (non-stick, max 20 per villager) and 5 `/ah` purchases. 5%/15% discount on villager trades.
+5. **Soldier:** Kill 100 monsters. -5%/+5% (Apprentice) &plusmn;15% (Master) damage taken/dealt; Master triggers Adrenaline on harmful effects (halves negative effect durations within 4s window, 5-min cooldown).
+
+### Configuration reference
+
+#### `factions` section in `config.json`
+| Key | Default | Unit | Description |
+|---|---|---|---|
+| `enabled` | `true` | boolean | Enable the faction system. |
+| `selection_lockout_hours` | `30` | hours | Lockout duration after choosing a party. |
+| `levy_interval_minutes` | `45` | minutes | Accumulated online time interval for party fees & income tax. |
+| `daily_tax_max_catchup_days` | `7` | days | Maximum offline days caught up by daily faction tax. |
+| `communism.party_fee` | `10` | currency | Flat fee deducted every 45 online minutes. |
+| `capitalism.daily_tax_rate` | `0.05` | rate | Base daily tax rate for Capitalism (5%). |
+| `capitalism.toll_tax_multiplier` | `1.25` | multiplier | Surcharge multiplier on toll taxes (1.25x = +25%). |
+| `monarchy.daily_tax_rate` | `0.017` | rate | Base daily tax rate for Monarchy (1.7%). |
+| `monarchy.claim_cost_multiplier` | `0.5` | multiplier | Claim cost multiplier for Monarchy (0.5 = -50%). |
+| `monarchy.ownClaimDamageMultiplier` | `1.15` | multiplier | Damage dealt and resistance multiplier in own claim. |
+| `anarchism.unclaimed_speed_multiplier` | `1.15` | multiplier | Movement speed multiplier on unclaimed land. |
+| `anarchism.unclaimed_horse_speed_multiplier` | `1.15` | multiplier | Horse riding speed multiplier on unclaimed land. |
+
+#### `professions` section in `config.json`
+| Key | Default | Unit | Description |
+|---|---|---|---|
+| `enabled` | `true` | boolean | Enable the profession system. |
+| `selection_lockout_hours` | `30` | hours | Lockout duration after choosing a profession. |
+| `rust_online_minutes` | `45` | minutes | Online time required to recover from Rusted to Master. |
+| `builder.reach_bonus_apprentice_blocks` | `1.0` | blocks | Interaction reach bonus for Apprentice Builder. |
+| `builder.reach_bonus_master_blocks` | `2.0` | blocks | Interaction reach bonus for Master Builder. |
+| `farmer.crop_boost_interval_minutes` | `4` | minutes | Interval between crop growth pulses. |
+| `miner.lava_regen_duration_seconds` | `4` | seconds | Duration of Regeneration II upon touching lava. |
+| `merchant.discount_master` | `0.15` | rate | Villager trade discount for Master Merchant (15%). |
+| `soldier.damage_taken_factor_master` | `0.85` | multiplier | Damage taken multiplier for Master Soldier (0.85 = -15%). |
+| `soldier.damage_dealt_factor_master` | `1.15` | multiplier | Damage dealt multiplier for Master Soldier (1.15 = +15%). |
+
+### Limitations
+- **Nametag & Scoreboard Teams:** Because nametags are rendered client-side, the icon above a player's head is delivered via scoreboard team prefixes (`PlayerTeam#setPlayerPrefix`). If another plugin manages player teams, EconomyCraft's team assignment may conflict.
+- **Chat Signature Badge:** Minecraft client Compose `<Name>` slots strictly from account profiles. To show icons in chat, the server prefixes the message content, marking messages as *server-modified* (`ChatTrustLevel.MODIFIED`).
+- **Interaction Reach:** The Builder reach bonus utilizes vanilla's syncable `BLOCK_INTERACTION_RANGE` attribute. Consequently, it consistently widens interaction reach for block placing, breaking, and opening containers without requiring any client mods.
+- **Platform Parity & ShopGuard:** ShopGuard is a Fabric-only mod. On NeoForge (or Fabric servers without ShopGuard), land-claim-dependent features (Monarchy's halved claim cost and claim damage bonus, Anarchism's wilderness speed and claim restrictions) degrade gracefully and remain inert. All other faction and profession features function identically across both Fabric and NeoForge.
+
 
 ## Placeholders
 

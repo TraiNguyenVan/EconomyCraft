@@ -122,11 +122,14 @@ infrastructure and shipped with none. The baseline is now 313 passing tests on 2
   `/eco job` was an "unknown command" for every player who typed what the changelog said. `/eco tag` and
   `/eco party` are registered the same way.
 
+### Added (Phase 10 — Land claims & claim-dependent faction effects)
+- **`ClaimBridge` & ShopGuard integration:** EconomyCraft connects soft-dependently to ShopGuard using reflection. If ShopGuard is absent (or on NeoForge), the bridge logs a single startup warning and degrades cleanly.
+- **FactionApi & FactionIds (`api/v1`):** Read-only API surface exposing player party info, party display names, and claim cost multipliers.
+- **Monarchy `Phép vua thua lệ làng` (spec 28):** +15 % damage dealt and +15 % damage resistance while standing inside your own land claim, hooked into combat damage pipelines.
+- **Anarchism `Thoải mái` (spec 35):** +15 % movement speed and +15 % horse speed on unclaimed wilderness land, applied via vanilla attribute modifiers.
+- **ShopGuard-side faction rules:** Monarchy halved claim cost (`Tự trị`), Anarchism disallowed from claiming, receiving transfers, or being trusted (`Vô chính phủ`).
+
 ### Known gaps
-- All five professions (Builder, Farmer, Miner, Merchant, Soldier) are complete, and so are the four factions'
-  non-claim money effects. What remains is Phase 10: the claim-dependent faction mechanics —
-  Monarchy `Phép vua`, Anarchism `Thoải mái` and `Vô chính phủ`, and the Commerce/Builder/Merchant claim
-  bridges they need.
 - **The daily pass and the levies are not unit-tested end to end.** They need an `EconomyManager` on a server
   thread, exactly like the pre-existing wealth pass. What *is* tested is every rule they apply — the rate
   formula, the tier boundaries, the fee-then-tax order, the caps and the rounding — through pure functions, so a

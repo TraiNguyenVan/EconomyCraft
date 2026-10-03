@@ -1,3 +1,10 @@
+**Gameplay**
+
+- [Chọn Tag (Phe phái & Nghề nghiệp)](Chon-tag)
+- [Phe phái (Factions)](Factions)
+- [Nghề nghiệp (Professions)](Professions)
+- [Tolls management](Tolls)
+
 **EconomyCraft API v1**
 
 - [Home](Home)
