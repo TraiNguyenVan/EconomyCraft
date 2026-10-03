@@ -19,6 +19,11 @@ public final class EconomySources {
     public static final MutationSource WEALTH_TAX = MutationSource.of("economycraft:wealth_tax");
     public static final MutationSource WEALTH_REBATE = MutationSource.of("economycraft:wealth_rebate");
     public static final MutationSource VILLAGER_TRADE = MutationSource.of("economycraft:villager_trade");
+    public static final MutationSource PARTY_FEE = MutationSource.of("economycraft:party_fee");
+    public static final MutationSource INCOME_TAX = MutationSource.of("economycraft:income_tax");
+    public static final MutationSource IMPORT_TAX = MutationSource.of("economycraft:import_tax");
+    public static final MutationSource DAILY_TAX = MutationSource.of("economycraft:daily_tax");
+    public static final MutationSource CORRUPTION_TAX = MutationSource.of("economycraft:corruption_tax");
 
     private EconomySources() {}
 }

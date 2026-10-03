@@ -11,7 +11,10 @@ import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.ProfileCompat;
 import com.reazip.economycraft.profession.ProfessionHaste;
 import com.reazip.economycraft.profession.ProfessionEffects;
+import dev.architectury.event.EventResult;
+import dev.architectury.event.events.common.BlockEvent;
 import dev.architectury.event.events.common.CommandRegistrationEvent;
+import dev.architectury.event.events.common.InteractionEvent;
 import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.PlayerEvent;
 import dev.architectury.event.events.common.TickEvent;
@@ -19,7 +22,9 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -59,6 +64,33 @@ public final class EconomyCraft {
         PlayerEvent.PLAYER_JOIN.register(EconomyCraft::onPlayerJoin);
         PlayerEvent.PLAYER_QUIT.register(EconomyCraft::onPlayerQuit);
         TickEvent.SERVER_POST.register(EconomyCraft::onServerTick);
+
+        InteractionEvent.RIGHT_CLICK_BLOCK.register((player, hand, pos, direction) -> {
+            if (player instanceof ServerPlayer sp && sp.level() instanceof ServerLevel sl) {
+                EconomyManager eco = getManager(sl.getServer());
+                if (eco != null && !eco.getContainerLocks().canAccess(sp, sl, pos, eco)) {
+                    if (hand == InteractionHand.MAIN_HAND) {
+                        sp.sendSystemMessage(Component.literal("Rương này đã bị khóa!").withStyle(ChatFormatting.RED));
+                    }
+                    return EventResult.interruptFalse();
+                }
+            }
+            return EventResult.pass();
+        });
+
+        BlockEvent.BREAK.register((level, pos, state, player) -> {
+            if (level instanceof ServerLevel sl && player != null) {
+                EconomyManager eco = getManager(sl.getServer());
+                if (eco != null) {
+                    if (!eco.getContainerLocks().canAccess(player, sl, pos, eco)) {
+                        player.sendSystemMessage(Component.literal("Bạn không thể phá rương bị khóa!").withStyle(ChatFormatting.RED));
+                        return EventResult.interruptFalse();
+                    }
+                    eco.getContainerLocks().broken(sl, pos);
+                }
+            }
+            return EventResult.pass();
+        });
     }
 
     private static void onServerTick(MinecraftServer server) {
@@ -70,6 +102,11 @@ public final class EconomyCraft {
             EconomyCraft.getManager(server).runFiscalPassIfDue();
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to run the daily fiscal pass", e);
+        }
+        try {
+            EconomyCraft.getManager(server).runFactionFiscalPassIfDue();
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to run the daily faction fiscal pass", e);
         }
         try {
             EconomyCraft.getManager(server).tickTagServices();

@@ -311,8 +311,8 @@ public final class AuctionUi {
 
                 String sellerName = MenuUiSupport.resolvePlayerName(viewer.level().getServer(), l.seller);
                 boolean mine = viewer.getUUID().equals(l.seller);
-
-                TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, l.price);
+                EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
+                TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, l.price, viewer.getUUID(), l.seller, eco);
                 List<Component> lore = new ArrayList<>();
                 lore.add(createPriceLore(l.price, quote.amount()));
                 lore.add(MenuUiSupport.labeledValue("Seller", mine ? "you" : sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
@@ -462,7 +462,8 @@ public final class AuctionUi {
             String sellerName = MenuUiSupport.resolvePlayerName(viewer.level().getServer(), listing.seller);
 
             ItemStack item = listing.item.copy();
-            TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, listing.price);
+            EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
+            TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, listing.price, viewer.getUUID(), listing.seller, eco);
             List<Component> lore = new ArrayList<>();
             lore.add(createPriceLore(listing.price, quote.amount()));
             lore.add(MenuUiSupport.labeledValue("Seller", sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));

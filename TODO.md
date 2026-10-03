@@ -875,24 +875,72 @@ no framework changes.
   - Read the global signal via the **read-only** `EconomyCraftApi.inflationMultiplier()`; never write through it.
   - The charge message must state every factor — base rate, global inflation, share, reference share,
     concentration multiplier, and whether the per-day clamp bound it — so an admin can explain any number.
+  ✅ **DONE** — `FactionFiscalPolicy` (pure) + `FactionFiscalPass` (own `lastFiscalDay`, own rates, own
+  `data/faction_fiscal.json`, `factions.daily_tax_max_catchup_days` for its own capped catch-up). Aggregates
+  are gathered once per day through the pass's private `saturatingAdd` (bounded by `EconomyManager.MAX`),
+  iterating the existing balance map so no account is ever created (invariant 3). The global signal is read only through
+  `EconomyCraftApi.inflationMultiplier()` and a missing API provider degrades to `1.0` rather than failing the
+  pass. **R9 honoured:** a refused debit is counted as `*Failed`, never as collected, and says so in the log.
+  Every factor reaches the player in one `RateBreakdown.describe()` line (asserted in `RateBreakdownTest`,
+  including the clamped case, which shows both the formula's number and the applied one).
 
 - **P9-T1 — Party selection.** `/eco party` menu, `/eco party <faction>`, shared 30 h lockout with P4-T3.
   `ANARCHISM` is the default when unset (spec 32) — and must be **explicitly stored** as `ANARCHISM` once
   the player first interacts, so the join message and `/tag` are unambiguous. Decide and record.
+  ✅ **DONE** — `/eco party` opens the Phase 3 `TagUi` (D16's menu, party page first, confirmation screen,
+  lockout rendered on the button), `/eco party <faction>` is the direct route, and both go through one
+  `partyUnlocked` check. **`leave` is not an escape hatch:** it goes through the same 30 h lockout, because
+  leaving *is* a party change and a player who could leave-then-rejoin would have no lockout at all.
+  ⚠️ **Recorded decision — "explicitly stored as ANARCHISM":** choosing Anarchism in the menu or with
+  `/eco party anarchism` writes a real `ANARCHISM` row with its own timestamp, exactly like any other party;
+  a player who has *never chosen* keeps **no row at all** and reads as Anarchism through
+  `FactionStore.factionOf`'s fallback. This is `FactionStore`'s rule 1, and it is the opposite of what the
+  task line suggested on purpose: persisting the default on first sight would make "chose Anarchism" and
+  "never chose" the same row, and every party added later would silently claim players who never opted in.
+  `FactionStoreTest` and `FactionRulesTest.anarchismIsNotTheSameAsHavingNoRecord` pin both halves.
 - **P9-T2 — Party display** via the Phase 3 pipeline, using each faction's configured colour (spec 5).
+  ✅ **DONE in Phase 2/3** — `TagDisplayService` already renders `faction.settings()` (colour + icon) into the
+  tab list, the team prefix and chat, so nothing was added here. Verified rather than re-implemented.
 - **P9-T3 — New `MutationSource`s + `FISCAL_SOURCES`.**
   `economycraft:party_fee`, `economycraft:income_tax`, `economycraft:import_tax`, `economycraft:daily_tax`,
   `economycraft:corruption_tax`. **All added to `FISCAL_SOURCES`** (`EconomyManager.java:63`) per §1.
+  ✅ **DONE** — all five exist and all five are in `FISCAL_SOURCES`, so every faction debit is visible in
+  `/transactions` and absent from leaderboard `earned`/`spent` (exit criteria, invariant 7). Four of the five
+  are charge sites: `party_fee`, `income_tax`, `daily_tax`, `corruption_tax`. ⚠️ **`import_tax` is declared
+  but never charged as its own mutation**, and that is deliberate: `TaxPolicy` returns one `TaxQuote` per
+  scope, and splitting Monarchy's import tax into a second transfer would mean every tax site growing a
+  second debit and a second rollback path for a number that is an attribute of the same tax. It is
+  attributed to the scope's own source (e.g. `economycraft:auction_purchase`) and appears as a larger amount
+  there. Left declared because a future spec that separates them should not have to invent the id.
 - **P9-T4 — Communism `Đảng phí` (spec 14).** Every 45 min **online** (`OnlineTimeService`, not wall clock),
   charge $10. Failure path: insufficient funds must not reset the timer incorrectly, and must not retry-loop.
   Money burned — no receiver.
+  ✅ **DONE** — `FactionLevyService.tickLevies`, driven by `OnlineTimeService.consumeIfThresholdMet` so it is
+  online time and not wall clock (R10). **The timer is consumed whatever the outcome**, so a broke player is
+  charged once per interval and never retried 20 ticks later; the fee is capped at the balance
+  (`FactionFiscalPolicy.partyFeeCharge`) so it cannot go negative; the debit is a pure burn
+  (`transferMoney(player, null, fee, 0, PARTY_FEE, …)`) and its `PaymentResult` is checked (R9).
 - **P9-T5 — Communism `Thuế thu nhập` (spec 15-18).** On the same 45-min online reset, **after** the party fee,
   apply the tiered tax per D3. Reuse `FiscalPolicy`'s invariants as the model (never tax into negative;
   handle `MAX_BALANCE_EXCEEDED`/R9). Notify the player of both amounts in one message.
+  ✅ **DONE** — same 45-minute reset as the fee, immediately after it, on the balance the fee left
+  (`FactionFiscalPolicy.incomeTaxAmount`, single highest tier, strictly-greater thresholds per D3). One
+  message carries both amounts, and a refusal is reported as a refusal rather than silently as $0. Both
+  boundaries and the fee-then-tax order are unit-tested (`incomeTaxBracketsAfterThePartyFee`,
+  `aBalanceJustUnderAThresholdPaysNothing`).
 - **P9-T6 — Communism `Đầu tư công` (spec 12).** 50 % chance the toll tax is waived (owner still receives the
   fee). Implement inside the P1 toll scope — a 50 % chance means `TaxPolicy` must accept an externally
   supplied exemption decision, so pass a predicate/`TaxExemption` hook rather than reading the faction
   inside `TaxPolicy`.
+  ✅ **DONE, as the task specified** — `tax/TaxExemption.java` is the hook and `tax/FactionTaxRules.java` is
+  the implementation that reads `FactionStore`. `TaxPolicy` no longer imports `FactionStore` and holds no
+  faction state: `resolve(...)` builds the rules and delegates to the pure `TaxPolicy.evaluate(...)`, which is
+  also what makes the two 50 % rules assertable — the dice are a `DoubleSupplier`, so a test passes
+  `() -> 0.0` or `() -> 0.999` instead of hoping. ⚠️ `evaluate` **overloads** rather than replacing: P1's
+  existing calls (`tax`, `total`, the four `resolve` sites) still default to
+  `FactionTaxRules.forEconomy(eco)` and are untouched (R3), so a hook that every caller had to be rewritten
+  to pass would have been a wider refactor with the same risk. The no-rules overload is what the tests use,
+  which is why the faction reads are still fully covered.
 - **P9-T7 — Capitalism `Thị trường cạnh tranh` (spec 21).** D8 is **CLOSED**: a purchase from a listing whose
   **seller is a Capitalism member** is tax-exempt — the buyer pays exactly the listing price, the seller still
   receives the full price. Implement as a **seller-side exemption** inside `TaxPolicy`'s auction-buy scope
@@ -901,9 +949,25 @@ no framework changes.
 - **P9-T8 — Capitalism `Nhà nước tư bản` (spec 23).** Daily tax rate to 5 %; **toll** tax +25 %.
   "Toll tax +25 %" must be defined: 25 % more tax on a toll (multiplier 1.25 on the tax amount) or the rate
   +25 percentage points? Record as an Assumption — recommend a 1.25× multiplier on the toll tax amount.
+  ✅ **DONE** — the 5 % daily rate is P9-T0; the toll surcharge is `factions.capitalism.toll_tax_multiplier =
+  1.25`, applied by `FactionTaxRules.rateMultiplier` to the **TOLL scope only** (`tollMultiplierAppliesToTollsOnly`),
+  so it composes with any base rate and touches no other scope.
+  ⚠️ **Assumption recorded, as asked:** "toll tax +25 %" ships as a **1.25× multiplier**, not +25 percentage
+  points. It multiplies the *rate* before rounding, which is what `tollMultiplierIsAMultiplierNotPercentagePoints`
+  pins: at a 4 % base a toll of 1 000 pays **50** — 5 % — where percentage points would have been 290. At the
+  default 10 % base the two readings coincide (12.5 %), which is exactly why the difference is invisible until
+  an admin changes `tax_rate`.
 - **P9-T9 — Monarchy `Nhập khẩu` (spec 31).** 50 % chance of an extra import tax equal to 50 % of that item's
   tax, on the import scopes agreed in D7. Rounded consistently with `TaxPolicy` (round half of an already-rounded
   tax — pin the exact order and unit-test it).
+  ✅ **DONE** — `FactionTaxRules.surcharge` rounds **from the already-rounded base tax**, so the order is part
+  of the contract and not an accident of floating point (`importSurchargeNeverAppliesToAZeroTax`,
+  `monarchyImportTaxRoundsFromTheAlreadyRoundedTax`). The surcharge never fires on a tax of 0.
+  ⚠️ **D7 is still open and this is where it landed:** imports = shop buy, `/ah` buy, order fulfilment.
+  **Villager trade is excluded**, which is D7's recommendation rather than a confirmed answer — the spec says
+  "when buying and selling" without defining which flows count, and a villager trade is a purchase from a
+  third party. `FactionTaxRules.isImportScope` is the one list to edit if the designer says otherwise, and
+  `monarchyImportTaxOnlyOnD7ImportScopes` asserts the current set so a change is a deliberate diff.
 - **P9-T10 — Monarchy `Cống nạp` (spec 30), per D19.** The rate is no longer open: `daily_tax_rate = 0.017`,
   and the inflation factor is **Monarchy's own** — `totalMoneyInCirculation() / (activePlayers ×
   money_supply_reference_per_player)`, clamped to `money_supply_inflation_max` — *not* Capitalism's
@@ -914,6 +978,15 @@ no framework changes.
   `transferMoney(player, …, debit, 0, ECONOMYCRAFT:CORRUPTION_TAX, …)`. **Do not** build a king entity, a king
   pointer, or any recipient lookup, and do not credit the amount anywhere. Handle only one failure path:
   player cannot afford it.
+  ✅ **DONE** — `FactionFiscalPass.applyOneDay`: `0.017` × Monarchy's own money-supply factor × the
+  concentration multiplier, then `transferMoney(player, null, debit, 0, CORRUPTION_TAX, …)`. No king, no
+  recipient, nothing credited. The inflation factor is tested at 0.5×, 1× and above the ceiling, and
+  `theTwoPartiesReallyAreDifferentFormulas` asserts the two parties' rates do **not** agree at equal inputs —
+  the reason D19 refused to merge them. **Failure path:** the one D5 leaves, "cannot afford it", is counted as
+  `monarchyFailed`, never as collected, and the player is told the charge could not be collected.
+  ⚠️ **Recorded reading of D19:** "the same concentration multiplier" is implemented as *the same config keys* —
+  Monarchy reads `capitalism.concentration_*` and `capitalism.max_rate_change_per_day` rather than
+  duplicating them, so one dial moves both parties and the two formulas stay separate functions.
 - **P9-T11 — Monarchy `Tự trị` (spec 27) + `Phép vua` (spec 28).** `Tự trị` (halved claim cost) is
   **Phase 10** (it lives in ShopGuard). `Phép vua` (the +15 % damage / damage-resistance inside your own
   claim) is implemented here against the claim bridge, which must therefore be available — coordinate with
@@ -922,6 +995,10 @@ no framework changes.
   fees**. So this is a *tax* exemption only: `TaxPolicy` returns `exempt` for every `TaxScope`, while the
   toll **fee** and the item price are untouched. Get this distinction right — it is the single easiest
   thing to over-apply here.
+  ✅ **DONE** — `FactionTaxRules.exempts` returns true for Anarchism on every scope, and
+  `evaluate(...)` then returns a quote with `amount == 0` and the **base untouched**. Two tests exist purely
+  because this is the easiest thing to over-apply: `anarchismIsTaxExemptAcrossAllScopes` (every scope) and
+  `anarchismStillPaysTheTollFeeAndTheItemPrice` (the fee and the price still come out).
 - **P9-T13 — Anarchism `Thoải mái` + `Vô chính phủ` (spec 35, 37).** Both need the claim bridge
   (`Thoải mái` needs "unclaimed land"; `Vô chính phủ` needs to block claiming and trust). Phase 10.
 - **P9-T14 — `Cộng đồng` chest lock (spec 10).** **D10 is CLOSED:** the global default is `UNLOCKED`
@@ -933,12 +1010,39 @@ no framework changes.
   the existing hopper/pressure-plate canonicalisation, P2/P3 in `TollManager:canonicalPos`). Hook the
   container-open path. Must compose with ShopGuard's claim protection (R5) and with the `/eco admin` reset
   tooling (add a clear-all entry).
+  ✅ **DONE** — `ContainerLockStore` (persistence, canonical chest position, break cleanup) plus
+  `ContainerLockPolicy`, which is **pure** and therefore where the three-input precedence actually lives:
+  buff → owner's stored choice → `container_lock.mode`. Both the resolution and the "who may open" decision
+  are unit-tested without a server (6 tests in `FactionRulesTest`), including the interaction of a
+  `PARTY_ONLY` buff with an explicit `UNLOCKED` choice and a buff configured to grant nothing. `/eco lock [info|private|party|unlock|clear]` sets the player's own choice;
+  `unlock` stores an explicit `UNLOCKED` rather than deleting the row, because a deleted row cannot outrank the
+  server default. Hooked on `InteractionEvent.RIGHT_CLICK_BLOCK` and `BlockEvent.BREAK`; reset tooling clears
+  every lock and `reset-everything` includes it.
+  ⚠️ **Two consequences of buff-first precedence, stated rather than discovered:**
+  (a) a Communism member cannot opt their own chest down to `UNLOCKED` from inside the game — that is the buff
+  being a buff, and one config key (`communism.container_lock_mode = "UNLOCKED"`) reverses it server-side;
+  (b) `PARTY_ONLY` never shares with Anarchism, because Anarchism is the *absence* of a party (spec 32), so a
+  party-lock on an Anarchist's chest means "everyone but the owner", which `/eco lock party` now says out loud.
 - **P9-T15 — Party tests.** Per faction: the 45-min party fee, the tiered income tax at each bracket boundary,
   toll-tax exemption and +25 %, the daily tax, the import tax, the corruption payment and its failure paths,
   the Anarchism tax exemption (and proof it does **not** exempt toll fees or item prices), and the 30 h lockout.
+  ✅ **DONE — 45 new Phase 9 tests** (`FactionRulesTest` 27, `FactionFiscalPolicyTest` 14, `RateBreakdownTest` 4),
+  on top of `FactionStoreTest` for the 30 h lockout and `OnlineTimeServiceTest` for threshold consumption —
+  313 tests in `:common` overall, all green. Every rule is
+  asserted through the pure seams — `TaxPolicy.evaluate` + `FactionTaxRules` with an injected roll,
+  `FactionFiscalPolicy` for the levy and daily arithmetic, `ContainerLockPolicy` for the lock — so a 50 % rule
+  is deterministic and no test needs a server. The daily pass's and the levy's own I/O (the `transferMoney`
+  calls, the `PaymentResult` branches) are **not** unit-tested: they need an `EconomyManager` on a server
+  thread, exactly as `FiscalPass`'s equivalents are not. What *is* tested is the arithmetic those branches
+  guard — `taxAmount` never exceeds a balance, `partyFeeCharge` never goes negative — so a refusal can only
+  ever produce a smaller number than the plan said, never a corrupt one.
 
 **Exit criteria:** every faction's money effects are attributable in `/transactions` with the new sources and
-are **absent** from leaderboard `earned`/`spent`; invariant 7 holds.
+are **absent** from leaderboard `earned`/`spent`; invariant 7 holds. ✅ **MET** — all five sources are in
+`FISCAL_SOURCES`, and `EconomyManager.recordStats` returns early for them, so a party levy can never reach a
+leaderboard. **Carried to Phase 10:** P9-T11 (`Phép vua`) and P9-T13 (`Thoải mái`, `Vô chính phủ`) need the
+ShopGuard claim bridge, which does not exist yet — the ClaimBridge direction is P10-T1's decision, and those
+three effects are implemented there rather than stubbed here.
 
 ---
 

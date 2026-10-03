@@ -37,6 +37,7 @@
     "enabled": true,
     "selection_lockout_hours": 30,
     "levy_interval_minutes": 45,
+    "daily_tax_max_catchup_days": 7,
     "communism": {
       "color": 16733525,
       "icon": "☭",

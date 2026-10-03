@@ -11,7 +11,10 @@ import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.faction.ContainerLockStore;
+import com.reazip.economycraft.faction.FactionFiscalPass;
 import com.reazip.economycraft.faction.FactionId;
+import com.reazip.economycraft.faction.FactionLevyService;
 import com.reazip.economycraft.faction.FactionStore;
 import com.reazip.economycraft.fiscal.FiscalPass;
 import com.reazip.economycraft.profession.BlockTags;
@@ -74,7 +77,12 @@ public class EconomyManager {
     );
     private static final Set<String> FISCAL_SOURCES = Set.of(
             EconomySources.WEALTH_TAX.asString(),
-            EconomySources.WEALTH_REBATE.asString()
+            EconomySources.WEALTH_REBATE.asString(),
+            EconomySources.PARTY_FEE.asString(),
+            EconomySources.INCOME_TAX.asString(),
+            EconomySources.IMPORT_TAX.asString(),
+            EconomySources.DAILY_TAX.asString(),
+            EconomySources.CORRUPTION_TAX.asString()
     );
     private static final String ECO_BALANCE_OBJECTIVE = "eco_balance";
     private static final int LEADERBOARD_SIZE = 5;
@@ -119,6 +127,8 @@ public class EconomyManager {
     private final ProfessionStore professions;
     private final TagDisplayService tagDisplay;
     private final BlockTags blockTags;
+    private final FactionFiscalPass factionFiscalPass;
+    private final ContainerLockStore containerLocks;
 
     /** Reused per tick so tracking online players does not allocate a new set twenty times a second. */
     private final Set<UUID> onlineScratch = new HashSet<>();
@@ -189,6 +199,8 @@ public class EconomyManager {
         this.factions = new FactionStore(dataDir.resolve("parties.json"));
         this.professions = new ProfessionStore(dataDir.resolve("professions.json"));
         this.blockTags = BlockTags.fromConfig(EconomyConfig.get().professions);
+        this.factionFiscalPass = new FactionFiscalPass(this, dataDir);
+        this.containerLocks = new ContainerLockStore(dataDir.resolve("container_locks.json"));
         // The display service reads the two stores above and nothing else, so it is built last and holds them by
         // reference: every later phase that changes a selection or a level calls tagDisplay().refresh(...) and the
         // tab row, the nametag prefix and the chat icon all move together.
@@ -861,6 +873,13 @@ public class EconomyManager {
         onlineTime.tick(tickCount, onlineScratch);
         sweepTagDisplay();
 
+        // Communism 45-min online party fee and income tax (spec 14, 15-18)
+        try {
+            FactionLevyService.tickLevies(this, onlineScratch);
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to process faction levies", e);
+        }
+
         if (!EconomyConfig.get().professions.enabled) return;
 
         // Periodic crop boost for online Farmers (spec 48: Tươi tốt)
@@ -948,6 +967,23 @@ public class EconomyManager {
     public void resetFiscalState() {
         requireServerThread();
         fiscalPass.resetState();
+    }
+
+    public FactionFiscalPass getFactionFiscalPass() {
+        return factionFiscalPass;
+    }
+
+    public ContainerLockStore getContainerLocks() {
+        return containerLocks;
+    }
+
+    public FactionFiscalPass.Report runFactionFiscalPassIfDue() {
+        return factionFiscalPass.runIfDue();
+    }
+
+    public FactionFiscalPass.Report runFactionFiscalPassNow() {
+        requireServerThread();
+        return factionFiscalPass.runNow();
     }
 
     public boolean isDynamicPricingActive(String category, boolean itemEnabled) {

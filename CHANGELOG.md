@@ -5,8 +5,8 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased — Faction & Profession System
 
-Planning is tracked in `TODO.md`. **Phases 3, 4, 5, 6, 7, and 8 have landed gameplay behaviour**; Phases 0–2 were pure
-infrastructure and shipped with none. The baseline is now 270 passing tests on 26.3, both loaders green.
+Planning is tracked in `TODO.md`. **Phases 3 through 9 have landed gameplay behaviour**; Phases 0–2 were pure
+infrastructure and shipped with none. The baseline is now 313 passing tests on 26.3, both loaders green.
 
 ### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
@@ -18,8 +18,7 @@ infrastructure and shipped with none. The baseline is now 270 passing tests on 2
 - `BlockTags`: the config-driven building-block, ore, double-value-ore and Haste-trigger sets, with tags
   resolved lazily so a `/reload` is honoured and a bad entry is dropped with a warning instead of failing.
 - `factions` and `professions` config sections, with the spec's defaults and clamping for every key.
-- `container_lock` section and `ContainerLockMode`, with the defaults above. The lock itself is not yet
-  enforced — that is Phase 10.
+- `container_lock` section and `ContainerLockMode`, with the defaults above. Enforcement landed in Phase 9.
 
 ### Changed
 - Config merge now covers nested sections, so an existing server gains the new keys without losing any
@@ -81,8 +80,57 @@ infrastructure and shipped with none. The baseline is now 270 passing tests on 2
 - **Soldier `Sắt được tôi thế đấy`** — −5% damage taken / +5% damage dealt (Apprentice), ±15% (Master), scaled by 0.5 when rusty. Applied server-side via `LivingEntity.hurtServer` mixin with `@ModifyVariable` on damage amount.
 - **Soldier `Andrenaline`** — Master only: on receiving any harmful status effect (`MobEffectCategory.HARMFUL`), halves duration of incoming and active negative effects if within 4 s of the first negative effect, followed by a 5-minute cooldown. Intercepted via `LivingEntity.addEffect`.
 
+### Added (Phase 9 — Party, the four factions' money effects)
+- **Party selection** — `/eco party` opens the tag menu with the party page first; `/eco party <faction>` works
+  directly, and `/eco party leave` exists. Choosing goes through the same explicit confirmation as `/tag` and the
+  spec's **30-hour lockout**, which `leave` also respects — leaving *is* a party change, so a player who could
+  leave and rejoin would have no lockout at all. Ops bypass it.
+- **Communism `Đảng phí` + `Thuế thu nhập`** — every 45 minutes of **online** time (not wall clock): a $10 party
+  fee, then the tiered income tax on what the fee left. Both amounts arrive in one message. A player who cannot
+  afford either is charged what they have and is told the collection failed; the interval is consumed either way,
+  so a broke player is never retried every tick. The money is **burned** — no receiver.
+- **Communism `Đầu tư công`** — a 50 % chance the toll **tax** is waived. The toll owner still receives the fee,
+  because the fee is not a tax.
+- **Communism `Cộng đồng`** — the container lock. `/eco lock [info|private|party|unlock|clear]` sets your own
+  choice, and `unlock` stores an explicit opt-out rather than deleting your record, because a deleted record
+  cannot outrank the server default. Enforced on right-click and on breaking someone else's locked container.
+- **Capitalism `Thị trường cạnh tranh`** — buying from a listing whose **seller** is a Capitalism member pays no
+  tax at all: the buyer pays the listing price and the seller still receives it.
+- **Capitalism `Nhà nước tư bản`** — the daily tax (below) and a 1.25× toll tax rate.
+- **Capitalism daily tax** — 5 % of your balance each day, rising with how much of the server's money the party
+  holds and with server inflation, with the daily move clamped by `capitalism.max_rate_change_per_day`. The
+  charge message names every factor, including whether the clamp bound it, so any number can be explained.
+- **Monarchy `Nhập khẩu`** — a 50 % chance of an extra tax of 50 % of the item's tax, on shop buys, `/ah` buys
+  and order fulfilment. Never on a tax of 0, and rounded from the already-rounded base tax.
+- **Monarchy `Cống nạp`** — a daily tax at 1.7 % of the balance, using **Monarchy's own** inflation signal (money
+  in circulation per player against a reference) rather than Capitalism's, and the concentration multiplier
+  shared with Capitalism. Burned on payment, as the spec requires — there is no king entity and no recipient.
+- **Anarchism `Tự do`** — pays no tax of any kind, and **still pays toll fees and purchase prices**. Tax
+  exemption only; the fee and the price are never touched.
+- **New transaction sources** — `economycraft:party_fee`, `economycraft:income_tax`, `economycraft:import_tax`,
+  `economycraft:daily_tax` and `economycraft:corruption_tax`, all in `FISCAL_SOURCES`, so every faction debit
+  shows in `/transactions` and none of them can reach a leaderboard.
+- **New config key** — `factions.daily_tax_max_catchup_days` (default `7`) caps how much a server that was off
+  for a fortnight will charge on its first tick back; `0` means no cap.
+- The daily faction pass is entirely separate from the pre-existing wealth tax: its own day marker in
+  `data/faction_fiscal.json`, its own rates, its own clamp. A server's wealth tax is unaffected.
+
+### Fixed
+- The faction pass counts a refused debit as **failed**, never as collected, and says so in the log. A player
+  who could not pay is not silently reported as having paid.
+- **`/eco job` now exists.** Phase 4 documented it, but only the standalone `/job` was ever registered, so
+  `/eco job` was an "unknown command" for every player who typed what the changelog said. `/eco tag` and
+  `/eco party` are registered the same way.
+
 ### Known gaps
-- All five professions (Builder, Farmer, Miner, Merchant, Soldier) are complete! Faction-specific non-claim behaviours are Phase 9, and claim-dependent faction mechanics are Phase 10.
+- All five professions (Builder, Farmer, Miner, Merchant, Soldier) are complete, and so are the four factions'
+  non-claim money effects. What remains is Phase 10: the claim-dependent faction mechanics —
+  Monarchy `Phép vua`, Anarchism `Thoải mái` and `Vô chính phủ`, and the Commerce/Builder/Merchant claim
+  bridges they need.
+- **The daily pass and the levies are not unit-tested end to end.** They need an `EconomyManager` on a server
+  thread, exactly like the pre-existing wealth pass. What *is* tested is every rule they apply — the rate
+  formula, the tier boundaries, the fee-then-tax order, the caps and the rounding — through pure functions, so a
+  bug would have to be in the plumbing, not the arithmetic.
 
 ### Design decisions taken after the spec
 - **Builder reach** (`TODO.md` D11, corrected): the previous conclusion that a server-side mod cannot extend
@@ -98,8 +146,27 @@ infrastructure and shipped with none. The baseline is now 270 passing tests on 2
   which is an anti-flicker window rather than a duration. The Builder's triggers union in `building_blocks`, so
   the 33-entry list is not duplicated into a second key.
 - **Container locking is opt-in** (D10 closed): the server default is `UNLOCKED`, a player may lock their own
-  container to `PRIVATE`, and Communism's `Cộng đồng` buff is what grants `PARTY_ONLY`. The lock itself is still
-  Phase 10.
+  container to `PRIVATE`, and Communism's `Cộng đồng` buff is what grants `PARTY_ONLY`. The effective mode of a
+  container resolves **buff first, then the owner's own choice, then the server default**, because "who is it
+  locked to" has three inputs and resolving them in one place is the only way the answer is predictable.
+  Enforced in Phase 9.
+- **"Never chose" is not "chose Anarchism"** (P9-T1): a player who picks Anarchism gets a real `ANARCHISM`
+  record with a timestamp, like any other party, and a player who has never chosen has **no record at all** and
+  reads as Anarchism through the fallback. The task plan suggested persisting the default on first
+  interaction; that was not done, because it would make "deliberately chose Anarchism" and "never chose" the
+  same row on disk — and every party added later would silently claim players who never opted in.
+- **Monarchy's import tax is not a second transaction** (P9-T3): `economycraft:import_tax` is declared and
+  listed in `FISCAL_SOURCES`, but Monarchy's surcharge is folded into the one tax it belongs to rather than
+  charged as a separate debit, because splitting it would mean every tax site growing a second transfer and a
+  second rollback path for a number that is an attribute of the same tax. It is attributed to the scope's own
+  source and appears there as a larger amount.
+- **"Toll tax +25 %" means a multiplier, not percentage points** (P9-T8, recorded as an Assumption): it
+  multiplies the toll tax rate by 1.25. At the default 10 % base the two readings agree (12.5 %), so the
+  difference only shows up after an admin changes `tax_rate` — at 4 % this ships a 5 % toll tax where
+  percentage points would have shipped 29 %.
+- **Which flows count as an "import"** (P9-T9, D7 still open): shop buys, `/ah` buys and order fulfilment.
+  Villager trades are **excluded** — D7's recommendation, not a confirmed answer, since the spec says "when
+  buying and selling" without naming the flows.
 
 ### Notes
 - The pre-existing wealth tax (`FiscalPass`, `FiscalPolicy`, `fiscal.json`, `wealth_tax_*`) is deliberately

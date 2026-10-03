@@ -19,9 +19,13 @@ import java.util.UUID;
  * (Apprentice) or 15 % (Master), scaled by 0.5 when rusty. Tax is then levied on the discounted base,
  * so both the purchase price and the tax are discounted through this single mechanism.
  *
- * <p>{@link #quote(TaxScope, long, double)} is the pure core and takes the rate explicitly, so it is
- * testable without touching {@link EconomyConfig}. {@link #resolve(TaxScope, long)} is the production entry
- * point and reads the configured rate.
+ * <p>Phase 9 (Factions) arrives through a parameter, not through a lookup: {@link TaxExemption} carries the
+ * party's decisions and {@link FactionTaxRules} is the implementation that reads the faction store. That
+ * keeps this class free of faction state and keeps the rules testable, because the two rules that involve a
+ * coin flip cannot be asserted if the coin is flipped here.
+ *
+ * <p>Every resolver ends in {@link #evaluate}, so a waived tax, a multiplied rate and an import surcharge
+ * are decided in exactly one order for both the charge and the lore text that quotes it (R4).
  */
 public final class TaxPolicy {
 
@@ -35,11 +39,68 @@ public final class TaxPolicy {
 
     /** Prices {@code base} at the configured rate, applying player discounts if eligible. */
     public static TaxQuote resolve(TaxScope scope, long base, @Nullable UUID player, @Nullable EconomyManager eco) {
-        if (player == null || eco == null) {
-            return resolve(scope, base);
+        return resolve(scope, base, player, null, eco);
+    }
+
+    /**
+     * Production entry point for a flow that has a counterparty as well as a payer — an auction purchase has
+     * a buyer and a seller, and D8 keys the exemption on the seller.
+     */
+    public static TaxQuote resolve(TaxScope scope, long base, @Nullable UUID player, @Nullable UUID counterparty,
+                                   @Nullable EconomyManager eco) {
+        return resolve(scope, base, player, counterparty, eco, FactionTaxRules.forEconomy(eco));
+    }
+
+    /**
+     * Prices one tax with the faction decisions supplied rather than looked up.
+     *
+     * <p>Overload for tests and for any caller that already knows the rules. {@code exemption} may be
+     * {@code null}, which is the same as {@link TaxExemption#NONE}: the base rate applies, nothing is waived.
+     */
+    public static TaxQuote resolve(TaxScope scope, long base, @Nullable UUID player, @Nullable UUID counterparty,
+                                   @Nullable EconomyManager eco, @Nullable TaxExemption exemption) {
+        if (eco == null && player == null) {
+            return quote(scope, base, EconomyConfig.get().taxRate);
         }
-        double discountRate = MerchantEffects.discountRate(player, eco);
-        return quote(scope, base, EconomyConfig.get().taxRate, discountRate);
+
+        double discountRate = 0.0;
+        double taxRate = EconomyConfig.get().taxRate;
+        if (eco != null && player != null) {
+            discountRate = MerchantEffects.discountRate(player, eco);
+        }
+        return evaluate(scope, base, taxRate, discountRate, player, counterparty, exemption);
+    }
+
+    /**
+     * The pure core every resolver ends in: a rate, a discount, the two parties and the faction rules.
+     *
+     * <p>No config, no server, no randomness of its own — the two dice rolls in Phase 9 live behind
+     * {@link TaxExemption}, which is what lets a 50 % rule be asserted rather than approximated.
+     *
+     * <p>Order matters and is fixed: an exemption wins outright (the tax is zero and the base is untouched),
+     * otherwise the rate multiplier applies, the tax is priced on the discounted base, and only then is a
+     * surcharge added on top of the rounded tax.
+     */
+    public static TaxQuote evaluate(TaxScope scope, long base, double taxRate, double discountRate,
+                                    @Nullable UUID payer, @Nullable UUID counterparty,
+                                    @Nullable TaxExemption exemption) {
+        if (exemption != null && exemption.exempts(scope, payer, counterparty)) {
+            return new TaxQuote(base, 0.0, 0L, 0L, true, scope.source());
+        }
+
+        double rate = taxRate;
+        if (exemption != null) {
+            rate *= exemption.rateMultiplier(scope, payer);
+        }
+
+        TaxQuote quoted = quote(scope, base, rate, discountRate);
+
+        if (exemption == null) return quoted;
+        long surcharge = exemption.surcharge(scope, payer, quoted);
+        if (surcharge <= 0L) return quoted;
+
+        long total = quoted.amount() + surcharge;
+        return new TaxQuote(quoted.base(), quoted.rate(), total, quoted.discount(), false, quoted.source());
     }
 
     /** Prices {@code base} at the configured rate, applying player discounts if eligible. */
@@ -79,6 +140,10 @@ public final class TaxPolicy {
         return resolve(scope, base, player, eco).amount();
     }
 
+    public static long tax(TaxScope scope, long base, @Nullable UUID player, @Nullable UUID counterparty, @Nullable EconomyManager eco) {
+        return resolve(scope, base, player, counterparty, eco).amount();
+    }
+
     /** What the recipient receives after tax — order fulfilment. */
     public static long net(TaxScope scope, long base) {
         return resolve(scope, base).net();
@@ -88,6 +153,10 @@ public final class TaxPolicy {
         return resolve(scope, base, player, eco).net();
     }
 
+    public static long net(TaxScope scope, long base, @Nullable UUID player, @Nullable UUID counterparty, @Nullable EconomyManager eco) {
+        return resolve(scope, base, player, counterparty, eco).net();
+    }
+
     /** What the payer hands over including tax — toll and auction purchase. */
     public static long total(TaxScope scope, long base) {
         return resolve(scope, base).total();
@@ -95,6 +164,10 @@ public final class TaxPolicy {
 
     public static long total(TaxScope scope, long base, @Nullable UUID player, @Nullable EconomyManager eco) {
         return resolve(scope, base, player, eco).total();
+    }
+
+    public static long total(TaxScope scope, long base, @Nullable UUID player, @Nullable UUID counterparty, @Nullable EconomyManager eco) {
+        return resolve(scope, base, player, counterparty, eco).total();
     }
 
     /**

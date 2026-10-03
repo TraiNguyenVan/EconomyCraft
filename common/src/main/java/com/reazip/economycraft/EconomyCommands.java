@@ -45,10 +45,15 @@ import com.reazip.economycraft.orders.OrdersUi;
 import com.reazip.economycraft.tag.TagDisplayService;
 import com.reazip.economycraft.tag.TagStyle;
 import com.reazip.economycraft.tag.TagUi;
+import com.reazip.economycraft.faction.ContainerLockMode;
+import com.reazip.economycraft.faction.ContainerLockStore;
+import com.reazip.economycraft.faction.FactionId;
 import com.reazip.economycraft.profession.ProfessionId;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxQuote;
 import com.reazip.economycraft.tax.TaxScope;
+import com.reazip.economycraft.util.PermissionCompat;
+import com.reazip.economycraft.util.TimeFormat;
 import net.minecraft.world.item.ItemStack;
 
 import static net.minecraft.commands.Commands.argument;
@@ -92,7 +97,13 @@ public final class EconomyCommands {
         registerStandalone(dispatcher, buildTag(), Nodes.COMMAND_TAG);
         dispatcher.register(withCommandPermission(
                 buildJob().requires(s -> EconomyConfig.get().standaloneCommands),
-                Nodes.COMMAND_TAG)); // Reuse tag permission or add new? Let us check - add new later; for now reuse
+                Nodes.COMMAND_TAG));
+        dispatcher.register(withCommandPermission(
+                buildParty().requires(s -> EconomyConfig.get().standaloneCommands && EconomyConfig.get().factions.enabled),
+                Nodes.COMMAND_TAG));
+        dispatcher.register(withCommandPermission(
+                buildLock().requires(s -> EconomyConfig.get().standaloneCommands && EconomyConfig.get().factions.enabled),
+                Nodes.COMMAND_MENU));
         dispatcher.register(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s ->
                         EconomyConfig.get().standaloneCommands && EconomyConfig.get().worthEnabled),
@@ -170,6 +181,12 @@ public final class EconomyCommands {
         root.then(withCommandPermission(buildDaily(), Nodes.COMMAND_DAILY));
         root.then(withCommandPermission(buildTransactions(), Nodes.COMMAND_TRANSACTIONS));
         root.then(withCommandPermission(buildToll("toll"), Nodes.COMMAND_TOLL));
+        root.then(withCommandPermission(buildTag(), Nodes.COMMAND_TAG));
+        root.then(withCommandPermission(buildJob(), Nodes.COMMAND_TAG));
+        root.then(withCommandPermission(
+                buildParty().requires(s -> EconomyConfig.get().factions.enabled), Nodes.COMMAND_TAG));
+        root.then(withCommandPermission(
+                buildLock().requires(s -> EconomyConfig.get().factions.enabled), Nodes.COMMAND_MENU));
         root.then(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s -> EconomyConfig.get().worthEnabled), Nodes.COMMAND_WORTH));
 
@@ -479,7 +496,7 @@ public final class EconomyCommands {
             return 0;
         }
 
-        TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_PAY, amount);
+        TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_PAY, amount, from.getUUID(), manager);
         long debit = quote.total();
         String detail = "Payment to " + displayName;
         var payment = manager.transferMoney(from.getUUID(), toId, debit, amount, EconomySources.PLAYER_PAYMENT, detail);
@@ -1120,8 +1137,10 @@ public final class EconomyCommands {
                 ServerPlayer player = ctx.getSource().getPlayerOrException();
                 EconomyManager eco = EconomyCraft.getManager(ctx.getSource().getServer());
                 long lockout = EconomyConfig.get().professions.selectionLockoutHours;
-                if (!eco.getProfessions().canChange(player.getUUID(), lockout)) {
-                    player.sendSystemMessage(Component.literal("You cannot change profession yet").withStyle(ChatFormatting.RED));
+                if (!eco.getProfessions().canChange(player.getUUID(), lockout) && !PermissionCompat.isAdmin(player)) {
+                    long remaining = eco.getProfessions().remainingCooldownMillis(player.getUUID(), lockout);
+                    player.sendSystemMessage(Component.literal("You cannot change profession yet. Remaining: "
+                            + TimeFormat.formatDuration(remaining)).withStyle(ChatFormatting.RED));
                     return 0;
                 }
                 eco.getProfessions().select(player.getUUID(), p);
@@ -1131,6 +1150,186 @@ public final class EconomyCommands {
             }));
         }
         return root;
+    }
+
+    /**
+     * {@code /eco party} — the menu (D16), a direct choice for players who already know what they want, and
+     * {@code leave} to fall back to the default.
+     *
+     * <p>All three routes go through the same lockout check, because all three <em>are</em> a party change.
+     * Leaving is not an escape hatch: spec 67 says a party cannot be changed for 30 hours, and a player who
+     * could {@code leave} and immediately rejoin another party would have no lockout at all.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> buildParty() {
+        LiteralArgumentBuilder<CommandSourceStack> root = literal("party")
+                .executes(ctx -> {
+                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                    TagUi.open(player);
+                    return 1;
+                })
+                .then(literal("leave").executes(ctx -> {
+                    ServerPlayer player = ctx.getSource().getPlayerOrException();
+                    EconomyManager eco = EconomyCraft.getManager(ctx.getSource().getServer());
+                    if (!partyUnlocked(player, eco)) return 0;
+                    eco.getFactions().reset(player.getUUID());
+                    eco.getTagDisplay().refresh(player);
+                    player.sendSystemMessage(Component.literal("Party cleared — you are back to the default, "
+                                    + FactionId.defaultFaction().displayName() + ".")
+                            .withStyle(ChatFormatting.YELLOW));
+                    player.sendSystemMessage(Component.literal("Choosing again starts a new 30 hour lockout.")
+                            .withStyle(ChatFormatting.GRAY));
+                    return 1;
+                }));
+
+        for (FactionId f : FactionId.values()) {
+            root.then(literal(f.name().toLowerCase(Locale.ROOT)).executes(ctx -> {
+                ServerPlayer player = ctx.getSource().getPlayerOrException();
+                EconomyManager eco = EconomyCraft.getManager(ctx.getSource().getServer());
+                if (!partyUnlocked(player, eco)) return 0;
+                eco.getFactions().select(player.getUUID(), f);
+                eco.getTagDisplay().refresh(player);
+                player.sendSystemMessage(Component.literal("Party set to " + f.displayName()).withStyle(ChatFormatting.GREEN));
+                return 1;
+            }));
+        }
+        return root;
+    }
+
+    /**
+     * Whether the player may change party right now, telling them how long is left when they may not.
+     *
+     * <p>An admin is exempt so a moderator can put a player where they need to be; the same exemption already
+     * applies to the profession half of the lockout.
+     */
+    private static boolean partyUnlocked(ServerPlayer player, EconomyManager eco) {
+        long lockout = EconomyConfig.get().factions.selectionLockoutHours;
+        if (eco.getFactions().canChange(player.getUUID(), lockout) || PermissionCompat.isAdmin(player)) {
+            return true;
+        }
+        long remaining = eco.getFactions().remainingCooldownMillis(player.getUUID(), lockout);
+        player.sendSystemMessage(Component.literal("You cannot change party yet. Remaining: "
+                        + TimeFormat.formatDuration(remaining))
+                .withStyle(ChatFormatting.RED));
+        return false;
+    }
+
+    /**
+     * {@code /eco lock} — the player's own choice for one container (D10).
+     *
+     * <p>{@code /eco lock} with no argument reports the mode that actually applies and which of the three
+     * inputs decided it, because a container can be locked by a buff its owner never asked for.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> buildLock() {
+        LiteralArgumentBuilder<CommandSourceStack> root = literal("lock")
+                .executes(ctx -> lockCommand(ctx.getSource(), "info"))
+                .then(literal("info").executes(ctx -> lockCommand(ctx.getSource(), "info")))
+                .then(literal("private").executes(ctx -> lockCommand(ctx.getSource(), "private")))
+                .then(literal("party").executes(ctx -> lockCommand(ctx.getSource(), "party")))
+                .then(literal("unlock").executes(ctx -> lockCommand(ctx.getSource(), "unlock")))
+                .then(literal("clear").executes(ctx -> lockCommand(ctx.getSource(), "clear")));
+        return root;
+    }
+
+    private static int lockCommand(CommandSourceStack source, String action) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can manage container locks."));
+            return 0;
+        }
+        var hit = player.pick(5.0, 1.0f, false);
+        if (!(hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) || hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+            source.sendFailure(Component.literal("Look at a container within five blocks."));
+            return 0;
+        }
+        var pos = blockHit.getBlockPos();
+        net.minecraft.server.level.ServerLevel level = (net.minecraft.server.level.ServerLevel) player.level();
+        var be = level.getBlockEntity(pos);
+        if (be == null || !(be instanceof net.minecraft.world.Container)) {
+            source.sendFailure(Component.literal("That block is not a container."));
+            return 0;
+        }
+
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        ContainerLockStore locks = eco.getContainerLocks();
+        String dimension = level.dimension().identifier().toString();
+        var existing = locks.get(dimension, pos, level);
+        boolean admin = PermissionCompat.isAdmin(player);
+        boolean ownsExisting = existing == null || player.getUUID().toString().equals(existing.owner);
+
+        if (!"info".equals(action) && !admin && !ownsExisting) {
+            source.sendFailure(Component.literal("You do not own this container's lock."));
+            return 0;
+        }
+
+        switch (action) {
+            case "info" -> {
+                UUID owner = existing == null ? null : locks.ownerOf(existing);
+                ContainerLockMode effective = locks.effectiveMode(existing, owner, eco);
+                String ownerName = owner == null ? "none" : eco.getBestName(owner);
+                source.sendSuccess(() -> Component.literal("Container lock: " + effective
+                        + lockDecidedBy(existing, owner, effective, eco)
+                        + " | owner: " + ownerName
+                        + " | saved choice: " + (existing == null || existing.mode == null ? "none" : existing.mode)), false);
+            }
+            case "private" -> {
+                if (!EconomyConfig.get().containerLock.allowPrivateChoice) {
+                    source.sendFailure(Component.literal("Private container locks are disabled on this server."));
+                    return 0;
+                }
+                locks.setLock(level, pos, player.getUUID(), ContainerLockMode.PRIVATE);
+                source.sendSuccess(() -> Component.literal("Your choice for this container is PRIVATE (only you can open).")
+                        .withStyle(ChatFormatting.GREEN), false);
+            }
+            case "party" -> {
+                FactionId faction = eco.getFactions().factionOf(player.getUUID());
+                locks.setLock(level, pos, player.getUUID(), ContainerLockMode.PARTY_ONLY);
+                source.sendSuccess(() -> Component.literal("Your choice for this container is PARTY_ONLY ("
+                                + faction.displayName() + " members can open).")
+                        .withStyle(ChatFormatting.GREEN), false);
+                if (faction == FactionId.ANARCHISM) {
+                    player.sendSystemMessage(Component.literal(
+                                    "Anarchism is the absence of a party, so this excludes everyone but you.")
+                            .withStyle(ChatFormatting.GRAY));
+                }
+            }
+            case "unlock" -> {
+                // Stored as an explicit UNLOCKED rather than deleted: an explicit choice has to outrank the
+                // server default, and a deleted row is indistinguishable from never having chosen.
+                locks.setLock(level, pos, player.getUUID(), ContainerLockMode.UNLOCKED);
+                source.sendSuccess(() -> Component.literal("Your choice for this container is UNLOCKED.")
+                        .withStyle(ChatFormatting.YELLOW), false);
+            }
+            case "clear" -> {
+                if (existing == null) {
+                    source.sendSuccess(() -> Component.literal("This container has no saved lock."), false);
+                    return 1;
+                }
+                if (!locks.removeLock(level, pos, player.getUUID(), admin)) {
+                    source.sendFailure(Component.literal("You do not own this container's lock."));
+                    return 0;
+                }
+                source.sendSuccess(() -> Component.literal("Saved lock removed; the server default applies again.")
+                        .withStyle(ChatFormatting.YELLOW), false);
+            }
+            default -> {
+                return 0;
+            }
+        }
+        return 1;
+    }
+
+    /**
+     * Which of D10's three inputs produced the mode in force, so a player who is refused can see whether the
+     * lock is theirs, their party's, or the server's.
+     */
+    private static String lockDecidedBy(ContainerLockStore.LockEntry existing, @Nullable UUID owner,
+                                        ContainerLockMode effective, EconomyManager eco) {
+        if (existing != null && existing.mode == effective) return " (your choice)";
+        if (owner != null && effective == ContainerLockMode.PARTY_ONLY
+                && eco.getFactions().factionOf(owner) == FactionId.COMMUNISM) {
+            return " (from the Communism buff)";
+        }
+        return " (server default)";
     }
 
     @Nullable

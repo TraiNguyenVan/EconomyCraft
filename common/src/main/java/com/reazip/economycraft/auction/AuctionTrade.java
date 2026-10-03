@@ -48,7 +48,7 @@ public final class AuctionTrade {
         }
 
         long cost = claimed.price;
-        TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, cost);
+        TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, cost, buyer.getUUID(), claimed.seller, eco);
         long total = quote.total();
 
         String detail = EconomyCraft.describeItem(claimed.item.getCount(), claimed.item.getHoverName().getString());

@@ -34,6 +34,16 @@ public class FactionsSection {
     @SerializedName("levy_interval_minutes")
     public int levyIntervalMinutes = 45;
 
+    /**
+     * How many days of faction daily tax a single pass may charge after the server was off.
+     *
+     * <p>D4 gave the faction pass its own cadence rather than reusing the frozen wealth-tax one, so it also
+     * gets its own cap: {@code 0} means no cap. Seven matches {@code wealth_tax_max_catchup_days} but is a
+     * separate key, because the pre-existing pass must not become a thing this feature can change.
+     */
+    @SerializedName("daily_tax_max_catchup_days")
+    public int dailyTaxMaxCatchupDays = 7;
+
     @SerializedName("communism")
     public CommunismSettings communism = new CommunismSettings();
 
@@ -49,6 +59,7 @@ public class FactionsSection {
     public void clamp() {
         selectionLockoutHours = ConfigClamp.nonNegative("factions.selection_lockout_hours", selectionLockoutHours);
         levyIntervalMinutes = ConfigClamp.nonNegative("factions.levy_interval_minutes", levyIntervalMinutes);
+        dailyTaxMaxCatchupDays = ConfigClamp.nonNegative("factions.daily_tax_max_catchup_days", dailyTaxMaxCatchupDays);
         communism.clamp();
         capitalism.clamp();
         monarchy.clamp();
@@ -145,7 +156,11 @@ public class FactionsSection {
         @SerializedName("max_rate_change_per_day")
         public double maxRateChangePerDay = 0.25;
 
-        /** {@code Nhà nước tư bản}: "+25 %" read as 1.25x on the toll <em>tax amount</em>, not +25 points. */
+        /**
+         * {@code Nhà nước tư bản}: "+25 %" read as 1.25x on the toll <em>tax rate</em>, not +25 points.
+         * It multiplies the rate before rounding, so a toll of 1 000 at a 4 % base pays 50 rather than
+         * either 40 (unmultiplied) or 290 (percentage points).
+         */
         @SerializedName("toll_tax_multiplier")
         public double tollTaxMultiplier = 1.25;
 
