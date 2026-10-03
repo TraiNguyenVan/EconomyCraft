@@ -8,6 +8,8 @@ import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.SellService;
 import com.reazip.economycraft.api.v1.BalanceMutationResult;
+import com.reazip.economycraft.tax.TaxPolicy;
+import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.ExpirationUtil;
 import net.minecraft.ChatFormatting;
@@ -155,7 +157,7 @@ public final class OrderFulfillment {
 
     private static PaymentOutcome settleOrderPayment(EconomyManager eco, UUID requester, UUID fulfillerId, long payment,
                                                        long escrowUsed, String detail) {
-        long tax = Math.round(payment * EconomyConfig.get().taxRate);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment, fulfillerId, eco);
         long payout = payment - tax;
         long shortfall = payment - escrowUsed;
 
@@ -306,13 +308,13 @@ public final class OrderFulfillment {
 
     public static long payoutFor(OrderRequest order, int give) {
         long payment = OrderManager.partialPayment(order, give);
-        long tax = Math.round(payment * EconomyConfig.get().taxRate);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment);
         return payment - tax;
     }
 
     private static double netRatePerUnit(OrderRequest order) {
         if (order == null || order.amount <= 0) return 0;
-        return (order.price / (double) order.amount) * (1.0 - EconomyConfig.get().taxRate);
+        return TaxPolicy.netRate(TaxScope.TRANSACTION_ORDER, order.price / (double) order.amount);
     }
 
     private static void removeItems(ServerPlayer player, ItemStack proto, int amount, boolean excludeArmor) {

@@ -1,10 +1,11 @@
 package com.reazip.economycraft.orders;
 
-import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.HubUi;
 import com.reazip.economycraft.SellService;
+import com.reazip.economycraft.tax.TaxPolicy;
+import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
 import com.reazip.economycraft.util.ContainerPreviewUi;
@@ -81,7 +82,7 @@ public final class OrdersUi {
         if (amount > 1) {
             long rewardPerItem = OrderManager.rewardPerItem(reward, amount);
             if (rewardPerItem > 0) {
-                long taxPerItem = Math.round(rewardPerItem * EconomyConfig.get().taxRate);
+                long taxPerItem = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, rewardPerItem);
                 lore.add(createRewardLore("Reward per item", rewardPerItem, taxPerItem));
             }
         }
@@ -118,7 +119,7 @@ public final class OrdersUi {
     }
 
     private static List<Component> requestLore(ServerPlayer player, EconomyManager eco, int amount, long price) {
-        long tax = Math.round(price * EconomyConfig.get().taxRate);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, price);
         long balance = eco.getBalance(player.getUUID(), true);
 
         List<Component> lore = new ArrayList<>();
@@ -151,7 +152,7 @@ public final class OrdersUi {
             return;
         }
 
-        long tax = Math.round(price * EconomyConfig.get().taxRate);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, price);
         EconomySounds.success(player);
         player.sendSystemMessage(Component.literal("Requested " + amount + "x "
                         + prototype.getHoverName().getString() + " for " + EconomyCraft.formatMoney(price)
@@ -267,7 +268,7 @@ public final class OrdersUi {
                 boolean mine = viewer.getUUID().equals(r.requester);
                 String reqName = MenuUiSupport.resolvePlayerName(server, r.requester);
 
-                long tax = Math.round(r.price * EconomyConfig.get().taxRate);
+                long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, r.price);
                 List<Component> lore = new ArrayList<>();
                 addRewardLore(lore, r.price, tax, r.amount);
                 lore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(r.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
@@ -434,7 +435,7 @@ public final class OrdersUi {
             ItemStack item = req.item.copy();
             var server = parent.viewer.level().getServer();
             String requesterName = MenuUiSupport.resolvePlayerName(server, req.requester);
-            long tax = Math.round(req.price * EconomyConfig.get().taxRate);
+            long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, req.price);
             item.setCount(1);
             List<Component> itemLore = new ArrayList<>();
             addRewardLore(itemLore, req.price, tax, req.amount);
@@ -534,7 +535,7 @@ public final class OrdersUi {
             container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Confirm"));
 
             ItemStack item = req.item.copy();
-            long tax = Math.round(req.price * EconomyConfig.get().taxRate);
+            long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, req.price);
             List<Component> itemLore = new ArrayList<>();
             addRewardLore(itemLore, req.price, tax, req.amount);
             itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));

@@ -7,8 +7,10 @@ import com.reazip.economycraft.TollManager;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import com.reazip.economycraft.profession.ProfessionHooks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.BasePressurePlateBlock;
@@ -51,6 +53,11 @@ public final class EconomyCraftFabric implements ModInitializer {
         });
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {
             if (!(level instanceof ServerLevel serverLevel)) return;
+            if (player instanceof ServerPlayer serverPlayer) {
+                // AFTER means the break already succeeded, and `state` is the pre-break one, which is the only
+                // way to know a crop was mature or a stone was an ore. Counting lives in common.
+                ProfessionHooks.onBlockBroken(serverPlayer, pos, state);
+            }
             TollManager manager = TollManager.of(serverLevel.getServer());
             String dimension = level.dimension().identifier().toString();
             for (BlockPos tollPos : affectedTollPositions(serverLevel, pos, state, manager, dimension, true)) {

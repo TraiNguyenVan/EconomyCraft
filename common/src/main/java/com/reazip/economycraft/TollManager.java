@@ -3,6 +3,8 @@ package com.reazip.economycraft;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.reazip.economycraft.tax.TaxPolicy;
+import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
@@ -148,7 +150,7 @@ public final class TollManager {
         if(owner.equals(visitor.getUUID())) return InteractionResult.GRANTED;
         String cooldown=visitor.getUUID()+"|"+key(dimension,pos); long now=server.getTickCount();
         if(cooldowns.getOrDefault(cooldown,Long.MIN_VALUE)>now) { visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("This toll is on cooldown for you.")); return InteractionResult.DENIED; }
-        long tax=Math.round(toll.fee*EconomyConfig.get().taxRate);
+        long tax = TaxPolicy.tax(TaxScope.TOLL, toll.fee, visitor.getUUID(), EconomyCraft.getManager(server));
         if(toll.fee<=0 || toll.fee>EconomyManager.MAX-tax) { visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("This toll has an invalid fee.")); return InteractionResult.DENIED; }
         var result=EconomyCraft.getManager(server).transferMoney(visitor.getUUID(), owner, toll.fee+tax, toll.fee, EconomySources.TOLL_PAYMENT,
                 "Toll at "+dimension+" "+pos.getX()+","+pos.getY()+","+pos.getZ());

@@ -32,5 +32,178 @@
   "wealth_tax_max_catchup_days": 7,
   "wealth_tax_rebate_enabled": false,
   "wealth_tax_rebate_max_rate": 0.01,
-  "wealth_tax_rebate_trigger_factor": 1.0
+  "wealth_tax_rebate_trigger_factor": 1.0,
+  "factions": {
+    "enabled": true,
+    "selection_lockout_hours": 30,
+    "levy_interval_minutes": 45,
+    "daily_tax_max_catchup_days": 7,
+    "communism": {
+      "color": 16733525,
+      "icon": "☭",
+      "party_fee": 10,
+      "income_tax_tier1_threshold": 10000,
+      "income_tax_tier1_rate": 0.005,
+      "income_tax_tier2_threshold": 15000,
+      "income_tax_tier2_rate": 0.0075,
+      "income_tax_tier3_threshold": 22000,
+      "income_tax_tier3_rate": 0.0125,
+      "toll_tax_exempt_chance": 0.5,
+      "container_lock_mode": "PARTY_ONLY"
+    },
+    "capitalism": {
+      "color": 5635925,
+      "icon": "$",
+      "daily_tax_rate": 0.05,
+      "use_global_inflation": true,
+      "concentration_reference_share": 0.15,
+      "concentration_elasticity": 1.0,
+      "concentration_min_multiplier": 0.0,
+      "concentration_max_multiplier": 5.0,
+      "max_rate_change_per_day": 0.25,
+      "toll_tax_multiplier": 1.25
+    },
+    "monarchy": {
+      "color": 16777045,
+      "icon": "♔",
+      "daily_tax_rate": 0.017,
+      "money_supply_reference_per_player": 1000.0,
+      "money_supply_inflation_max": 3.0,
+      "corruption_multiplier": 1.0,
+      "claim_cost_multiplier": 0.5,
+      "own_claim_damage_multiplier": 1.15,
+      "import_tax_chance": 0.5,
+      "import_tax_factor": 0.5
+    },
+    "anarchism": {
+      "color": 11184810,
+      "icon": "Ⓐ",
+      "unclaimed_speed_multiplier": 1.15,
+      "unclaimed_horse_speed_multiplier": 1.15
+    }
+  },
+  "professions": {
+    "enabled": true,
+    "selection_lockout_hours": 30,
+    "rust_online_minutes": 45,
+    "rust_effect_factor": 0.5,
+    "builder": {
+      "color": 16755200,
+      "icon": "⚒",
+      "level_up_count": 1000,
+      "reach_bonus_apprentice_blocks": 1.0,
+      "reach_bonus_master_blocks": 2.0,
+      "haste_level": 1,
+      "haste_refresh_seconds": 1,
+      "haste_trigger_blocks": [
+        "minecraft:stone",
+        "minecraft:cobblestone",
+        "minecraft:dirt"
+      ],
+      "building_blocks": [
+        "#minecraft:logs",
+        "#minecraft:planks",
+        "#minecraft:stairs",
+        "#minecraft:slabs",
+        "#minecraft:walls",
+        "#minecraft:fences",
+        "#minecraft:fence_gates",
+        "#minecraft:terracotta",
+        "#minecraft:stone_bricks",
+        "minecraft:scaffolding",
+        "minecraft:dirt",
+        "minecraft:coarse_dirt",
+        "minecraft:rooted_dirt",
+        "minecraft:mud",
+        "minecraft:glass",
+        "minecraft:tinted_glass",
+        "#c:glass_blocks",
+        "#c:glass_panes",
+        "minecraft:smooth_stone",
+        "minecraft:bricks",
+        "minecraft:mud_bricks",
+        "minecraft:packed_mud",
+        "minecraft:prismarine",
+        "minecraft:dark_prismarine",
+        "minecraft:prismarine_bricks",
+        "minecraft:purpur_block",
+        "minecraft:purpur_pillar",
+        "minecraft:end_stone_bricks",
+        "minecraft:quartz_block",
+        "minecraft:smooth_quartz",
+        "minecraft:chiseled_quartz_block",
+        "minecraft:quartz_pillar",
+        "minecraft:quartz_bricks"
+      ]
+    },
+    "farmer": {
+      "color": 5627221,
+      "icon": "☘",
+      "level_up_count": 300,
+      "crop_boost_radius_blocks": 24,
+      "crop_boost_cooldown_minutes": 4,
+      "crop_boost_chance_apprentice": 0.1,
+      "crop_boost_chance_master": 0.2,
+      "breeding_cooldown_factor_apprentice": 0.1,
+      "breeding_cooldown_factor_master": 0.2,
+      "baby_growth_factor_apprentice": 1.15,
+      "baby_growth_factor_master": 1.3,
+      "bonus_output_chance_apprentice": 0.01,
+      "bonus_output_chance_master": 0.05
+    },
+    "miner": {
+      "color": 8952319,
+      "icon": "⛏",
+      "level_up_count": 270,
+      "ore_tags": [
+        "#minecraft:ores"
+      ],
+      "double_value_ores": [
+        "minecraft:diamond_ore",
+        "minecraft:deepslate_diamond_ore",
+        "minecraft:gold_ore",
+        "minecraft:deepslate_gold_ore",
+        "minecraft:nether_gold_ore"
+      ],
+      "haste_trigger_blocks": [
+        "minecraft:stone",
+        "minecraft:deepslate",
+        "minecraft:tuff",
+        "minecraft:netherrack",
+        "#minecraft:ores"
+      ],
+      "haste_level": 2,
+      "haste_refresh_seconds": 1,
+      "double_drop_chance_apprentice": 0.05,
+      "double_drop_chance_master": 0.15,
+      "lava_regeneration_level": 2,
+      "lava_regeneration_seconds": 4,
+      "lava_cooldown_minutes": 5
+    },
+    "merchant": {
+      "color": 16777045,
+      "icon": "⚖",
+      "villager_trade_count": 50,
+      "max_trades_per_villager": 20,
+      "auction_purchase_count": 5,
+      "cost_factor_apprentice": 0.05,
+      "cost_factor_master": 0.15
+    },
+    "soldier": {
+      "color": 16733525,
+      "icon": "⚔",
+      "kill_count": 100,
+      "damage_taken_factor_apprentice": 0.95,
+      "damage_taken_factor_master": 0.85,
+      "damage_dealt_factor_apprentice": 1.05,
+      "damage_dealt_factor_master": 1.15,
+      "adrenaline_window_seconds": 4,
+      "adrenaline_cooldown_minutes": 5,
+      "adrenaline_duration_factor": 0.5
+    }
+  },
+  "container_lock": {
+    "mode": "UNLOCKED",
+    "allow_private_choice": true
+  }
 }

@@ -6,7 +6,17 @@
   "mixins": [
     "TollPressurePlateMixin",
     "TollBasePressurePlateMixin",
-    "TollHopperMixin"
+    "TollHopperMixin",
+    "TabListDisplayNameMixin",
+    "ChatIconMixin",
+    "ProfessionPlaceMixin",
+    "ProfessionHasteMixin",
+    "ProfessionBreedMixin",
+    "ProfessionCraftMixin",
+    "ProfessionSmeltMixin",
+    "ProfessionTradeMixin",
+    "ProfessionMerchantMenuMixin",
+    "ProfessionCombatMixin"
   ],
   "injectors": {
     "defaultRequire": 1

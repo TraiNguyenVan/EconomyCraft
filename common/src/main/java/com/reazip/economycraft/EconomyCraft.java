@@ -9,7 +9,13 @@ import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.ProfileCompat;
+import com.reazip.economycraft.faction.FactionEffects;
+import com.reazip.economycraft.profession.ProfessionHaste;
+import com.reazip.economycraft.profession.ProfessionEffects;
+import dev.architectury.event.EventResult;
+import dev.architectury.event.events.common.BlockEvent;
 import dev.architectury.event.events.common.CommandRegistrationEvent;
+import dev.architectury.event.events.common.InteractionEvent;
 import dev.architectury.event.events.common.LifecycleEvent;
 import dev.architectury.event.events.common.PlayerEvent;
 import dev.architectury.event.events.common.TickEvent;
@@ -17,7 +23,18 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import com.reazip.economycraft.faction.ContainerLockMode;
+import com.reazip.economycraft.faction.ContainerLockStore;
+import com.reazip.economycraft.faction.ContainerLockUi;
+import com.reazip.economycraft.util.PermissionCompat;
+import java.util.UUID;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
@@ -55,15 +72,87 @@ public final class EconomyCraft {
         });
 
         PlayerEvent.PLAYER_JOIN.register(EconomyCraft::onPlayerJoin);
+        PlayerEvent.PLAYER_QUIT.register(EconomyCraft::onPlayerQuit);
         TickEvent.SERVER_POST.register(EconomyCraft::onServerTick);
+
+        InteractionEvent.RIGHT_CLICK_BLOCK.register((player, hand, pos, direction) -> {
+            if (player instanceof ServerPlayer sp && sp.level() instanceof ServerLevel sl) {
+                if (hand != InteractionHand.MAIN_HAND) {
+                    return EventResult.pass();
+                }
+                BlockEntity be = sl.getBlockEntity(pos);
+                if (be instanceof Container) {
+                    EconomyManager eco = getManager(sl.getServer());
+                    if (eco != null && !eco.getContainerLocks().canAccess(sp, sl, pos, eco)) {
+                        sp.sendSystemMessage(Component.literal("Rương này đã bị khóa!").withStyle(ChatFormatting.RED));
+                        return EventResult.interruptFalse();
+                    }
+
+                    // Sneak + Right Click with non-block item (or empty hand) opens ContainerLockUi!
+                    if (sp.isShiftKeyDown()) {
+                        ItemStack held = sp.getItemInHand(hand);
+                        if (!(held.getItem() instanceof BlockItem)) {
+                            ContainerLockUi.open(sp, sl, pos);
+                            return EventResult.interruptFalse();
+                        }
+                    }
+
+                    // On normal open: show current lock status in Action Bar
+                    if (eco != null) {
+                        ContainerLockStore locks = eco.getContainerLocks();
+                        String dim = sl.dimension().identifier().toString();
+                        var entry = locks.get(dim, pos, sl);
+                        UUID owner = locks.ownerOf(entry);
+                        if (owner == null || owner.equals(sp.getUUID()) || PermissionCompat.isAdmin(sp)) {
+                            ContainerLockMode effective = locks.effectiveMode(entry, owner, eco);
+                            String modeName = switch (effective) {
+                                case UNLOCKED -> "§aMở khóa";
+                                case PRIVATE -> "§cKhóa cá nhân";
+                                case PARTY_ONLY -> "§6Khóa Đảng Cộng sản";
+                            };
+                            sp.sendSystemMessage(Component.literal("§6[Khóa rương] §fChế độ: " + modeName
+                                    + " §7• §e[Shift + Chuột phải] §7để đổi cài đặt"), true);
+                        }
+                    }
+                }
+            }
+            return EventResult.pass();
+        });
+
+        BlockEvent.BREAK.register((level, pos, state, player) -> {
+            if (level instanceof ServerLevel sl && player != null) {
+                EconomyManager eco = getManager(sl.getServer());
+                if (eco != null) {
+                    if (!eco.getContainerLocks().canAccess(player, sl, pos, eco)) {
+                        player.sendSystemMessage(Component.literal("Bạn không thể phá rương bị khóa!").withStyle(ChatFormatting.RED));
+                        return EventResult.interruptFalse();
+                    }
+                    eco.getContainerLocks().broken(sl, pos);
+                }
+            }
+            return EventResult.pass();
+        });
     }
 
     private static void onServerTick(MinecraftServer server) {
         TollHud.tick(server);
+        // D20's removal half: the break hook only fires on ticks where a mining packet arrived, so without this
+        // a player who stops mid-block would keep the bridged window's worth of Haste indefinitely.
+        ProfessionHaste.expireStale(server, server.getTickCount());
         try {
             EconomyCraft.getManager(server).runFiscalPassIfDue();
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to run the daily fiscal pass", e);
+        }
+        try {
+            EconomyCraft.getManager(server).runFactionFiscalPassIfDue();
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to run the daily faction fiscal pass", e);
+        }
+        try {
+            EconomyCraft.getManager(server).tickTagServices();
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to advance the tag data layer", e);
         }
         if (server.getTickCount() % EXPIRATION_CHECK_INTERVAL_TICKS != 0) return;
 
@@ -99,7 +188,11 @@ public final class EconomyCraft {
             }
 
             eco.markActive(player.getUUID());
+            eco.getTagDisplay().applyTo(player);
             eco.getNotifications().sendPending(player);
+            // A join is the one moment a Builder's reach is guaranteed missing: attribute instances are rebuilt
+            // per player, so a store entry saying "Master" with no modifier on them is a broken feature.
+            ProfessionEffects.applyPersistent(player);
 
             if (eco.getDeliveries().hasDeliveries(player.getUUID())) {
                 sendPrompt(player, "You have unclaimed items: ", "[Claim]", "/eco deliveries");
@@ -110,6 +203,25 @@ public final class EconomyCraft {
             }
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to set up {} on join", player.getName().getString(), e);
+        }
+    }
+
+    /**
+     * Drops the player from their tag team and out of the display cache.
+     *
+     * <p>Needed because the cache is keyed by UUID and would otherwise keep an entry — and a team membership — for
+     * everyone who has ever connected. Deliberately does not save anything: the stores already own the persisted
+     * state, and a tag is derived from it.
+     */
+    private static void onPlayerQuit(ServerPlayer player) {
+        // Drop the Haste refresh bookkeeping; a reconnect starts clean rather than inheriting a stale window.
+        ProfessionHaste.forget(player.getUUID());
+        FactionEffects.forget(player);
+        try {
+            EconomyManager eco = getManager(player.level().getServer());
+            eco.getTagDisplay().forget(player);
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to release tag display state for {}", player.getName().getString(), e);
         }
     }
 

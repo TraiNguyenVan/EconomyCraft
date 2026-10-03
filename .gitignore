@@ -15,3 +15,5 @@
 /.claude/
 /api/.gradle/
 /api/build/
+/fabric/run/
+/neoforge/run/

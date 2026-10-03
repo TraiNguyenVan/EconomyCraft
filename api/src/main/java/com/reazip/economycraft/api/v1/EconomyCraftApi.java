@@ -16,6 +16,12 @@ public interface EconomyCraftApi {
 
     BalanceEvents balanceEvents();
 
+    /**
+     * Which party a player belongs to. Added in Phase 10 for ShopGuard's claim rules; read-only by design,
+     * because choosing a party carries a 30-hour lockout and belongs to the command and UI layers.
+     */
+    FactionApi factions();
+
     String formatMoney(long amount);
 
     /**

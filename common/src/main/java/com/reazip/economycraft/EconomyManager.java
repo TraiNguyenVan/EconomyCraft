@@ -11,7 +11,23 @@ import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.faction.ContainerLockStore;
+import com.reazip.economycraft.faction.FactionEffects;
+import com.reazip.economycraft.faction.FactionFiscalPass;
+import com.reazip.economycraft.faction.FactionId;
+import com.reazip.economycraft.faction.FactionLevyService;
+import com.reazip.economycraft.faction.FactionStore;
 import com.reazip.economycraft.fiscal.FiscalPass;
+import com.reazip.economycraft.profession.BlockTags;
+import com.reazip.economycraft.profession.FarmerEffects;
+import com.reazip.economycraft.profession.MinerEffects;
+import com.reazip.economycraft.profession.ProfessionId;
+import com.reazip.economycraft.profession.ProfessionLevel;
+import com.reazip.economycraft.profession.ProfessionStore;
+import com.reazip.economycraft.profession.ProfessionEffects;
+import com.reazip.economycraft.tag.TagDisplayService;
+import com.reazip.economycraft.time.CooldownService;
+import com.reazip.economycraft.time.OnlineTimeService;
 import com.reazip.economycraft.util.AsyncFileWriter;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
@@ -62,7 +78,12 @@ public class EconomyManager {
     );
     private static final Set<String> FISCAL_SOURCES = Set.of(
             EconomySources.WEALTH_TAX.asString(),
-            EconomySources.WEALTH_REBATE.asString()
+            EconomySources.WEALTH_REBATE.asString(),
+            EconomySources.PARTY_FEE.asString(),
+            EconomySources.INCOME_TAX.asString(),
+            EconomySources.IMPORT_TAX.asString(),
+            EconomySources.DAILY_TAX.asString(),
+            EconomySources.CORRUPTION_TAX.asString()
     );
     private static final String ECO_BALANCE_OBJECTIVE = "eco_balance";
     private static final int LEADERBOARD_SIZE = 5;
@@ -93,6 +114,26 @@ public class EconomyManager {
     private final DynamicPriceEngine dynamicPrices;
     private final FiscalPass fiscalPass;
 
+    /**
+     * The tag phase's data layer (Phase 2). Data and tuning only: nothing here is wired to gameplay yet, so a
+     * freshly-started server writes these files empty and reads them back unchanged.
+     *
+     * <p>They are owned here, and not by the phases that will use them, so that there is exactly one place that
+     * loads them on startup and exactly one that flushes them on shutdown — and so a future phase cannot
+     * accidentally create a second instance with its own copy of the state.
+     */
+    private final OnlineTimeService onlineTime;
+    private final CooldownService cooldowns;
+    private final FactionStore factions;
+    private final ProfessionStore professions;
+    private final TagDisplayService tagDisplay;
+    private final BlockTags blockTags;
+    private final FactionFiscalPass factionFiscalPass;
+    private final ContainerLockStore containerLocks;
+
+    /** Reused per tick so tracking online players does not allocate a new set twenty times a second. */
+    private final Set<UUID> onlineScratch = new HashSet<>();
+
     private Objective objective;
     private final DeliveryManager deliveries;
     private final AuctionManager auctions;
@@ -103,6 +144,9 @@ public class EconomyManager {
     private final Set<UUID> loggedUnresolvedNames = ConcurrentHashMap.newKeySet();
     private volatile boolean active = true;
     private volatile List<LeaderboardEntry> leaderboardCache;
+
+    /** Five seconds: fast enough that a stale tag is a non-event, slow enough to be invisible in a profiler. */
+    private static final int TAG_SWEEP_INTERVAL_TICKS = 100;
 
     public static final long MAX = 999_999_999_999L;
 
@@ -148,6 +192,36 @@ public class EconomyManager {
         dynamicPrices.refresh(server, balances);
         this.fiscalPass = new FiscalPass(this, dataDir);
 
+        // Phase 2. Built after EconomyConfig is loaded (SERVER_STARTING) so BlockTags can read the
+        // professions section, and after the economy files so a config problem cannot leave a half-built
+        // manager behind.
+        this.onlineTime = new OnlineTimeService(dataDir.resolve("online_time.json"));
+        this.cooldowns = new CooldownService(dataDir.resolve("cooldowns.json"));
+        this.factions = new FactionStore(dataDir.resolve("parties.json"));
+        this.professions = new ProfessionStore(dataDir.resolve("professions.json"));
+        this.blockTags = BlockTags.fromConfig(EconomyConfig.get().professions);
+        this.factionFiscalPass = new FactionFiscalPass(this, dataDir);
+        this.containerLocks = new ContainerLockStore(dataDir.resolve("container_locks.json"));
+        // The display service reads the two stores above and nothing else, so it is built last and holds them by
+        // reference: every later phase that changes a selection or a level calls tagDisplay().refresh(...) and the
+        // tab row, the nametag prefix and the chat icon all move together.
+        this.tagDisplay = new TagDisplayService(new TagDisplayService.TagSource() {
+            @Override
+            public FactionId factionOf(UUID player) {
+                return factions.factionOf(player);
+            }
+
+            @Override
+            public ProfessionId professionOf(UUID player) {
+                return professions.professionOf(player);
+            }
+
+            @Override
+            public ProfessionLevel levelOf(UUID player) {
+                return professions.levelOf(player);
+            }
+        });
+
         balanceEvents.register(transactionLogger::onBalanceChanged);
         balanceEvents.register(this::recordStats);
 
@@ -167,6 +241,7 @@ public class EconomyManager {
     public void deactivate() {
         active = false;
         BalanceEventDispatcher.release(server);
+        tagDisplay.clear();
     }
 
     private @Nullable String resolveName(MinecraftServer server, UUID id) {
@@ -456,6 +531,10 @@ public class EconomyManager {
         AsyncFileWriter.writeAsync(dailySellFile, GSON.toJson(new HashMap<>(dailySells), DAILY_SELL_TYPE));
         AsyncFileWriter.writeAsync(statsFile, GSON.toJson(new HashMap<>(stats), STATS_TYPE));
         dynamicPrices.flush();
+        onlineTime.flush();
+        cooldowns.flush();
+        factions.flush();
+        professions.flush();
     }
 
     private void loadDaily() {
@@ -719,6 +798,147 @@ public class EconomyManager {
         return prices;
     }
 
+    /**
+     * Every balance on the server, added up.
+     *
+     * <p>Added for D19: Monarchy's inflation factor is the server's money supply, so it needs the total, and
+     * nothing else here keeps a running sum. Accumulated in {@code double} because the tax that consumes it is
+     * a double anyway, and because summing enough longs to overflow is possible in principle and would wrap to
+     * a negative supply — a negative inflation factor that would then be clamped, quietly.
+     *
+     * <p>O(players) and only called by the daily fiscal pass.
+     */
+    public double totalMoneyInCirculation() {
+        double total = 0.0;
+        for (long balance : balances.values()) {
+            if (balance > 0L) total += balance;
+        }
+        return total;
+    }
+
+    /** Accumulated online time, the clock the spec's 45-minute thresholds read. */
+    public OnlineTimeService getOnlineTime() {
+        return onlineTime;
+    }
+
+    /** Shared wall-clock cooldowns for every job and party effect. */
+    public CooldownService getCooldowns() {
+        return cooldowns;
+    }
+
+    /** Party selections and their 30-hour lockouts. */
+    public FactionStore getFactions() {
+        return factions;
+    }
+
+    /** Profession selections, progress and rust state. */
+    public ProfessionStore getProfessions() {
+        return professions;
+    }
+
+    /** The tab row, nametag prefix and chat icon, and the cache that keeps them in sync. */
+    public TagDisplayService getTagDisplay() {
+        return tagDisplay;
+    }
+
+    /** The resolved building-block, ore and Haste trigger sets. */
+    public BlockTags getBlockTags() {
+        return blockTags;
+    }
+
+    /**
+     * Advances the tag data layer by one tick. Called from {@code TickEvent.SERVER_POST}.
+     *
+     * <p>Two things happen, and neither is gameplay:
+     *
+     * <ol>
+     *   <li>Online time is accumulated for everyone currently online. This runs even when the professions
+     *       section is disabled, because online time is also the clock the party levies will read; switching
+     *       the feature on should not start every player's counters from zero.</li>
+     *   <li>Time is added towards clearing a rust timer, and a player who has served it is promoted back to
+     *       Master. This is the one place Phase 2 writes to a store on a timer rather than on an event, and it
+     *       is skipped entirely when {@code professions.enabled} is false.</li>
+     * </ol>
+     *
+     * <p>Nothing here is on the hot path: the only per-tick cost is one map iteration over online players, and
+     * {@link ProfessionStore#completeRustIfEarned} returns immediately for the overwhelming majority of them.
+     */
+    public void tickTagServices() {
+        long tickCount = server.getTickCount();
+
+        onlineScratch.clear();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            onlineScratch.add(player.getUUID());
+        }
+
+        onlineTime.tick(tickCount, onlineScratch);
+        sweepTagDisplay();
+
+        // Faction gameplay effects: Monarchy claim damage and Anarchism speed (spec 28, 35)
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            try {
+                FactionEffects.tick(this, player);
+            } catch (Exception e) {
+                LOGGER.error("[EconomyCraft] Failed to advance faction effects for {}", player.getUUID(), e);
+            }
+        }
+
+        // Communism 45-min online party fee and income tax (spec 14, 15-18)
+        try {
+            FactionLevyService.tickLevies(this, onlineScratch);
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to process faction levies", e);
+        }
+
+        if (!EconomyConfig.get().professions.enabled) return;
+
+        // Periodic crop boost for online Farmers (spec 48: Tươi tốt)
+        if (tickCount % 20 == 0) {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                FarmerEffects.tickCropBoost(this, player);
+            }
+        }
+
+        // Miner lava contact check (spec 55: Bảo hộ lao động)
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            if (player.isInLava()) {
+                MinerEffects.onLavaContact(this, player);
+            }
+        }
+
+        long credited = onlineTime.lastCreditedIntervalMillis();
+        if (credited <= 0L) return;
+
+        int rustMinutes = EconomyConfig.get().professions.rustOnlineMinutes;
+        for (UUID player : onlineScratch) {
+            try {
+                if (!professions.completeRustIfEarned(player, credited, rustMinutes)) continue;
+                // The level just moved, so any persistent effect derived from it has to be re-applied. Only the
+                // players whose timer actually completed do any work.
+                ServerPlayer online = server.getPlayerList().getPlayer(player);
+                if (online != null) ProfessionEffects.applyPersistent(online);
+            } catch (Exception e) {
+                LOGGER.error("[EconomyCraft] Failed to advance the rust timer for {}", player, e);
+            }
+        }
+    }
+
+    /**
+     * The display sweep, on a deliberately slow interval.
+     *
+     * <p>Every tag surface is cached, and a cache that only refreshes when a caller remembers to call
+     * {@code refresh} is a cache that shows a stale tag the first time a phase forgets. This compares a cheap
+     * signature per online player and re-pushes only the ones that actually changed, so correctness does not
+     * depend on that, at the cost of three hash lookups per player every five seconds.
+     *
+     * <p>Not gated on {@code professions.enabled} or {@code factions.enabled} on purpose: switching a feature off
+     * has to <em>remove</em> tags, and this is the path that notices.
+     */
+    private void sweepTagDisplay() {
+        if (server.getTickCount() % TAG_SWEEP_INTERVAL_TICKS != 0) return;
+        tagDisplay.sweep(server.getPlayerList().getPlayers());
+    }
+
     public void markActive(UUID player) {
         dynamicPrices.markActive(player);
     }
@@ -757,6 +977,23 @@ public class EconomyManager {
     public void resetFiscalState() {
         requireServerThread();
         fiscalPass.resetState();
+    }
+
+    public FactionFiscalPass getFactionFiscalPass() {
+        return factionFiscalPass;
+    }
+
+    public ContainerLockStore getContainerLocks() {
+        return containerLocks;
+    }
+
+    public FactionFiscalPass.Report runFactionFiscalPassIfDue() {
+        return factionFiscalPass.runIfDue();
+    }
+
+    public FactionFiscalPass.Report runFactionFiscalPassNow() {
+        requireServerThread();
+        return factionFiscalPass.runNow();
     }
 
     public boolean isDynamicPricingActive(String category, boolean itemEnabled) {
