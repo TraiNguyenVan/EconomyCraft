@@ -8,7 +8,6 @@
     "TollBasePressurePlateMixin",
     "TollHopperMixin",
     "TabListDisplayNameMixin",
-    "ChatIconMixin",
     "ProfessionPlaceMixin",
     "ProfessionHasteMixin",
     "ProfessionBreedMixin",

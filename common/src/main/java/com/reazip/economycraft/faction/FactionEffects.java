@@ -144,7 +144,10 @@ public final class FactionEffects {
             return;
         }
 
-        FactionId faction = eco.getFactions().factionOf(player.getUUID());
+        // The party a player has actually joined, not their effective one. The store answers Anarchism for
+        // anyone who has never chosen, so reading that raw would hand every undecided player Anarchism's +15%
+        // unclaimed-land speed for free. A player earns a party's buff by joining it.
+        FactionId faction = chosenFactionOf(eco, player.getUUID());
         String dim = player.level().dimension().identifier().toString();
         int x = player.getBlockX();
         int z = player.getBlockZ();
@@ -189,6 +192,16 @@ public final class FactionEffects {
                 if (horse != null) updateHorseSpeed(horse, false, 0.0D);
             }
         }
+    }
+
+    /**
+     * The party {@code player} has actually joined, or {@code null} when they have joined none.
+     *
+     * @see FactionStore#hasChosen(UUID)
+     */
+    private static FactionId chosenFactionOf(EconomyManager eco, UUID player) {
+        FactionStore factions = eco.getFactions();
+        return factions.hasChosen(player) ? factions.factionOf(player) : null;
     }
 
     public static void forget(ServerPlayer player) {

@@ -219,6 +219,12 @@ final class FactionApiImpl implements FactionApi {
     }
 
     @Override
+    public boolean hasChosen(java.util.UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        return store().hasChosen(playerId);
+    }
+
+    @Override
     public String defaultFactionId() {
         return com.reazip.economycraft.faction.FactionId.defaultFaction().key();
     }

@@ -100,8 +100,9 @@ class FactionRulesTest {
 
     @Test
     void anarchismIsNotTheSameAsHavingNoRecord() {
-        // A player who never chose is treated as Anarchism for tax purposes, but the store keeps saying
-        // "no choice", so a party added later cannot inherit them (FactionStore's rule 1).
+        // The store answers Anarchism for a player who never chose, but it keeps saying "no choice" so a party
+        // added later cannot inherit them (FactionStore's rule 1). The exemption above therefore keys off the
+        // record, not off the id — see aPlayerWhoHasNotChosenIsNotAnAnarchist.
         UUID neverChose = UUID.randomUUID();
         assertEquals(FactionId.ANARCHISM, factions.factionOf(neverChose));
         assertFalse(factions.hasChosen(neverChose));
@@ -110,6 +111,37 @@ class FactionRulesTest {
         UUID chose = memberOf(FactionId.ANARCHISM);
         assertTrue(factions.hasChosen(chose));
         assertNotNull(factions.selectionOf(chose));
+    }
+
+    @Test
+    void aPlayerWhoHasNotChosenIsNotAnAnarchist() {
+        // The live trap this guards: `factionOf` says Anarchism for an undecided player, so a rule written
+        // against the id alone hands the largest exemption in the mod to every player who has never opened the
+        // party menu — which, on a server where parties are opt-in, is nearly all of them.
+        UUID neverChose = UUID.randomUUID();
+        assertEquals(FactionId.ANARCHISM, factions.factionOf(neverChose), "precondition: the id really is Anarchism");
+
+        for (TaxScope scope : TaxScope.values()) {
+            TaxQuote quoted = quote(scope, 1000L, 0.10, neverChose, null, alwaysRoll());
+            assertFalse(quoted.exempt(), "no choice must not be an exemption on " + scope);
+            assertEquals(100L, quoted.amount(), "full tax on " + scope);
+            assertEquals(1100L, quoted.total(), "the base is still added on " + scope);
+        }
+    }
+
+    @Test
+    void aPlayerWhoHasNotChosenGetsNoOtherPartysDiscountEither() {
+        // Same reasoning for the rules that key on Communism, Capitalism and Monarchy: none of them apply to a
+        // player who has joined nothing, so there is nothing to inherit by default.
+        UUID neverChose = UUID.randomUUID();
+
+        assertEquals(1.0, alwaysRoll().rateMultiplier(TaxScope.TOLL, neverChose),
+                "no Capitalism toll multiplier without a membership");
+        TaxQuote quoted = quote(TaxScope.TRANSACTION_SHOP, 1000L, 0.10, neverChose, null, alwaysRoll());
+        assertEquals(0L, alwaysRoll().surcharge(TaxScope.TRANSACTION_SHOP, neverChose, quoted),
+                "no Monarchy import surcharge without a membership");
+        assertFalse(alwaysRoll().exempts(TaxScope.TOLL, neverChose, neverChose),
+                "the seller rule must not fire for two undecided players either");
     }
 
     // --- P9-T6: Communism "Đầu tư công" (spec 12) ---
@@ -302,139 +334,5 @@ class FactionRulesTest {
         TaxQuote quoted = TaxPolicy.evaluate(TaxScope.TOLL, 1000L, 0.10, 0.0, payer, null, TaxExemption.NONE);
         assertEquals(100L, quoted.amount());
         assertFalse(quoted.exempt());
-    }
-
-    // --- P9-T14: the three inputs, in the order D10 fixes (buff, own choice, server default) ---
-
-    @Test
-    void effectiveModePrefersTheBuffOverEverythingElse() {
-        assertEquals(ContainerLockMode.PARTY_ONLY, ContainerLockPolicy.effectiveMode(
-                ContainerLockMode.PARTY_ONLY, ContainerLockMode.PRIVATE, ContainerLockMode.UNLOCKED),
-                "the buff outranks an explicit choice, which is what makes it a buff");
-        assertEquals(ContainerLockMode.PARTY_ONLY, ContainerLockPolicy.effectiveMode(
-                ContainerLockMode.PARTY_ONLY, null, ContainerLockMode.UNLOCKED));
-        assertEquals(ContainerLockMode.PARTY_ONLY, ContainerLockPolicy.effectiveMode(
-                ContainerLockMode.PARTY_ONLY, ContainerLockMode.UNLOCKED, ContainerLockMode.PRIVATE),
-                "a Communism member cannot opt out of the buff from inside the game");
-    }
-
-    @Test
-    void effectiveModeFallsBackToTheOwnChoiceThenTheServerDefault() {
-        assertEquals(ContainerLockMode.PRIVATE, ContainerLockPolicy.effectiveMode(
-                ContainerLockMode.UNLOCKED, ContainerLockMode.PRIVATE, ContainerLockMode.PARTY_ONLY));
-        assertEquals(ContainerLockMode.UNLOCKED, ContainerLockPolicy.effectiveMode(
-                ContainerLockMode.UNLOCKED, ContainerLockMode.UNLOCKED, ContainerLockMode.PARTY_ONLY),
-                "an explicit UNLOCKED outranks a restrictive server default");
-        assertEquals(ContainerLockMode.UNLOCKED, ContainerLockPolicy.effectiveMode(
-                ContainerLockMode.UNLOCKED, null, ContainerLockMode.UNLOCKED));
-        assertEquals(ContainerLockMode.PRIVATE, ContainerLockPolicy.effectiveMode(
-                null, null, ContainerLockMode.PRIVATE), "no buff and no choice means the server default");
-        assertEquals(ContainerLockMode.UNLOCKED, ContainerLockPolicy.effectiveMode(
-                null, null, null), "a null default is never a lock");
-    }
-
-    @Test
-    void aConfiguredBuffOfUnlockedGrantsNothing() {
-        assertEquals(ContainerLockMode.PRIVATE, ContainerLockPolicy.effectiveMode(
-                ContainerLockMode.UNLOCKED, ContainerLockMode.PRIVATE, ContainerLockMode.UNLOCKED),
-                "this is how an admin turns the buff off without disabling the feature");
-    }
-
-    @Test
-    void privateLockRefusesEveryoneButTheOwner() {
-        UUID owner = UUID.randomUUID();
-        UUID stranger = UUID.randomUUID();
-
-        assertTrue(ContainerLockPolicy.canOpen(ContainerLockMode.PRIVATE, owner, owner,
-                FactionId.CAPITALISM, FactionId.CAPITALISM, false), "the owner always gets in");
-        assertFalse(ContainerLockPolicy.canOpen(ContainerLockMode.PRIVATE, owner, stranger,
-                FactionId.CAPITALISM, FactionId.CAPITALISM, false));
-        assertTrue(ContainerLockPolicy.canOpen(ContainerLockMode.PRIVATE, owner, stranger,
-                FactionId.CAPITALISM, FactionId.CAPITALISM, true),
-                "an admin bypasses a private lock so a moderator can never be trapped");
-    }
-
-    @Test
-    void partyOnlyLockSharesWithTheSamePartyOnly() {
-        UUID owner = UUID.randomUUID();
-        UUID comrade = UUID.randomUUID();
-        UUID stranger = UUID.randomUUID();
-
-        assertTrue(ContainerLockPolicy.canOpen(ContainerLockMode.PARTY_ONLY, owner, comrade,
-                FactionId.COMMUNISM, FactionId.COMMUNISM, false));
-        assertFalse(ContainerLockPolicy.canOpen(ContainerLockMode.PARTY_ONLY, owner, stranger,
-                FactionId.COMMUNISM, FactionId.CAPITALISM, false));
-        assertFalse(ContainerLockPolicy.canOpen(ContainerLockMode.PARTY_ONLY, owner, stranger,
-                FactionId.COMMUNISM, FactionId.MONARCHY, false));
-    }
-
-    @Test
-    void anarchismSharesNoParty() {
-        UUID owner = UUID.randomUUID();
-        UUID alsoAnarchist = UUID.randomUUID();
-
-        assertFalse(ContainerLockPolicy.sharesParty(FactionId.ANARCHISM, FactionId.ANARCHISM),
-                "spec 32: Anarchism is the absence of a party, so it locks everyone out but the owner");
-        assertFalse(ContainerLockPolicy.canOpen(ContainerLockMode.PARTY_ONLY, owner, alsoAnarchist,
-                FactionId.ANARCHISM, FactionId.ANARCHISM, false));
-        assertTrue(ContainerLockPolicy.canOpen(ContainerLockMode.PARTY_ONLY, owner, alsoAnarchist,
-                FactionId.ANARCHISM, FactionId.ANARCHISM, true));
-    }
-
-    @Test
-    void anUnownedOrUnlockedContainerIsOpenToEveryone() {
-        UUID stranger = UUID.randomUUID();
-        assertTrue(ContainerLockPolicy.canOpen(ContainerLockMode.UNLOCKED, UUID.randomUUID(), stranger,
-                FactionId.COMMUNISM, FactionId.MONARCHY, false));
-        assertTrue(ContainerLockPolicy.canOpen(ContainerLockMode.PARTY_ONLY, null, stranger,
-                null, FactionId.MONARCHY, false), "a row with no readable owner grants access");
-        assertTrue(ContainerLockPolicy.canOpen(null, UUID.randomUUID(), stranger,
-                FactionId.COMMUNISM, FactionId.MONARCHY, false), "an unreadable mode fails open");
-    }
-
-    @Test
-    void lockModeParsingFallsBackOnATypo() {
-        assertEquals(ContainerLockMode.PARTY_ONLY, ContainerLockPolicy.parse("party_only", ContainerLockMode.PARTY_ONLY));
-        assertEquals(ContainerLockMode.PRIVATE, ContainerLockPolicy.parse(" PRIVATE ", ContainerLockMode.UNLOCKED));
-        assertEquals(ContainerLockMode.UNLOCKED, ContainerLockPolicy.parse("nonsense", ContainerLockMode.UNLOCKED));
-        assertEquals(ContainerLockMode.UNLOCKED, ContainerLockPolicy.parse(null, ContainerLockMode.UNLOCKED));
-        assertEquals(ContainerLockMode.UNLOCKED, ContainerLockPolicy.parse("  ", ContainerLockMode.UNLOCKED));
-    }
-
-    // --- P9-T14: Container Lock Store ---
-
-    @Test
-    void containerLockStorePersistenceAndOperations() {
-        var lockFile = tempDir.resolve("container_locks.json");
-        ContainerLockStore store = new ContainerLockStore(lockFile);
-        assertEquals(0, store.count());
-
-        UUID owner = UUID.randomUUID();
-        store.setLock(null, new net.minecraft.core.BlockPos(10, 64, 20), owner, ContainerLockMode.PRIVATE);
-        assertEquals(1, store.count());
-        com.reazip.economycraft.util.AsyncFileWriter.flush();
-
-        ContainerLockStore reopened = new ContainerLockStore(lockFile);
-        assertEquals(1, reopened.count(), "the lock survived a restart");
-        assertEquals(ContainerLockMode.PRIVATE, reopened.get("minecraft:overworld",
-                new net.minecraft.core.BlockPos(10, 64, 20), null).mode);
-
-        UUID stranger = UUID.randomUUID();
-        assertFalse(reopened.removeLock(null, new net.minecraft.core.BlockPos(10, 64, 20), stranger, false));
-        assertEquals(1, reopened.count());
-        assertTrue(reopened.removeLock(null, new net.minecraft.core.BlockPos(10, 64, 20), stranger, true),
-                "an admin may clear anyone's lock");
-        assertEquals(0, reopened.count());
-
-        reopened.setLock(null, new net.minecraft.core.BlockPos(30, 64, 40), owner, ContainerLockMode.PARTY_ONLY);
-        assertEquals(1, reopened.count());
-        reopened.broken(null, new net.minecraft.core.BlockPos(30, 64, 40));
-        assertEquals(0, reopened.count(), "a broken chest does not keep its lock");
-
-        reopened.setLock(null, new net.minecraft.core.BlockPos(1, 1, 1), owner, ContainerLockMode.PRIVATE);
-        reopened.setLock(null, new net.minecraft.core.BlockPos(2, 2, 2), owner, ContainerLockMode.PRIVATE);
-        assertEquals(2, reopened.count());
-        reopened.clearAll();
-        assertEquals(0, reopened.count());
     }
 }

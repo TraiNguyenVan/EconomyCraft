@@ -38,7 +38,6 @@ public final class AdminResetUi {
     private static final int RESET_DAILY_SELL = 6;
     private static final int CLEAR_AUCTIONS = 10;
     private static final int CLEAR_ORDERS = 12;
-    private static final int CLEAR_LOCKS = 14;
     private static final int RESET_EVERYTHING = 16;
     private static final int RUN_FISCAL_PASS = 19;
     private static final int RUN_FACTION_FISCAL = 21;
@@ -91,10 +90,6 @@ public final class AdminResetUi {
                     MenuUiSupport.hint("Cancels every open order."),
                     MenuUiSupport.hint("Escrowed money is refunded.")));
 
-            container.setItem(CLEAR_LOCKS, MenuUiSupport.button(Items.TRIPWIRE_HOOK, "Clear Container Locks", ChatFormatting.RED,
-                    MenuUiSupport.hint("Remove all registered locks."),
-                    MenuUiSupport.hint("Containers return to default.")));
-
             container.setItem(RESET_EVERYTHING, MenuUiSupport.button(Items.TNT, "Reset Entire Economy", ChatFormatting.DARK_RED,
                     MenuUiSupport.line("Everything above, all at once.", ChatFormatting.RED)));
 
@@ -137,10 +132,6 @@ public final class AdminResetUi {
                 case CLEAR_ORDERS -> {
                     EconomySounds.click(viewer);
                     confirmClearOrders(viewer, eco);
-                }
-                case CLEAR_LOCKS -> {
-                    EconomySounds.click(viewer);
-                    confirmClearLocks(viewer, eco);
                 }
                 case RESET_EVERYTHING -> {
                     EconomySounds.click(viewer);
@@ -254,20 +245,6 @@ public final class AdminResetUi {
                 p -> open(p, eco));
     }
 
-    private static void confirmClearLocks(ServerPlayer viewer, EconomyManager eco) {
-        ConfirmUi.open(viewer, "Clear all container locks?", warningIcon(Items.TRIPWIRE_HOOK, "Clear Container Locks"),
-                "Clear locks",
-                List.of(MenuUiSupport.line("Removes all registered container locks.", ChatFormatting.RED),
-                        MenuUiSupport.hint("Containers will return to default mode.")),
-                p -> {
-                    int cleared = eco.getContainerLocks().count();
-                    eco.getContainerLocks().clearAll();
-                    announce(p, "Cleared " + cleared + " container lock" + (cleared == 1 ? "" : "s") + ".");
-                    open(p, eco);
-                },
-                p -> open(p, eco));
-    }
-
     private static void runFactionFiscal(ServerPlayer viewer, EconomyManager eco) {
         FactionFiscalPass.Report report = eco.runFactionFiscalPassNow();
         if (report == null) {
@@ -286,7 +263,6 @@ public final class AdminResetUi {
                 List.of(MenuUiSupport.line("Resets balances, daily reward data, daily sell limits", ChatFormatting.RED),
                         MenuUiSupport.line("and leaderboard stats.", ChatFormatting.RED),
                         MenuUiSupport.line("Cancels every auction and order.", ChatFormatting.RED),
-                        MenuUiSupport.line("Deletes the entire transaction log and container locks.", ChatFormatting.RED),
                         MenuUiSupport.hint("This cannot be undone.")),
                 p -> {
                     int changed = eco.resetAllBalances();
@@ -294,7 +270,6 @@ public final class AdminResetUi {
                     eco.resetDailySellLimits();
                     eco.resetStats();
                     eco.resetTransactionLog();
-                    eco.getContainerLocks().clearAll();
                     int auctionsCleared = AuctionExpiration.clearAll(eco);
                     int ordersCleared = OrderFulfillment.clearAll(eco);
                     announce(p, "Reset the entire economy: " + changed + " balance" + (changed == 1 ? "" : "s")

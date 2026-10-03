@@ -48,8 +48,7 @@
       "income_tax_tier2_rate": 0.0075,
       "income_tax_tier3_threshold": 22000,
       "income_tax_tier3_rate": 0.0125,
-      "toll_tax_exempt_chance": 0.5,
-      "container_lock_mode": "PARTY_ONLY"
+      "toll_tax_exempt_chance": 0.5
     },
     "capitalism": {
       "color": 5635925,
@@ -201,9 +200,5 @@
       "adrenaline_cooldown_minutes": 5,
       "adrenaline_duration_factor": 0.5
     }
-  },
-  "container_lock": {
-    "mode": "UNLOCKED",
-    "allow_private_choice": true
   }
 }

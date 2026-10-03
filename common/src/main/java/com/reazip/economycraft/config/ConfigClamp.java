@@ -123,19 +123,6 @@ public final class ConfigClamp {
         return value;
     }
 
-    /** An enumerated string key, e.g. the container lock mode. Unknown values fall back and warn. */
-    public static <E extends Enum<E>> E choice(String fieldName, String value, E fallback, E... allowed) {
-        if (value != null) {
-            String trimmed = value.trim();
-            for (E option : allowed) {
-                if (option.name().equalsIgnoreCase(trimmed)) return option;
-            }
-        }
-        LOGGER.warn("[EconomyCraft] {} ('{}') is not one of {}; using {}.",
-                fieldName, value, Arrays.toString(allowed), fallback);
-        return fallback;
-    }
-
     /**
      * Drops unusable entries from a list-valued key, leaving the admin's list otherwise as written — including
      * empty, which is a legitimate way to switch a whole set off.

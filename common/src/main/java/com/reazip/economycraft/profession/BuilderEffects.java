@@ -19,8 +19,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
  * one modifier widens both sides consistently.
  *
  * <p>⚠️ <b>Documented side effect, not a bug:</b> the attribute is <em>block interaction</em> range, so it also
- * widens container opening, signs and item frames, and it is the same range check P9-T14's container lock
- * composes with. Spec line 44's "only while holding a building block" is deliberately not implemented: a
+ * widens container opening, signs and item frames. Spec line 44's "only while holding a building block" is deliberately not implemented: a
  * modifier cannot be conditional on the held item, and gating it on one would kill the reach at the exact
  * moment a block is placed, because the held item is then the block that was just placed.
  */

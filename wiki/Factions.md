@@ -10,7 +10,6 @@ EconomyCraft mang đến 4 phe phái với các lợi ích (Buff) và trách nhi
 ## 1. Communism (Chủ nghĩa cộng sản)
 - **Biểu tượng:** `☭` | **Màu sắc:** Đỏ
 - **Buff:**
-  - **Cộng đồng:** Quyền năng khóa rương / thùng đồ (`/eco lock party`) chỉ cho phép các thành viên cùng phe Communism truy cập và sử dụng chung.
   - **Tài trợ:** Các công trình công cộng của phe Communism (thông tin mô tả danh dự cho thợ xây).
   - **Đầu tư công:** Có 50% tỉ lệ được miễn hoàn toàn tiền thuế (tax) khi chi trả qua các trạm thu phí Toll (chủ sở hữu trạm thu phí vẫn nhận đủ số tiền phí).
 - **Debuff:**

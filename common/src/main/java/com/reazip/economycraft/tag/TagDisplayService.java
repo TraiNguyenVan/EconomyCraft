@@ -20,9 +20,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Turns "what has this player chosen" into the three things a client can render, and keeps them in sync.
+ * Turns "what has this player chosen" into the two things a client can render, and keeps them in sync.
  *
- * <p><strong>Three surfaces, three transports, one builder.</strong> {@link TagStyle} builds the text; this class
+ * <p><strong>Two surfaces, two transports, one builder.</strong> {@link TagStyle} builds the text; this class
  * decides when it is rebuilt and how it reaches the client:
  *
  * <ul>
@@ -33,9 +33,14 @@ import java.util.UUID;
  *   <li><strong>Nametag</strong> — a scoreboard <em>team prefix</em>, because the nametag is drawn client-side
  *       and synced scoreboard data is the only thing that can reach it (D21). No team colour is set, which keeps
  *       the player's own name rendering exactly as before.</li>
- *   <li><strong>Chat</strong> — {@link #chatBody}, used by the mixin on the server's chat funnel to rewrite the
- *       message content (D22).</li>
  * </ul>
+ *
+ * <p><strong>Chat is not one of the surfaces, and that is deliberate.</strong> The team prefix above is drawn by
+ * the client inside the {@code <Name>} slot, so a tagged player already wears their tag on the one part of a
+ * chat line the server cannot reach. Prefixing the message body as well (the mixin on
+ * {@code broadcastChatMessage}) put a second copy of the same icons after the name, and it bought that
+ * duplicate at a price: rewriting the content downgrades the line to {@code ChatTrustLevel.MODIFIED}, so the
+ * signed-chat badge went grey on every tagged message. One tag in the name, no rewrite, no grey badge.
  *
  * <p><strong>Cache correctness does not depend on remembering to call anything.</strong> {@link #refresh} exists
  * for the instant case, but the guarantee comes from {@link #sweep}: a cheap signature (the two chosen ids plus
@@ -72,6 +77,16 @@ public final class TagDisplayService {
 
         FactionId factionOf(UUID player);
 
+        /**
+         * Whether the player has actually chosen a party, as opposed to {@link #factionOf} handing back
+         * {@link FactionId#defaultFaction()} for them.
+         *
+         * <p>Needed because that default is Anarchism, so the id alone cannot tell a member of Anarchism from
+         * somebody who has never been asked. Every surface here draws what the player <em>chose</em>, so a player
+         * with no choice wears no party tag at all rather than being labelled with the party they never joined.
+         */
+        boolean hasChosenFaction(UUID player);
+
         ProfessionId professionOf(UUID player);
 
         ProfessionLevel levelOf(UUID player);
@@ -91,9 +106,19 @@ public final class TagDisplayService {
      * tag team from D21 — formatting with it would print the icon twice.
      */
     public Component tabDisplayName(ServerPlayer player) {
-        Rendered rendered = rendered(player.getUUID());
+        return tabRowFor(player.getUUID(), player.getName());
+    }
+
+    /**
+     * {@link #tabDisplayName} by id, with the name supplied. Package-visible so the composition is testable
+     * without a live player, the same way {@link #teamPrefixForTest} is.
+     *
+     * @return the row, or {@code null} for vanilla — which is a real answer, not a missing one
+     */
+    Component tabRowFor(UUID player, Component name) {
+        Rendered rendered = rendered(player);
         if (rendered.tags().isEmpty()) return null;
-        return TagStyle.tabRow(rendered(player.getUUID()).tags(), player.getName());
+        return TagStyle.tabRow(rendered.tags(), name);
     }
 
     /** Pushes the current tab row to every client that can see this player. */
@@ -112,24 +137,6 @@ public final class TagDisplayService {
     /** The same prefix by id. Package-visible so the composition is testable without a live player. */
     Component teamPrefixForTest(UUID player) {
         return TagStyle.teamPrefix(rendered(player).tags());
-    }
-
-    // ---------------------------------------------------------------- chat
-
-    /**
-     * The message body with this player's icons in front, or the body untouched.
-     *
-     * <p>Returns the body unchanged when there is nothing to add, so the caller can leave the message alone. This
-     * is D22's "only rewrite a tagged player's message": an untagged player's chat is never touched and keeps its
-     * signed badge.
-     */
-    public Component chatBody(UUID speaker, Component body) {
-        return TagStyle.chatBody(rendered(speaker).tags(), body);
-    }
-
-    /** Whether this player's messages are rewritten at all. The cheap half of D22's rule. */
-    public boolean isTagged(UUID speaker) {
-        return !rendered(speaker).tags().isEmpty();
     }
 
     // ---------------------------------------------------------------- lifecycle
@@ -241,13 +248,25 @@ public final class TagDisplayService {
 
     private List<TagStyle.Tagged> buildTags(UUID player) {
         List<TagStyle.Tagged> tags = new ArrayList<>(2);
-        FactionId faction = source.factionOf(player);
+        FactionId faction = partyTagOf(player);
         if (faction != null) tags.add(TagStyle.Tagged.of(faction.settings(), faction.displayName()));
         ProfessionId profession = source.professionOf(player);
         if (profession != null) {
             tags.add(TagStyle.Tagged.of(profession.settings(), professionLabel(profession, source.levelOf(player))));
         }
         return tags;
+    }
+
+    /**
+     * The party this player may be labelled with, or {@code null} when they have chosen none.
+     *
+     * <p>The single place that decision is made, because three things have to agree on it: what is drawn
+     * ({@link #buildTags}), what is compared to detect staleness ({@link #signatureOf}), and which team the player
+     * is put on ({@link #teamKeyOf}). If they disagreed, a player who chose a party would keep an unlabelled
+     * nametag, or a player who reset would be stuck wearing it.
+     */
+    private FactionId partyTagOf(UUID player) {
+        return source.hasChosenFaction(player) ? source.factionOf(player) : null;
     }
 
     /**
@@ -265,7 +284,7 @@ public final class TagDisplayService {
      * names are enough and there is nothing to keep in sync with the display names.
      */
     private String signatureOf(UUID player) {
-        return source.factionOf(player) + "/" + source.professionOf(player) + "/" + source.levelOf(player);
+        return partyTagOf(player) + "/" + source.professionOf(player) + "/" + source.levelOf(player);
     }
 
     // ---------------------------------------------------------------- teams
@@ -319,8 +338,8 @@ public final class TagDisplayService {
         return team;
     }
 
-    private String teamKeyOf(UUID player) {
-        return TEAM_NAMESPACE + code(source.factionOf(player)) + "_" + code(source.professionOf(player));
+    String teamKeyOf(UUID player) {
+        return TEAM_NAMESPACE + code(partyTagOf(player)) + "_" + code(source.professionOf(player));
     }
 
     private static String code(Enum<?> id) {

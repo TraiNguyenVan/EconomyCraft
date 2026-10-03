@@ -1,6 +1,5 @@
 package com.reazip.economycraft.config;
 
-import com.reazip.economycraft.faction.ContainerLockMode;
 import com.google.gson.annotations.SerializedName;
 
 /**
@@ -94,18 +93,6 @@ public class FactionsSection {
         @SerializedName("toll_tax_exempt_chance")
         public double tollTaxExemptChance = 0.5;
 
-        /**
-         * {@code Cộng đồng}: who a locked container admits <em>while this buff is active</em>.
-         *
-         * <p>D10, closed: this is the buff's mode, not the server's default. The global default lives in the
-         * {@code container_lock} section and ships as {@link ContainerLockMode#UNLOCKED}; a player may raise
-         * their own container to {@link ContainerLockMode#PRIVATE}, and holding the Communism buff is what
-         * admits the party. Set this to {@link ContainerLockMode#UNLOCKED} to drop just the buff's lock,
-         * leaving the debuff's other effects alone.
-         */
-        @SerializedName("container_lock_mode")
-        public String containerLockMode = ContainerLockMode.PARTY_ONLY.name();
-
         public void clamp() {
             clampTag("factions.communism");
             partyFee = ConfigClamp.nonNegative("factions.communism.party_fee", partyFee);
@@ -116,8 +103,6 @@ public class FactionsSection {
             incomeTaxTier3Threshold = ConfigClamp.nonNegative("factions.communism.income_tax_tier3_threshold", incomeTaxTier3Threshold);
             incomeTaxTier3Rate = ConfigClamp.percentage("factions.communism.income_tax_tier3_rate", incomeTaxTier3Rate);
             tollTaxExemptChance = ConfigClamp.chance("factions.communism.toll_tax_exempt_chance", tollTaxExemptChance);
-            containerLockMode = ConfigClamp.choice("factions.communism.container_lock_mode",
-                    containerLockMode, ContainerLockMode.PARTY_ONLY, ContainerLockMode.values()).name();
         }
 
         @Override

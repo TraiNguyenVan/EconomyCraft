@@ -11,7 +11,6 @@ import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.auction.AuctionManager;
-import com.reazip.economycraft.faction.ContainerLockStore;
 import com.reazip.economycraft.faction.FactionEffects;
 import com.reazip.economycraft.faction.FactionFiscalPass;
 import com.reazip.economycraft.faction.FactionId;
@@ -129,7 +128,6 @@ public class EconomyManager {
     private final TagDisplayService tagDisplay;
     private final BlockTags blockTags;
     private final FactionFiscalPass factionFiscalPass;
-    private final ContainerLockStore containerLocks;
 
     /** Reused per tick so tracking online players does not allocate a new set twenty times a second. */
     private final Set<UUID> onlineScratch = new HashSet<>();
@@ -201,14 +199,18 @@ public class EconomyManager {
         this.professions = new ProfessionStore(dataDir.resolve("professions.json"));
         this.blockTags = BlockTags.fromConfig(EconomyConfig.get().professions);
         this.factionFiscalPass = new FactionFiscalPass(this, dataDir);
-        this.containerLocks = new ContainerLockStore(dataDir.resolve("container_locks.json"));
         // The display service reads the two stores above and nothing else, so it is built last and holds them by
         // reference: every later phase that changes a selection or a level calls tagDisplay().refresh(...) and the
-        // tab row, the nametag prefix and the chat icon all move together.
+        // tab row and the nametag prefix move together.
         this.tagDisplay = new TagDisplayService(new TagDisplayService.TagSource() {
             @Override
             public FactionId factionOf(UUID player) {
                 return factions.factionOf(player);
+            }
+
+            @Override
+            public boolean hasChosenFaction(UUID player) {
+                return factions.hasChosen(player);
             }
 
             @Override
@@ -981,10 +983,6 @@ public class EconomyManager {
 
     public FactionFiscalPass getFactionFiscalPass() {
         return factionFiscalPass;
-    }
-
-    public ContainerLockStore getContainerLocks() {
-        return containerLocks;
     }
 
     public FactionFiscalPass.Report runFactionFiscalPassIfDue() {

@@ -203,7 +203,6 @@ and so the defaults are visible without opening `config.json`.
 | `communism.income_tax_tier2_threshold` / `_rate` | `15000` / `0.0075`| Anti-speculation income tax, tier 2.                                 |
 | `communism.income_tax_tier3_threshold` / `_rate` | `22000` / `0.0125`| Anti-speculation income tax, tier 3 (highest match wins).             |
 | `communism.toll_tax_exempt_chance` | `0.5`      | `Đầu tư công` — chance a toll is paid without tax. The toll owner is still paid. |
-| `communism.container_lock_mode`    | `PARTY_ONLY` | `Cộng đồng`: who a locked container admits *while the buff is active*. Set `UNLOCKED` to drop just the lock. |
 | `capitalism.daily_tax_rate`        | `0.05`     | Base daily rate, before the concentration multiplier.                            |
 | `capitalism.use_global_inflation`  | `true`     | D14: read the existing inflation signal instead of a fourth independent measure. |
 | `capitalism.concentration_reference_share` | `0.15` | Party wealth share at which the multiplier is exactly `1.0`.                   |
@@ -262,17 +261,9 @@ vanilla formatting names because the icon set needs shades the sixteen vanilla n
 Every job also has `color` and `icon`, read the same way as a faction's.
 
 Every number above is clamped rather than rejected, with the value and the bound in one warning line: a rate is
-a 0–1 decimal factor, a colour is 24-bit, an icon is a single glyph, a container lock mode is one of the three
-defined values. A mistyped key costs you that value, not the server.
+a 0–1 decimal factor, a colour is 24-bit and an icon is a single glyph. A mistyped key costs you that value,
+not the server.
 
-**Container lock** (`container_lock`, plus the buff's key above):
-
-| Key                          | Default     | Description                                                        |
-|------------------------------|-------------|--------------------------------------------------------------------|
-| `container_lock.mode`        | `UNLOCKED`  | What a container is restricted to when its owner has chosen nothing. Locking is opt-in. |
-| `container_lock.allow_private_choice` | `true` | Whether a player may lock their own container to `PRIVATE`.  |
-
-Three answers rather than one switch: nothing is locked by default, a player can lock their own chest to
 `PRIVATE`, and holding the Communism buff is what admits the party (`PARTY_ONLY`). If a container has all three
 inputs, the buff wins, then the player's own choice, then the server default. Not enforced yet — that is Phase
 10.
@@ -289,8 +280,8 @@ mining packets, not how long the effect can linger. The Builder's trigger set is
 vanilla `player.block_interaction_range` (default `4.5`), which is what both the client's block picking and the
 server's own range check read — so a Master Builder reaches 6.5 blocks with an unmodified vanilla client, and
 no mixin is involved. Note that this is *block interaction* range, not building-only: it also widens opening a
-container, reading a sign and clicking an item frame. That is intended (it is plain reach), but it is the same
-range check the container lock composes with, so it is documented here rather than left to be discovered.
+container, reading a sign and clicking an item frame. That is intended (it is plain reach), so it is documented
+here rather than left to be discovered.
 
 These keys are not yet editable from `/eco settings`; they are file-only for now.
 
@@ -360,7 +351,6 @@ Certain faction debuffs (Communism party fee and income tax) and profession mech
 
 ### Factions (Parties)
 1. **Communism (`☭`, Red):**
-   - *Community Chest Lock:* `/eco lock party` restricts container access exclusively to members of Communism.
    - *Public Investment:* 50% chance toll tax is waived (the toll owner still receives their fee).
    - *Party Fee:* $10 deducted every 45 minutes of accumulated online time (burned from circulation).
    - *Income Tax:* Assessed every 45 online minutes after the party fee: 0.5% over $10,000; 0.75% over $15,000; 1.25% over $22,000.

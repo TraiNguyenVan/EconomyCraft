@@ -35,6 +35,24 @@ public interface FactionApi {
      */
     String factionDisplayName(UUID playerId);
 
+    /**
+     * Whether the player has <em>actually chosen</em> a party, as opposed to {@link #factionId} reporting the
+     * default for them.
+     *
+     * <p>This exists because {@link #factionId} alone cannot distinguish "chose Anarchism" from "chose
+     * nothing", yet the two must be treated differently by any consumer whose rules restrict a party.
+     * {@link FactionIds#DEFAULT} is {@code anarchism}, so a consumer keying off {@link #factionId} alone
+     * applies Anarchism's restrictions to every player who has never made a choice — which on a live
+     * server with no saved parties is every player, including operators.
+     *
+     * <p>A consumer should therefore read "no choice" as <strong>unrestricted</strong>, and reserve the
+     * restrictions for players who opted into the party that carries them.
+     *
+     * @return {@code false} for a player with no recorded choice, and also for a record that exists but
+     *         cannot be read (see {@code FactionStore.hasChosen}), so a corrupt save fails open.
+     */
+    boolean hasChosen(UUID playerId);
+
     /** The party treated as unselected, i.e. what {@link #factionId} returns for a player with no choice. */
     String defaultFactionId();
 

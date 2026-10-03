@@ -1,13 +1,11 @@
 package com.reazip.economycraft.config;
 
-import com.reazip.economycraft.faction.ContainerLockMode;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -32,7 +30,6 @@ class TagConfigClampTest {
         assertEquals(0.0075, factions.communism.incomeTaxTier2Rate);
         assertEquals(0.0125, factions.communism.incomeTaxTier3Rate);
         assertEquals(0.5, factions.communism.tollTaxExemptChance);
-        assertEquals(ContainerLockMode.PARTY_ONLY.name(), factions.communism.containerLockMode);
         assertEquals(0.05, factions.capitalism.dailyTaxRate);
         assertTrue(factions.capitalism.useGlobalInflation);
         assertEquals(0.15, factions.capitalism.concentrationReferenceShare);
@@ -151,28 +148,6 @@ class TagConfigClampTest {
     }
 
     @Test
-    void unknownContainerLockModeFallsBackToTheDocumentedDefault() {
-        FactionsSection factions = new FactionsSection();
-        factions.communism.containerLockMode = "EMPIRE_ONLY";
-
-        factions.clamp();
-
-        assertEquals(ContainerLockMode.PARTY_ONLY.name(), factions.communism.containerLockMode);
-    }
-
-    @Test
-    void containerLockModeAcceptsEveryDefinedValue() {
-        for (ContainerLockMode mode : ContainerLockMode.values()) {
-            FactionsSection factions = new FactionsSection();
-            factions.communism.containerLockMode = mode.name().toLowerCase(java.util.Locale.ROOT);
-
-            factions.clamp();
-
-            assertEquals(mode.name(), factions.communism.containerLockMode, mode.name());
-        }
-    }
-
-    @Test
     void concentrationBoundsCannotCross() {
         FactionsSection factions = new FactionsSection();
         factions.capitalism.concentrationMinMultiplier = 2.0;
@@ -232,8 +207,6 @@ class TagConfigClampTest {
         assertEquals(3.0, ConfigClamp.exponent("x", 3.0));
         assertEquals(ConfigClamp.MAX_EXPONENT, ConfigClamp.exponent("x", 999.0));
         assertEquals(7.0, ConfigClamp.multiplier("x", 7.0));
-        assertSame(ContainerLockMode.PRIVATE, ConfigClamp.choice("x", "private",
-                ContainerLockMode.PARTY_ONLY, ContainerLockMode.values()));
         assertEquals("☭", ConfigClamp.icon("x", "☭", "$"));
         assertEquals("$", ConfigClamp.icon("x", null, "$"));
         assertEquals(List.of("a", "b"), ConfigClamp.cleanList("x", Arrays.asList("a", " ", "b ")),
@@ -256,42 +229,6 @@ class TagConfigClampTest {
         assertEquals(1.0, factions.monarchy.moneySupplyInflationMax,
                 "below 1 the ceiling would silently mute the tax entirely");
         assertEquals(1.0, factions.monarchy.dailyTaxRate);
-    }
-
-    // --- D20: the container lock default is opt-in ---
-
-    @Test
-    void containersAreNotLockedByDefault() {
-        ContainerLockSection lock = new ContainerLockSection();
-
-        assertEquals(ContainerLockMode.UNLOCKED.name(), lock.mode.name(),
-                "D10: locking is opt-in — a lock nobody asked for is worse than no lock");
-        assertTrue(lock.allowPrivateChoice, "a player may still lock their own chest for themselves");
-
-        FactionsSection factions = new FactionsSection();
-        assertEquals(ContainerLockMode.PARTY_ONLY.name(), factions.communism.containerLockMode,
-                "the buff's mode is separate from the server default");
-    }
-
-    @Test
-    void anUnusableLockModeFallsBackToUnlocked() {
-        ContainerLockSection lock = new ContainerLockSection();
-        lock.mode = null;
-
-        lock.clamp();
-
-        assertEquals(ContainerLockMode.UNLOCKED.name(), lock.mode.name(),
-                "falling back to a lock would be the worst possible outcome for a bad key");
-    }
-
-    @Test
-    void aLockModeOfUnlockedStillDisablesTheBuffsLockWhenAsked() {
-        FactionsSection factions = new FactionsSection();
-        factions.communism.containerLockMode = ContainerLockMode.UNLOCKED.name();
-
-        factions.clamp();
-
-        assertEquals(ContainerLockMode.UNLOCKED.name(), factions.communism.containerLockMode);
     }
 
     @Test

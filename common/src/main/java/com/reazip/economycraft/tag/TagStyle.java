@@ -69,21 +69,6 @@ public final class TagStyle {
         return out.build();
     }
 
-    /**
-     * The chat body: the same icons, then a space, then the player's own message untouched.
-     *
-     * <p>The message is appended as-is, never rebuilt from its plain string, so vanilla's own decorations —
-     * links, mentions, italics — survive the rewrite (D22).
-     */
-    public static Component chatBody(List<Tagged> tags, Component body) {
-        if (tags.isEmpty()) return body;
-        Mutable out = new Mutable();
-        for (Tagged tag : tags) out.add(tag.icon());
-        out.add(" ");
-        out.add(body);
-        return out.build();
-    }
-
     /** {@code [x]} with bracket and glyph in one colour, so a tag never renders half-tinted. */
     private static Component bracket(String text, int rgb) {
         return Component.literal("[" + text + "]").withStyle(style -> style.withColor(rgb));

@@ -22,7 +22,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -44,12 +44,18 @@ class TagDisplayServiceTest {
     private static final class FakeSource implements TagDisplayService.TagSource {
 
         private FactionId faction;
+        private boolean chosen = true;
         private ProfessionId profession;
         private ProfessionLevel level = ProfessionLevel.APPRENTICE;
 
         @Override
         public FactionId factionOf(UUID player) {
             return faction;
+        }
+
+        @Override
+        public boolean hasChosenFaction(UUID player) {
+            return chosen;
         }
 
         @Override
@@ -92,35 +98,47 @@ class TagDisplayServiceTest {
 
     @Test
     void untaggedPlayerGetsNothingAtAll() {
-        assertFalse(service.isTagged(PLAYER));
         assertTrue(service.tagsOf(PLAYER).isEmpty());
-
-        Component body = Component.literal("hello");
-        // Identity, not equality: the D22 path must be able to leave the message completely alone, so an untagged
-        // player's chat keeps its signed badge rather than being rewritten to the same string.
-        assertSame(body, service.chatBody(PLAYER, body));
+        assertEquals("", plain(service.teamPrefixForTest(PLAYER)));
+        assertNull(service.tabRowFor(PLAYER, Component.literal("Steve")));
     }
 
     @Test
-    void partyOnlyRendersItsIconInFrontOfChat() {
-        source.faction = FactionId.COMMUNISM;
+    void aPlayerWhoHasNotChosenWearNoPartyTag() {
+        // The store answers Anarchism for anyone who was never asked, so drawing `factionOf` alone would label
+        // every undecided player as an Anarchist — and, since a party is opt-in, that is a false statement about
+        // them rather than a default. The tab list, the nametag and the team key must all agree on this.
+        source.faction = FactionId.ANARCHISM;
+        source.chosen = false;
 
-        assertTrue(service.isTagged(PLAYER));
+        assertTrue(service.tagsOf(PLAYER).isEmpty());
+        assertEquals("", plain(service.teamPrefixForTest(PLAYER)));
+        assertNull(service.tabRowFor(PLAYER, Component.literal("Steve")));
+        assertEquals("ec_no_no", service.teamKeyOf(PLAYER));
+
+        // Choosing is what puts the tag back, and it is the sweep that notices without anyone calling refresh().
+        source.chosen = true;
+        assertTrue(service.isStale(PLAYER));
+        service.revalidate(PLAYER);
         assertEquals(1, service.tagsOf(PLAYER).size());
+    }
 
-        // Spelled out rather than read back off the config, so a change to the shipped icon fails here instead of
-        // quietly changing every player's nametag.
-        assertEquals("[☭] hello", plain(service.chatBody(PLAYER, Component.literal("hello"))));
+    @Test
+    void aProfessionSurvivesHavingNoParty() {
+        // The mirror of the rule above: choosing a job is a real choice and its tag is shown, while the party
+        // slot stays empty rather than being filled in from the default.
+        source.faction = FactionId.ANARCHISM;
+        source.chosen = false;
+        source.profession = ProfessionId.BUILDER;
+
+        assertEquals(1, service.tagsOf(PLAYER).size());
+        assertEquals(ProfessionId.BUILDER.displayName(), labelOf());
     }
 
     @Test
     void bothTagsRenderPartyFirstThenProfession() {
         source.faction = FactionId.COMMUNISM;
         source.profession = ProfessionId.BUILDER;
-
-        String chat = plain(service.chatBody(PLAYER, Component.literal("hi")));
-        assertEquals("[" + FactionId.COMMUNISM.settings().icon + "]["
-                + ProfessionId.BUILDER.settings().icon + "] hi", chat);
 
         String row = plain(TagStyle.tabRow(service.tagsOf(PLAYER), Component.literal("Steve")));
         assertEquals("[" + FactionId.COMMUNISM.displayName() + "][" + ProfessionId.BUILDER.displayName() + "] Steve",

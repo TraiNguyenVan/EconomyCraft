@@ -3,6 +3,28 @@
 All notable changes to EconomyCraft are documented here. This file is the `changelog-file` consumed by
 `.github/workflows/release.yml`, so a release published without updating it ships an empty changelog body.
 
+## Unreleased — Container locks removed
+
+The `Cộng đồng` chest lock (spec D10 / P9-T14) has been **removed in full**, at the server owner's request.
+Chests are vanilla again: no `/eco lock`, no `/lock`, no sneak-click menu, no action-bar lock status, and no
+refusal to open or break a container. **ShopGuard claim protection and tolls are untouched** and remain the
+only two ways a chest can be closed to someone.
+
+### Removed
+- `ContainerLockMode`, `ContainerLockPolicy`, `ContainerLockStore`, `ContainerLockUi`, `ContainerLockSection`.
+- The `container_lock` config section and `factions.communism.container_lock_mode`, from the bundled default.
+- `/lock` and `/eco lock [menu|info|private|party|unlock|clear]`, and the sneak-right-click lock menu.
+- The `/eco admin` → **Clear Container Locks** button.
+- `ConfigClamp.choice`, whose only caller was the lock mode key.
+- The `InteractionEvent.RIGHT_CLICK_BLOCK` and `BlockEvent.BREAK` handlers in `EconomyCraft` — both existed
+  only to enforce locks, so the break-side protection those provided is gone with them. Toll break protection
+  (registered separately in `EconomyCraftFabric`) and ShopGuard's claim protection are unaffected.
+- `data/container_locks.json` is no longer read or written. A copy of the live file, including one `PARTY_ONLY`
+  entry, was kept on the server under `config/economycraft/data/.removed-20261003/` before the restart.
+
+**Migration:** none needed. Gson drops the two now-unknown config keys silently, and the keys were removed from
+the live `config.json` by hand anyway. Historic entries below are left as written.
+
 ## Unreleased — Faction & Profession System
 
 Planning is tracked in `TODO.md`. **Phases 3 through 9 have landed gameplay behaviour**; Phases 0–2 were pure
