@@ -74,6 +74,14 @@ public class QuestsSection {
     @SerializedName("blacklist")
     public List<String> blacklist = List.of();
 
+    /**
+     * When true, only entries with a buy price (actually on the shop) can be drawn for quests or
+     * listed by the buyback. Sell-only catalog entries never touch the board or {@code /ah}.
+     * Buyback stock already banked for a buy-less item is voided on the next sweep.
+     */
+    @SerializedName("require_shop_price")
+    public boolean requireShopPrice = true;
+
     /** Display name the bot account resolves to in order lists and lore. */
     @SerializedName("bot_name")
     public String botName = "Server Quests";

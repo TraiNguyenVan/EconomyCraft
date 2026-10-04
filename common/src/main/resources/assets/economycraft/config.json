@@ -211,6 +211,7 @@
     "max_quest_unit": 100,
     "sell_fallback_multiplier": 3.3,
     "blacklist": [],
+    "require_shop_price": true,
     "bot_name": "Server Quests",
     "buyback": {
       "enabled": true,

@@ -29,6 +29,7 @@ public final class AdminUi {
     private static final int PLAYERS = 14;
     private static final int RELOAD = 16;
     private static final int BACK = 18;
+    private static final int QUESTS = 20;
     private static final int RESET = 22;
 
     public static void open(ServerPlayer player, EconomyManager eco) {
@@ -80,6 +81,12 @@ public final class AdminUi {
                 container.setItem(RELOAD, MenuUiSupport.button(Items.CLOCK, "Reload from disk", ChatFormatting.YELLOW,
                         MenuUiSupport.hint("Re-reads config.json and prices.json."),
                         MenuUiSupport.italicHint("Only needed after editing those files directly.")));
+            }
+
+            if (EconomyPermissions.checkAdmin(viewer, Nodes.ADMIN_SETTINGS)) {
+                container.setItem(QUESTS, MenuUiSupport.button(Items.WRITABLE_BOOK, "Server Quests", ChatFormatting.LIGHT_PURPLE,
+                        MenuUiSupport.hint("Fractions, budget, shop-only pool,"),
+                        MenuUiSupport.hint("and force a board re-draw.")));
             }
 
             if (EconomyPermissions.checkAdmin(viewer, Nodes.ADMIN_RESET)) {
@@ -138,6 +145,12 @@ public final class AdminUi {
                 case BACK -> {
                     EconomySounds.click(viewer);
                     HubUi.open(viewer);
+                }
+                case QUESTS -> {
+                    if (EconomyPermissions.checkAdmin(viewer, Nodes.ADMIN_SETTINGS)) {
+                        EconomySounds.click(viewer);
+                        AdminQuestsUi.open(viewer, eco);
+                    }
                 }
                 default -> {
                 }

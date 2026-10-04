@@ -23,8 +23,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,6 +40,10 @@ import java.util.UUID;
  *
  * <p>The first week starts on the first sweep, which is why a fresh boot posts nothing until ticks run.
  * Everything here runs on the server thread, called from the minute-tick gate.
+ *
+ * <p>Retuning {@code quests.price_factor} mid-week needs no rebuild and no new week: every sweep
+ * compares each open order's posted unit against the live factor and cancel-reposts drifters at
+ * the current unit, remainders kept, escrow refunded and relocked through the ordinary paths.
  */
 public class QuestManager {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -54,6 +60,8 @@ public class QuestManager {
     private final List<String> drawnKeys = new ArrayList<>();
     private final Set<String> postedKeys = new HashSet<>();
     private final Set<Integer> questOrderIds = new LinkedHashSet<>();
+    /** Per-unit price each open quest order was posted at, by order id — the sweep reprices drifters. */
+    private final Map<String, Long> postedUnits = new LinkedHashMap<>();
     private long mintedThisWeek;
     private boolean postedThisWeek;
 
@@ -76,6 +84,7 @@ public class QuestManager {
             postDrawn(eco, now);
             postedThisWeek = true;
         }
+        reconcilePricing(eco);
         QuestBuyback.sweep(eco);
         save();
     }
@@ -90,6 +99,7 @@ public class QuestManager {
         cancelLeftovers(eco);
         burnBotBalance(eco);
         QuestBuyback.repriceAll(eco);
+        postedUnits.clear();
 
         var quests = EconomyConfig.get().quests;
         weekStartMs = now;
@@ -102,6 +112,136 @@ public class QuestManager {
         drawnKeys.addAll(QuestLogic.draw(candidates(eco), weekSeed, quests.weeklyCount));
         LOGGER.info("[EconomyCraft] Quest week started: drew {} item(s).", drawnKeys.size());
         save();
+    }
+
+    /**
+     * Converges open quest orders to the live price factor: any order posted at a different
+     * per-unit price is cancelled (escrow refunds to the bot) and its remainder reposted at the
+     * current unit. Retuning {@code quests.price_factor} is therefore a config edit that lands
+     * within minutes — no rebuild, no week wait. Fills never trigger this (remainders keep their
+     * posted unit in {@link #postedUnits}), and an order whose entry left the catalog is left alone.
+     *
+     * <p>An order that fails the <em>current</em> eligibility — its buy price was removed mid-week,
+     * it was blacklisted, or it drifted out of the unit window — is cancelled and dropped, not
+     * reposted. That hot-closes the loop: no stale quest survives its config.
+     */
+    private void reconcilePricing(EconomyManager eco) {
+        var quests = EconomyConfig.get().quests;
+        Set<String> blacklist = new HashSet<>(quests.blacklist);
+        int repriced = 0;
+        int removed = 0;
+        for (int id : new ArrayList<>(questOrderIds)) {
+            OrderRequest order = eco.getOrders().getRequest(id);
+            if (order == null || order.item == null || order.item.isEmpty() || order.amount <= 0) {
+                questOrderIds.remove(id);
+                postedUnits.remove(String.valueOf(id));
+                continue;
+            }
+            PriceRegistry.PriceEntry entry = eco.getPrices().resolve(order.item);
+            if (entry == null || entry.customItem() != null) continue;
+            long effectiveBuy = eco.getEffectiveBuyPrice(entry);
+            long unit = QuestLogic.questUnit(effectiveBuy, entry.unitSell(),
+                    quests.priceFactor, quests.sellFallbackMultiplier);
+            if (unit <= 0) continue;
+            if (!QuestLogic.eligible(entry.key(), unit, quests.minQuestUnit, quests.maxQuestUnit, blacklist,
+                    effectiveBuy > 0, quests.requireShopPrice)) {
+                OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(eco, BOT_UUID, order.id);
+                questOrderIds.remove(order.id);
+                postedUnits.remove(String.valueOf(order.id));
+                if (status == OrderFulfillment.CancelStatus.OK
+                        || status == OrderFulfillment.CancelStatus.ORDER_GONE) {
+                    removed++;
+                    LOGGER.info("[EconomyCraft] Removed quest order {} for '{}': no longer eligible under the current config.",
+                            order.id, entry.key());
+                } else {
+                    LOGGER.warn("[EconomyCraft] Quest order {} is ineligible but could not be cancelled ({}); keeping it.",
+                            order.id, status);
+                }
+                continue;
+            }
+            Long posted = postedUnits.get(String.valueOf(id));
+            if (posted != null && posted == unit) continue;
+
+            if (repostRemainder(eco, order, entry.key(), unit)) repriced++;
+        }
+        if (repriced > 0) {
+            Component message = Component.literal("[Quests] Board repriced to the current "
+                            + "server rate — " + repriced + " order(s) reposted, remainders kept.")
+                    .withStyle(ChatFormatting.GOLD);
+            for (ServerPlayer online : eco.getServer().getPlayerList().getPlayers()) {
+                online.sendSystemMessage(message);
+            }
+            LOGGER.info("[EconomyCraft] Repriced {} quest order(s) to the live price factor.", repriced);
+        }
+        if (removed > 0) {
+            Component message = Component.literal("[Quests] " + removed + " order(s) left the board: "
+                            + "no longer eligible under the current config. Escrow refunded.")
+                    .withStyle(ChatFormatting.GOLD);
+            for (ServerPlayer online : eco.getServer().getPlayerList().getPlayers()) {
+                online.sendSystemMessage(message);
+            }
+        }
+    }
+
+    /**
+     * Cancels one open quest order and reposts its unfilled remainder at the given unit, keeping
+     * the week's expiry. The refunded escrow plus the bot's carried balance funds the repost, so a
+     * factor cut never mints and a factor hike mints only the shortfall against the week's cap.
+     */
+    private boolean repostRemainder(EconomyManager eco, OrderRequest order, String key, long unit) {
+        int remainder = order.amount;
+        ItemStack proto = order.item.copy();
+        long price = (long) remainder * unit;
+
+        OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(eco, BOT_UUID, order.id);
+        questOrderIds.remove(order.id);
+        postedUnits.remove(String.valueOf(order.id));
+        if (status == OrderFulfillment.CancelStatus.ORDER_GONE) return false;
+        if (status != OrderFulfillment.CancelStatus.OK) {
+            LOGGER.warn("[EconomyCraft] Quest order {} could not be cancelled for reprice ({}); keeping it at its old price.",
+                    order.id, status);
+            return false;
+        }
+
+        var quests = EconomyConfig.get().quests;
+        if (!fund(eco, price, quests.weeklyBudget, key)) {
+            LOGGER.warn("[EconomyCraft] Bot could not fund the repriced quest for {}; it stays off the board this week.", key);
+            return false;
+        }
+        post(eco, proto, key, remainder, price, unit, System.currentTimeMillis(), weekStartMs + WEEK_MILLIS, false);
+        return true;
+    }
+
+    /**
+     * Starts a fresh board on demand (the admin "Force re-draw" button): every open quest order is
+     * cancelled through the ordinary path (escrow refunds to the bot), the draw state is wiped, and
+     * a new week is drawn and posted immediately — same clock, same cap, no waiting for a sweep.
+     *
+     * <p>The week's mint cap stays consumed and the bot balance carries (it still burns at the next
+     * rollover), so a re-draw can never re-farm the budget. Buyback listings are untouched.
+     *
+     * @return how many fresh quests posted
+     */
+    public int forceNewWeek(EconomyManager eco) {
+        var quests = EconomyConfig.get().quests;
+        if (quests == null || !quests.enabled) return 0;
+        long now = System.currentTimeMillis();
+
+        cancelLeftovers(eco);
+        questOrderIds.clear();
+        postedUnits.clear();
+        drawnKeys.clear();
+        postedKeys.clear();
+        weekStartMs = now;
+        weekSeed = now;
+        drawnKeys.addAll(QuestLogic.draw(candidates(eco), weekSeed, quests.weeklyCount));
+        postedThisWeek = false;
+        postDrawn(eco, now);
+        postedThisWeek = true;
+        save();
+
+        LOGGER.info("[EconomyCraft] Admin forced a quest re-draw: {} quest(s) posted.", questOrderIds.size());
+        return questOrderIds.size();
     }
 
     private void cancelLeftovers(EconomyManager eco) {
@@ -136,9 +276,11 @@ public class QuestManager {
         List<String> out = new ArrayList<>();
         for (PriceRegistry.PriceEntry entry : eco.getPrices().allEntries()) {
             if (entry.customItem() != null) continue;
-            long unit = QuestLogic.questUnit(eco.getEffectiveBuyPrice(entry), entry.unitSell(),
+            long effectiveBuy = eco.getEffectiveBuyPrice(entry);
+            long unit = QuestLogic.questUnit(effectiveBuy, entry.unitSell(),
                     quests.priceFactor, quests.sellFallbackMultiplier);
-            if (QuestLogic.eligible(entry.key(), unit, quests.minQuestUnit, quests.maxQuestUnit, blacklist)) {
+            if (QuestLogic.eligible(entry.key(), unit, quests.minQuestUnit, quests.maxQuestUnit, blacklist,
+                    effectiveBuy > 0, quests.requireShopPrice)) {
                 out.add(entry.key());
             }
         }
@@ -166,7 +308,8 @@ public class QuestManager {
             }
             long unit = QuestLogic.questUnit(eco.getEffectiveBuyPrice(entry), entry.unitSell(),
                     quests.priceFactor, quests.sellFallbackMultiplier);
-            if (!QuestLogic.eligible(key, unit, quests.minQuestUnit, quests.maxQuestUnit, new HashSet<>(quests.blacklist))) {
+            if (!QuestLogic.eligible(key, unit, quests.minQuestUnit, quests.maxQuestUnit, new HashSet<>(quests.blacklist),
+                    eco.getEffectiveBuyPrice(entry) > 0, quests.requireShopPrice)) {
                 postedKeys.add(key);
                 continue;
             }
@@ -176,10 +319,12 @@ public class QuestManager {
                 continue;
             }
             long price = amount * unit;
-            if (!QuestLogic.fitsBudget(mintedThisWeek, price, quests.weeklyBudget)) break;
-
+            // No fitsBudget pre-check here on purpose: the cap tracks minted coins, not escrow
+            // locked, and fund() below mints only the shortfall the bot balance does not cover.
+            // A full-price-against-cap check would wrongly stop a board the refunds already fund
+            // (a forced re-draw late in a spent week posts nothing). fund() false is the stop.
             if (!fund(eco, price, quests.weeklyBudget, key)) break;
-            post(eco, proto, key, amount, price, unit, now, weekEnd);
+            post(eco, proto, key, amount, price, unit, now, weekEnd, true);
         }
     }
 
@@ -215,7 +360,7 @@ public class QuestManager {
     }
 
     private void post(EconomyManager eco, ItemStack proto, String key, int amount, long price, long unit,
-                      long now, long weekEnd) {
+                      long now, long weekEnd, boolean announce) {
         String detail = amount + "x " + proto.getHoverName().getString();
         if (!eco.removeMoney(BOT_UUID, price, EconomySources.ORDER_ESCROW_HOLD, detail).successful()) {
             LOGGER.warn("[EconomyCraft] Bot could not lock {} in quest escrow for {}; skipping the quest.", price, key);
@@ -235,7 +380,10 @@ public class QuestManager {
 
         questOrderIds.add(request.id);
         postedKeys.add(key);
-        broadcast(eco, amount, proto.getHoverName().getString(), price, unit);
+        postedUnits.put(String.valueOf(request.id), unit);
+        if (announce) {
+            broadcast(eco, amount, proto.getHoverName().getString(), price, unit);
+        }
         LOGGER.info("[EconomyCraft] Posted quest #{}: {}x {} for {} ({} each).", request.id, amount,
                 key, price, unit);
     }
@@ -269,6 +417,15 @@ public class QuestManager {
             if (root.has("questOrderIds")) {
                 for (var el : root.getAsJsonArray("questOrderIds")) questOrderIds.add(el.getAsInt());
             }
+            if (root.has("postedUnits")) {
+                for (var entry : root.getAsJsonObject("postedUnits").entrySet()) {
+                    try {
+                        postedUnits.put(entry.getKey(), entry.getValue().getAsLong());
+                    } catch (Exception ex) {
+                        LOGGER.warn("[EconomyCraft] Dropping an unreadable posted quest unit in {}", file);
+                    }
+                }
+            }
         } catch (Exception ex) {
             LOGGER.error("[EconomyCraft] Failed to load {}; starting a fresh quest week.", file, ex);
         }
@@ -289,6 +446,9 @@ public class QuestManager {
         JsonArray ids = new JsonArray();
         for (int id : questOrderIds) ids.add(id);
         root.add("questOrderIds", ids);
+        JsonObject units = new JsonObject();
+        for (var entry : postedUnits.entrySet()) units.addProperty(entry.getKey(), entry.getValue());
+        root.add("postedUnits", units);
         AsyncFileWriter.writeAsync(file, GSON.toJson(root));
     }
 }

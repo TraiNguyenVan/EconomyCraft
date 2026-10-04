@@ -60,6 +60,7 @@ public final class QuestBuyback {
             if (key == null) continue;
             PriceRegistry.PriceEntry entry = eco.getPrices().findByKey(key);
             if (entry == null || entry.customItem() != null) continue;
+            if (quests.requireShopPrice && eco.getEffectiveBuyPrice(entry) <= 0) continue;
             long unit = QuestLogic.questUnit(eco.getEffectiveBuyPrice(entry), entry.unitSell(),
                     quests.buyback.priceFactor, quests.sellFallbackMultiplier);
             if (unit <= 0) continue;
@@ -83,6 +84,12 @@ public final class QuestBuyback {
             LOGGER.warn("[EconomyCraft] {} units of quest stock for '{}' have no catalog entry; leaving them unlisted.",
                     unlisted, key);
             return false;
+        }
+        if (quests.requireShopPrice && eco.getEffectiveBuyPrice(entry) <= 0) {
+            long dropped = eco.getQuestStock().withdraw(key, unlisted);
+            LOGGER.warn("[EconomyCraft] Voided {} units of quest stock for '{}': it has no shop price and require_shop_price is on.",
+                    dropped, key);
+            return dropped > 0;
         }
         ItemStack proto = eco.getPrices().createPrototype(entry);
         if (proto.isEmpty()) {

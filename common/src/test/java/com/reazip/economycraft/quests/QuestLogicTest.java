@@ -67,11 +67,22 @@ class QuestLogicTest {
     @Test
     void unitWindowAndBlacklist() {
         Set<String> blacklist = Set.of("minecraft:dirt");
-        assertTrue(QuestLogic.eligible("minecraft:oak_log", 31L, 3L, 100L, blacklist));
-        assertFalse(QuestLogic.eligible("minecraft:dirt", 31L, 3L, 100L, blacklist));
-        assertFalse(QuestLogic.eligible("minecraft:diamond", 1088L, 3L, 100L, blacklist));
-        assertFalse(QuestLogic.eligible("minecraft:stick", 2L, 3L, 100L, blacklist));
-        assertFalse(QuestLogic.eligible("  ", 31L, 3L, 100L, blacklist));
+        assertTrue(QuestLogic.eligible("minecraft:oak_log", 31L, 3L, 100L, blacklist, true, true));
+        assertFalse(QuestLogic.eligible("minecraft:dirt", 31L, 3L, 100L, blacklist, true, true));
+        assertFalse(QuestLogic.eligible("minecraft:diamond", 1088L, 3L, 100L, blacklist, true, true));
+        assertFalse(QuestLogic.eligible("minecraft:stick", 2L, 3L, 100L, blacklist, true, true));
+        assertFalse(QuestLogic.eligible("  ", 31L, 3L, 100L, blacklist, true, true));
+    }
+
+    @Test
+    void shopGateRejectsSellOnlyEntriesOnlyWhenRequired() {
+        Set<String> blacklist = Set.of();
+        // A sell-only entry inside the window: gated when required, welcome when not.
+        assertFalse(QuestLogic.eligible("minecraft:cake", 72L, 3L, 100L, blacklist, false, true));
+        assertTrue(QuestLogic.eligible("minecraft:cake", 72L, 3L, 100L, blacklist, false, false));
+        // A shop-priced entry passes either way.
+        assertTrue(QuestLogic.eligible("minecraft:oak_log", 22L, 3L, 100L, blacklist, true, true));
+        assertTrue(QuestLogic.eligible("minecraft:oak_log", 22L, 3L, 100L, blacklist, true, false));
     }
 
     // --- questAmount ---

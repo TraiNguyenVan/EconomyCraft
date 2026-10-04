@@ -22,8 +22,8 @@ public final class QuestLogic {
      * @param effectiveBuy the live effective buy unit (base buy through the dynamic multiplier), or
      *                   {@code 0} when the entry is sell-only
      * @param unitSell the catalog sell unit, the fallback basis when there is no buy price
-     * @param priceFactor the configured fraction of worth a quest pays (locked at 0.5)
-     * @param sellFallbackMultiplier the configured buy-over-sell convention multiple (locked at 3.3)
+     * @param priceFactor the configured fraction of worth a quest pays
+     * @param sellFallbackMultiplier the configured buy-over-sell convention multiple
      * @return the quest unit, or {@code 0} when the entry has no usable price at all
      */
     public static long questUnit(long effectiveBuy, long unitSell, double priceFactor, double sellFallbackMultiplier) {
@@ -32,9 +32,16 @@ public final class QuestLogic {
         return Math.max(1, Math.round(base * priceFactor));
     }
 
-    /** Whether a quest unit may appear on the board at all. */
-    public static boolean eligible(String key, long questUnit, long minUnit, long maxUnit, Set<String> blacklist) {
+    /**
+     * Whether a quest unit may appear on the board at all.
+     *
+     * @param hasBuyPrice whether the entry has a buy price (is actually on the shop)
+     * @param requireShopPrice when true, sell-only entries are rejected outright
+     */
+    public static boolean eligible(String key, long questUnit, long minUnit, long maxUnit, Set<String> blacklist,
+                                   boolean hasBuyPrice, boolean requireShopPrice) {
         if (key == null || key.isBlank()) return false;
+        if (requireShopPrice && !hasBuyPrice) return false;
         if (questUnit < minUnit || questUnit > maxUnit) return false;
         return blacklist == null || !blacklist.contains(key);
     }
