@@ -4,6 +4,7 @@ import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.HubUi;
 import com.reazip.economycraft.SellService;
+import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.ClickKind;
@@ -85,6 +86,13 @@ public final class OrdersUi {
                 long taxPerItem = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, rewardPerItem);
                 lore.add(createRewardLore("Reward per item", rewardPerItem, taxPerItem));
             }
+        }
+    }
+
+    /** Marks a bot-posted order as a server bounty: funded by the weekly mint, one-shot, never reposted. */
+    private static void addBountyLore(List<Component> lore, OrderRequest request) {
+        if (request != null && QuestManager.BOT_UUID.equals(request.requester)) {
+            lore.add(MenuUiSupport.labeledValue("Bounty", "server-funded", MenuUiSupport.LABEL_SECONDARY_COLOR));
         }
     }
 
@@ -271,6 +279,7 @@ public final class OrdersUi {
                 long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, r.price);
                 List<Component> lore = new ArrayList<>();
                 addRewardLore(lore, r.price, tax, r.amount);
+                addBountyLore(lore, r);
                 lore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(r.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.labeledValue("Requester", mine ? "you" : reqName, MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(r.expiresAt)));
@@ -439,6 +448,7 @@ public final class OrdersUi {
             item.setCount(1);
             List<Component> itemLore = new ArrayList<>();
             addRewardLore(itemLore, req.price, tax, req.amount);
+            addBountyLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.labeledValue("Requester", requesterName, MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(req.expiresAt)));

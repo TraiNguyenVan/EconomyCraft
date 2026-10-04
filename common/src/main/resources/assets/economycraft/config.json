@@ -200,5 +200,21 @@
       "adrenaline_cooldown_minutes": 5,
       "adrenaline_duration_factor": 0.5
     }
+  },
+  "quests": {
+    "enabled": true,
+    "weekly_budget": 12000,
+    "price_factor": 0.5,
+    "weekly_count": 10,
+    "max_concurrent": 10,
+    "min_quest_unit": 3,
+    "max_quest_unit": 100,
+    "sell_fallback_multiplier": 3.3,
+    "blacklist": [],
+    "bot_name": "Server Quests",
+    "buyback": {
+      "enabled": false,
+      "price_factor": 1.0
+    }
   }
 }

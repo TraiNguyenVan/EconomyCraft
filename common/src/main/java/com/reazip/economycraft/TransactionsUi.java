@@ -55,6 +55,8 @@ public final class TransactionsUi {
             Map.entry(EconomySources.ORDER_FULFILLMENT.asString(), new SourceStyle(Items.WRITABLE_BOOK, "Order Fulfillment", "Order fulfilled:", TransactionCategory.ORDERS)),
             Map.entry(EconomySources.ORDER_ESCROW_HOLD.asString(), new SourceStyle(Items.WRITABLE_BOOK, "Order Placed", "Order placed:", TransactionCategory.ORDERS)),
             Map.entry(EconomySources.ORDER_ESCROW_REFUND.asString(), new SourceStyle(Items.WRITABLE_BOOK, "Order Refund", "Order refunded:", TransactionCategory.ORDERS)),
+            Map.entry(EconomySources.QUEST_FUNDING.asString(), new SourceStyle(Items.EMERALD, "Quest Funding", "Server bounty funded:", TransactionCategory.REWARDS)),
+            Map.entry(EconomySources.QUEST_FORFEIT.asString(), new SourceStyle(Items.BARRIER, "Quest Forfeit", "Expired quest funds burned:", TransactionCategory.TAX)),
             Map.entry(EconomySources.TOLL_PAYMENT.asString(), new SourceStyle(Items.GOLD_INGOT, "Toll Payment", "Paid toll:", TransactionCategory.PAYMENTS)),
             Map.entry(EconomySources.ADMIN_ADD.asString(), new SourceStyle(Items.COMMAND_BLOCK, "Admin Add", null, TransactionCategory.ADMIN)),
             Map.entry(EconomySources.ADMIN_REMOVE.asString(), new SourceStyle(Items.COMMAND_BLOCK, "Admin Remove", null, TransactionCategory.ADMIN)),

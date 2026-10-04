@@ -7,6 +7,7 @@ import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.SellService;
+import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.api.v1.BalanceMutationResult;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
@@ -147,7 +148,11 @@ public final class OrderFulfillment {
         }
 
         takeItems.accept(claim.given());
-        deliver(orders, requester, itemProto, claim.given());
+        if (QuestManager.BOT_UUID.equals(requester)) {
+            divertToQuestStock(eco, itemProto, claim.given());
+        } else {
+            deliver(orders, requester, itemProto, claim.given());
+        }
         notifyRequester(eco.getServer(), requester, claim.given(), itemProto);
         orders.markChanged();
 
@@ -336,6 +341,16 @@ public final class OrderFulfillment {
                 offhand.shrink(take);
             }
         }
+    }
+
+    /**
+     * Books bot-bound goods into the quest stock ledger instead of a deliveries mailbox, which nobody
+     * would ever claim. Keyed by price key so the Phase 2 buyback market can price stock back out.
+     */
+    private static void divertToQuestStock(EconomyManager eco, ItemStack proto, int amount) {
+        PriceRegistry.PriceEntry entry = eco.getPrices().resolve(proto);
+        String key = entry != null ? entry.key() : proto.getItem().toString();
+        eco.getQuestStock().deposit(key, amount);
     }
 
     private static void deliver(OrderManager orders, UUID requester, ItemStack proto, int amount) {

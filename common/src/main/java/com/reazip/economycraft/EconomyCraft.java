@@ -92,6 +92,11 @@ public final class EconomyCraft {
             LOGGER.error("[EconomyCraft] Failed to process order expirations", e);
         }
         try {
+            eco.getQuests().sweep(eco);
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to process the quest board sweep", e);
+        }
+        try {
             AuctionExpiration.expireOverdue(eco);
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to process auction expirations", e);

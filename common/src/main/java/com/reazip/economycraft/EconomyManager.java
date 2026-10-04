@@ -10,6 +10,8 @@ import com.reazip.economycraft.api.v1.BalanceMutationType;
 import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.orders.OrderManager;
+import com.reazip.economycraft.quests.QuestManager;
+import com.reazip.economycraft.quests.QuestStock;
 import com.reazip.economycraft.auction.AuctionManager;
 import com.reazip.economycraft.faction.FactionEffects;
 import com.reazip.economycraft.faction.FactionFiscalPass;
@@ -136,6 +138,8 @@ public class EconomyManager {
     private final DeliveryManager deliveries;
     private final AuctionManager auctions;
     private final OrderManager orders;
+    private final QuestManager quests;
+    private final QuestStock questStock;
     private final NotificationManager notifications;
     private final Map<UUID, String> displayed = new ConcurrentHashMap<>();
     private final Set<UUID> scheduledProfileLookups = ConcurrentHashMap.newKeySet();
@@ -184,6 +188,8 @@ public class EconomyManager {
         this.deliveries = new DeliveryManager(server);
         this.auctions = new AuctionManager(server, deliveries);
         this.orders = new OrderManager(server, deliveries);
+        this.quests = new QuestManager(server);
+        this.questStock = new QuestStock(server);
         this.notifications = new NotificationManager(server);
         this.prices = new PriceRegistry(server);
         this.dynamicPrices = new DynamicPriceEngine(dataDir);
@@ -537,6 +543,8 @@ public class EconomyManager {
         cooldowns.flush();
         factions.flush();
         professions.flush();
+        quests.save();
+        questStock.save();
     }
 
     private void loadDaily() {
@@ -786,6 +794,16 @@ public class EconomyManager {
 
     public OrderManager getOrders() {
         return orders;
+    }
+
+    /** The automatic weekly bounty board. Never null; inert unless {@code quests.enabled}. */
+    public QuestManager getQuests() {
+        return quests;
+    }
+
+    /** Where filled quest goods accumulate until the buyback market spends them down. */
+    public QuestStock getQuestStock() {
+        return questStock;
     }
 
     public DeliveryManager getDeliveries() {
