@@ -1,6 +1,7 @@
 package com.reazip.economycraft.negotiation;
 
 import com.reazip.economycraft.util.AsyncFileWriter;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -18,6 +19,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * highest-first review order, target-scoped wipe, and a reload that keeps what it can read.
  */
 class NegotiationStoreTest {
+
+    // The store persists asynchronously: without this barrier the background writer can still
+    // hold a file inside the @TempDir while JUnit deletes it, failing teardown nondeterministically.
+    @AfterEach
+    void flushWrites() {
+        AsyncFileWriter.flush();
+    }
 
     private static NegotiationStore storeIn(@TempDir Path dir) {
         return new NegotiationStore(dir.resolve("negotiations.json"));
@@ -98,8 +106,7 @@ class NegotiationStoreTest {
     }
 
     @Test
-    void reloadSkipsGarbageRows(@TempDir Path dir) throws Exception {
-        Path file = dir.resolve("negotiations.json");
+    void reloadSkipsGarbageRows(@TempDir Path dir) throws Exception {        Path file = dir.resolve("negotiations.json");
         UUID proposer = UUID.randomUUID();
         java.nio.file.Files.writeString(file,
                 "[{\"kind\":\"AH\",\"target\":1,\"proposer\":\"" + proposer

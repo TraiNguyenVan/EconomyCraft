@@ -444,10 +444,11 @@ public final class AuctionUi {
                     if (listing.seller.equals(viewer.getUUID())) {
                         EconomySounds.click(viewer);
                         openRemove(viewer, auctions, listing, query, sort, mineOnly);
-                    } else if (!canAfford(viewer, listing)) {
-                        EconomySounds.failure(viewer);
-                        viewer.sendSystemMessage(Component.literal("Not enough balance").withStyle(ChatFormatting.RED));
                     } else {
+                        // No affordability gate here: the confirm screen is also where the
+                        // "Offer a price" button lives, and buyers who can't afford the sticker
+                        // price are its main audience. Buying itself still fails gracefully
+                        // with CANT_AFFORD inside AuctionTrade.purchase.
                         EconomySounds.click(viewer);
                         openConfirm(viewer, auctions, listing, query, sort, mineOnly);
                     }
@@ -531,6 +532,10 @@ public final class AuctionUi {
             lore.add(MenuUiSupport.labeledValue("Seller", sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
             addBuybackLore(lore, listing);
             lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)));
+            if (!canAfford(viewer, listing)) {
+                lore.add(MenuUiSupport.line("You can't afford this — but you can offer a price.",
+                        ChatFormatting.RED));
+            }
             if (MenuUiSupport.hasContainerContents(listing.item)) {
                 lore.add(MenuUiSupport.labeledValue("Ctrl+Q", "Preview contents", MenuUiSupport.LABEL_SECONDARY_COLOR));
             }
@@ -542,8 +547,8 @@ public final class AuctionUi {
                 container.setItem(OFFER_SLOT, MenuUiSupport.button(Items.PAPER, "Offer a price",
                         ChatFormatting.GOLD,
                         MenuUiSupport.hint("Suggest a different price"),
-                        MenuUiSupport.hint("Non-binding: the seller may reprice,"),
-                        MenuUiSupport.hint("and anyone can still buy first")));
+                        MenuUiSupport.hint("Binding: the seller can charge"),
+                        MenuUiSupport.hint("you immediately on accept.")));
             }
             MenuUiSupport.fillFooter(container);
 
@@ -949,11 +954,11 @@ public final class AuctionUi {
                             EconomyCraft.formatMoney(offer.price()) + " from " + (name == null ? "?" : name))
                     .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.YELLOW)));
             subject.set(DataComponents.LORE, new ItemLore(List.of(
-                    MenuUiSupport.hint("Accepting reprices the listing;"),
-                    MenuUiSupport.hint("the buyer must still buy it."))));
+                    MenuUiSupport.hint("Accept & sell moves the item"),
+                    MenuUiSupport.hint("immediately — even if they are offline."))));
             container.setItem(MenuUiSupport.ROW_SUBJECT, subject);
 
-            container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Accept"));
+            container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Accept & sell"));
             MenuUiSupport.fillFooter(container);
 
             for (Slot slot : MenuUiSupport.confirmRowSlots(container)) {
@@ -993,35 +998,44 @@ public final class AuctionUi {
         }
 
         private void accept() {
-            AuctionListing listing = auctions.getListing(listingId);
-            if (listing == null || !listing.seller.equals(viewer.getUUID())
-                    || !NegotiationEvents.canNegotiateAuction(listing)) {
-                fail("Listing no longer available");
-                return;
-            }
-            NegotiationStore.Offer current =
-                    eco().getNegotiations().offerFrom(NegotiationStore.Kind.AH, listingId, offer.proposer());
-            if (current == null) {
-                fail("Offer no longer available");
-                return;
-            }
-            auctions.setPrice(listingId, viewer.getUUID(), current.price());
-            String desc = describe(listing);
-            List<NegotiationStore.Offer> rest =
-                    eco().getNegotiations().removeForTarget(NegotiationStore.Kind.AH, listingId);
-            NegotiationEvents.notifyAccepted(eco(), current.proposer(), desc, current.price());
-            for (NegotiationStore.Offer other : rest) {
-                if (!other.proposer().equals(current.proposer())) {
-                    NegotiationEvents.notifyDeclined(eco(), other.proposer(), desc, other.price());
+            AuctionTrade.AcceptResult result =
+                    AuctionTrade.acceptOffer(eco(), viewer, listingId, offer.proposer());
+            switch (result.status()) {
+                case OK -> {
+                    String desc = EconomyCraft.describeItem(result.item().getCount(),
+                            result.item().getHoverName().getString());
+                    String buyerName = NegotiationEvents.displayName(eco().getServer(), result.buyer());
+                    List<NegotiationStore.Offer> rest = eco().getNegotiations()
+                            .removeForTarget(NegotiationStore.Kind.AH, listingId);
+                    NegotiationEvents.notifySoldToBuyer(eco(), result.buyer(), desc,
+                            result.totalPaid(), result.stored());
+                    for (NegotiationStore.Offer other : rest) {
+                        if (!other.proposer().equals(result.buyer())) {
+                            NegotiationEvents.notifyDeclined(eco(), other.proposer(), desc, other.price());
+                        }
+                    }
+                    EconomySounds.success(viewer);
+                    viewer.sendSystemMessage(Component.literal("Sold " + desc + " to " + buyerName
+                                    + " for " + EconomyCraft.formatMoney(result.price()) + ".")
+                            .withStyle(ChatFormatting.GREEN));
+                    viewer.closeContainer();
+                    AuctionUi.open(viewer, auctions, 0, query, sort, mineOnly);
                 }
+                case CANT_AFFORD -> {
+                    String name = NegotiationEvents.displayName(eco().getServer(), offer.proposer());
+                    failAndReview(name + " can't afford it right now — the offer was kept.");
+                }
+                case SELLER_CANT_RECEIVE ->
+                        failAndReview("Your balance can't take this sale (maximum reached).");
+                default -> fail("Listing no longer available");
             }
-            EconomySounds.success(viewer);
-            viewer.sendSystemMessage(Component.literal("Accepted "
-                            + EconomyCraft.formatMoney(current.price()) + " for " + desc
-                            + " — the buyer was notified.")
-                    .withStyle(ChatFormatting.GREEN));
+        }
+
+        private void failAndReview(String message) {
+            EconomySounds.failure(viewer);
+            viewer.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
             viewer.closeContainer();
-            AuctionUi.open(viewer, auctions, 0, query, sort, mineOnly);
+            openOffers(viewer, auctions, listingId, query, sort, mineOnly);
         }
 
         private void decline() {

@@ -357,19 +357,14 @@ public final class OrdersUi {
                 int index = page * itemsPerPage + slot;
                 if (index < requests.size()) {
                     OrderRequest req = requests.get(index);
-                    int held = OrderFulfillment.countHeld(viewer, req.item);
                     if (req.requester.equals(viewer.getUUID())) {
                         EconomySounds.click(viewer);
                         openRemove(viewer, req);
-                    } else if (held <= 0) {
-                        EconomySounds.failure(viewer);
-                        viewer.sendSystemMessage(Component.literal("You have no " + req.item.getHoverName().getString() +
-                                " to fulfill this.").withStyle(ChatFormatting.RED));
-                    } else if (OrderManager.requiresCompleteFulfillment(req) && held < req.amount) {
-                        EconomySounds.failure(viewer);
-                        viewer.sendSystemMessage(Component.literal("This request must be fulfilled all at once.")
-                                .withStyle(ChatFormatting.RED));
                     } else {
+                        // No item gate here: offering without holding the goods is allowed
+                        // (offer now, gather later). Fulfillment itself still validates at
+                        // confirm time, and the review screens show the offerer's current
+                        // holding so the requester decides with eyes open.
                         EconomySounds.click(viewer);
                         openConfirm(viewer, req);
                     }
@@ -460,6 +455,9 @@ public final class OrdersUi {
             addBountyLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.labeledValue("Requester", requesterName, MenuUiSupport.LABEL_PRIMARY_COLOR));
+            int heldByViewer = OrderFulfillment.countHeld(parent.viewer, req.item);
+            itemLore.add(MenuUiSupport.labeledValue("You hold",
+                    heldByViewer + " of " + req.amount, MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(req.expiresAt)));
             if (MenuUiSupport.hasContainerContents(req.item)) {
                 itemLore.add(MenuUiSupport.labeledValue("Ctrl+Q", "Preview contents", MenuUiSupport.LABEL_SECONDARY_COLOR));
@@ -752,6 +750,31 @@ public final class OrdersUi {
                 new OrderOffersMenu(id, inv, parent, requestId));
     }
 
+    /**
+     * What the review screens show for an offerer's backing: their current holding of the
+     * requested item, or unknown when they are offline (inventories can't be read then).
+     * Returns -1 when unknown.
+     */
+    private static int holdingOf(RequestMenu parent, OrderRequest req, UUID proposer) {
+        if (req == null || req.item == null || req.item.isEmpty()) return -1;
+        ServerPlayer online = parent.eco.getServer().getPlayerList().getPlayer(proposer);
+        if (online == null) return -1;
+        return OrderFulfillment.countHeld(online, req.item);
+    }
+
+    private static void addHoldingLore(List<Component> lore, int holds) {
+        if (holds < 0) {
+            lore.add(MenuUiSupport.labeledValue("Holds", "unknown (offline)",
+                    MenuUiSupport.LABEL_SECONDARY_COLOR));
+        } else {
+            lore.add(MenuUiSupport.labeledValue("Holds", String.valueOf(holds),
+                    MenuUiSupport.LABEL_PRIMARY_COLOR));
+            if (holds == 0) {
+                lore.add(MenuUiSupport.line("They hold none of this yet.", ChatFormatting.RED));
+            }
+        }
+    }
+
     private static class OrderOffersMenu extends CompatMenu {
         private final RequestMenu parent;
         private final int requestId;
@@ -798,6 +821,7 @@ public final class OrdersUi {
                     lore.add(MenuUiSupport.labeledValue("Requested",
                             EconomyCraft.formatMoney(req.price), MenuUiSupport.LABEL_PRIMARY_COLOR));
                 }
+                addHoldingLore(lore, holdingOf(parent, req, offer.proposer()));
                 lore.add(MenuUiSupport.labeledValue("Click", "Accept or decline",
                         MenuUiSupport.LABEL_SECONDARY_COLOR));
                 row.set(DataComponents.CUSTOM_NAME, Component.literal(name == null ? "?" : name)
@@ -862,11 +886,12 @@ public final class OrdersUi {
             subject.set(DataComponents.CUSTOM_NAME, Component.literal(
                             EconomyCraft.formatMoney(offer.price()) + " from " + (name == null ? "?" : name))
                     .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.YELLOW)));
-            subject.set(DataComponents.LORE, new ItemLore(List.of(
-                    MenuUiSupport.hint("Accepting reprices the request;"),
-                    MenuUiSupport.hint("a higher reward holds more escrow."))));
+            List<Component> subjectLore = new ArrayList<>();
+            subjectLore.add(MenuUiSupport.hint("Accepting reprices the request;"));
+            subjectLore.add(MenuUiSupport.hint("a higher reward holds more escrow."));
+            addHoldingLore(subjectLore, holdingOf(parent, parent.orders.getRequest(requestId), offer.proposer()));
+            subject.set(DataComponents.LORE, new ItemLore(subjectLore));
             container.setItem(MenuUiSupport.ROW_SUBJECT, subject);
-
             container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Accept"));
             MenuUiSupport.fillFooter(container);
 

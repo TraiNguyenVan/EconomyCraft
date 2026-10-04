@@ -48,6 +48,15 @@ public final class NegotiationEvents {
         eco.getNotifications().flush();
     }
 
+    /** Binding AH acceptance: the buyer was charged and the item is theirs (or in deliveries). */
+    public static void notifySoldToBuyer(EconomyManager eco, UUID buyer, String itemDesc, long totalPaid,
+                                         boolean stored) {
+        eco.getNotifications().notify(buyer, "Your offer for " + itemDesc + " was accepted — you bought it for "
+                + EconomyCraft.formatMoney(totalPaid)
+                + (stored ? ". It was stored: type /eco deliveries to claim it." : "."));
+        eco.getNotifications().flush();
+    }
+
     public static void notifyDeclined(EconomyManager eco, UUID proposer, String itemDesc, long price) {
         eco.getNotifications().notify(proposer, "Your offer of " + EconomyCraft.formatMoney(price)
                 + " for " + itemDesc + " was declined.");
