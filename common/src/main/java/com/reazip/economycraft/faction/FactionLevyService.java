@@ -70,14 +70,20 @@ public final class FactionLevyService {
             // charge succeeds.
             if (!onlineTime.consumeIfThresholdMet(player, thresholdMs)) continue;
 
-            Result result = applyCommunismLevy(eco, player, config.factions.communism);
-            // A levy moves money without a transaction the player initiated, so it is logged. Debug rather
-            // than info because it is once per member per 45 minutes, not per tick.
-            if (result.chargedAnything() || result.feeRefused()) {
-                LOGGER.debug("[EconomyCraft] Communism levy: fee {}/{}, income tax {}/{}, collected {}",
-                        result.partyFeePaid() ? result.partyFeeCharged() : 0L, result.partyFeeCharged(),
-                        result.incomeTaxPaid() ? result.incomeTaxCharged() : 0L, result.incomeTaxCharged(),
-                        result.collected());
+            try {
+                Result result = applyCommunismLevy(eco, player, config.factions.communism);
+                // A levy moves money without a transaction the player initiated, so it is logged. Debug rather
+                // than info because it is once per member per 45 minutes, not per tick.
+                if (result.chargedAnything() || result.feeRefused()) {
+                    LOGGER.debug("[EconomyCraft] Communism levy: fee {}/{}, income tax {}/{}, collected {}",
+                            result.partyFeePaid() ? result.partyFeeCharged() : 0L, result.partyFeeCharged(),
+                            result.incomeTaxPaid() ? result.incomeTaxCharged() : 0L, result.incomeTaxCharged(),
+                            result.collected());
+                }
+            } catch (Exception e) {
+                // One player's levy must not abort the loop: the remaining members are still due, and the
+                // caller (tickTagServices) would otherwise skip the profession ticks below on this tick.
+                LOGGER.error("[EconomyCraft] Failed to process Communism levy for {}", player, e);
             }
         }
     }
@@ -108,10 +114,12 @@ public final class FactionLevyService {
         long balance = eco.getBalance(player, false);
 
         // 1. Party fee: burned, no recipient. Capped at the balance so it can never go negative.
+        // A burn is a removal, not a transfer: transferMoney always has a receiver (its engine and its
+        // result both reject null), so a null-receiver transfer throws instead of debiting.
         long fee = FactionFiscalPolicy.partyFeeCharge(balance, settings.partyFee);
         boolean feePaid = false;
         if (fee > 0L) {
-            feePaid = eco.transferMoney(player, null, fee, 0L, EconomySources.PARTY_FEE, "Party fee").successful();
+            feePaid = eco.removeMoney(player, fee, EconomySources.PARTY_FEE, "Party fee").successful();
         }
 
         // 2. Anti-speculation income tax on whatever the fee left behind (D3). If the fee was refused the
@@ -126,7 +134,7 @@ public final class FactionLevyService {
         );
         boolean taxPaid = false;
         if (incomeTax > 0L) {
-            taxPaid = eco.transferMoney(player, null, incomeTax, 0L, EconomySources.INCOME_TAX,
+            taxPaid = eco.removeMoney(player, incomeTax, EconomySources.INCOME_TAX,
                     "Anti-speculation income tax").successful();
         }
 

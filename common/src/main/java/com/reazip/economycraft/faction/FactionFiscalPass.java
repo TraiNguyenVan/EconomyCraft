@@ -39,9 +39,11 @@ import java.util.UUID;
  *
  * <p>Two rules shape the arithmetic and both come from the decisions rather than from convenience:
  *
- * <ul>
- *   <li><strong>All money deducted is burned</strong> (D5). There is no king, no recipient and no treasury:
- *       {@code transferMoney(player, null, debit, 0, source, …)} debits and credits nobody.</li>
+  * <ul>
+  *   <li><strong>All money deducted is burned</strong> (D5). There is no king, no recipient and no treasury:
+  *       {@code removeMoney(player, debit, source, …)} debits one balance and credits nobody. A transfer
+  *       always has a receiver — its engine and result both reject {@code null} — so a burn is a removal,
+  *       never a transfer with a {@code null} recipient.</li>
  *   <li><strong>The two parties are not the same function</strong> (D19). Capitalism's rate multiplies the
  *       server-wide player-activity inflation; Monarchy's multiplies money supply per player. Sharing one
  *       helper between them would erase the only difference D19 actually decided.</li>
@@ -303,9 +305,9 @@ public final class FactionFiscalPass {
         return new Outcome(capTaxed, capTotal, capFailed, monTaxed, monTotal, monFailed, capBreakdown, monBreakdown);
     }
 
-    /** A pure burn: debit the player, credit nobody (D5). */
+    /** A pure burn: debit the player, credit nobody (D5). A removal, not a null-receiver transfer. */
     private boolean charge(UUID player, long amount, MutationSource source, String detail) {
-        return eco.transferMoney(player, null, amount, 0L, source, detail).successful();
+        return eco.removeMoney(player, amount, source, detail).successful();
     }
 
     private void notify(UUID player, RateBreakdown breakdown, long amount) {
