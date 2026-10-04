@@ -130,6 +130,20 @@ class QuestLogicTest {
         assertTrue(QuestLogic.draw(List.of("a"), 1L, 0).isEmpty());
     }
 
+    // --- lot sizing (oversized-stack guard) ---
+
+    @Test
+    void mergeOnlyFitsWhileTheLotHasRoom() {
+        assertTrue(QuestLogic.fitsInLot(0, 64));
+        assertTrue(QuestLogic.fitsInLot(63, 64));
+        assertFalse(QuestLogic.fitsInLot(64, 64));
+        assertFalse(QuestLogic.fitsInLot(240, 64));
+        // A zero stack size must not read as "always room": it clamps to one lot.
+        assertFalse(QuestLogic.fitsInLot(1, 0));
+        assertTrue(QuestLogic.fitsInLot(0, 0));
+        assertFalse(QuestLogic.fitsInLot(1, -5));
+    }
+
     // --- mintNeeded ---
 
     @Test

@@ -72,6 +72,11 @@ public final class QuestLogic {
         return List.copyOf(shuffled.subList(0, Math.min(count, shuffled.size())));
     }
 
+/** Whether a merge would stay inside one lot: {@code take} more units fit on {@code open}. */
+    public static boolean fitsInLot(int open, int lotSize) {
+        return open >= 0 && open < Math.max(1, lotSize);
+    }
+
     /** Whether a quest priced {@code price} still fits the week's remaining mint headroom. */
     public static boolean fitsBudget(long minted, long price, long budget) {
         return price >= 0 && minted + price <= budget;

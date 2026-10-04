@@ -16,9 +16,10 @@ import org.slf4j.Logger;
  * {@code /ah} listings owned by the bot account.
  *
  * <p>Timing, all locked: unlisted stock lists on the next quest sweep (a minute or two after the
- * fill that produced it); a key keeps exactly one open bot listing, and new stock merges into it
- * with the whole stack repriced at the current unit; open listings reprice once a week at the
- * rollover; an expired listing's items flow back into the ledger and relist on the next sweep.
+ * fill that produced it); a key keeps one open bot listing per stack lot, and new stock tops up an
+ * open lot while it has room with the whole lot repriced at the current unit; a fill larger than one
+ * lot leaves the remainder in the ledger for the next sweep; open listings reprice once a week at
+ * the rollover; an expired listing's items flow back into the ledger and relist on the next sweep.
  *
  * <p>Everything here runs on the server thread, called from the quest sweep. The ledger stays the
  * source of truth — a listing is just stock with a price tag — so a crash between deposit and
@@ -103,38 +104,55 @@ public final class QuestBuyback {
             return false;
         }
 
-        AuctionListing open = findOpen(eco.getAuctions(), eco, key);
-        if (open == null) {
-            AuctionListing listing = new AuctionListing();
-            listing.seller = QuestManager.BOT_UUID;
-            listing.item = proto.copyWithCount((int) Math.min(unlisted, Integer.MAX_VALUE));
-            listing.price = listing.item.getCount() * unit;
-            long now = System.currentTimeMillis();
-            listing.createdAt = now;
-            listing.expiresAt = ExpirationUtil.expiresAt(now, EconomyConfig.get().auctionExpirationHours);
-            eco.getAuctions().addListing(listing);
-            eco.getQuestStock().withdraw(key, listing.item.getCount());
-            LOGGER.info("[EconomyCraft] Listed quest buyback #{}: {}x {} for {} ({} each).",
-                    listing.id, listing.item.getCount(), key, listing.price, unit);
+        // The lot size is the item's own stack size, the same authority the order, shop and auction
+        // delivery paths use. A pile bigger than that is not something the game represents, and the
+        // catalog's hand-authored `stack` field cannot be trusted for it.
+        int lot = Math.max(1, proto.getMaxStackSize());
+
+        AuctionListing open = findOpenWithRoom(eco.getAuctions(), eco, key, lot);
+        long withdrawn = eco.getQuestStock().withdraw(key, unlisted);
+        if (withdrawn <= 0) return false;
+        int take = (int) Math.min(withdrawn, lot);
+        if (open != null) {
+            // Merge: one lot per key while the lot has room — a single clean per-unit price rather
+            // than old units at old prices beside new units at new ones.
+            open.item.setCount(open.item.getCount() + take);
+            open.price = open.item.getCount() * unit;
+            LOGGER.info("[EconomyCraft] Topped up quest buyback #{}: now {}x {} for {} ({} each).",
+                    open.id, open.item.getCount(), key, open.price, unit);
             return true;
         }
 
-        long take = eco.getQuestStock().withdraw(key, unlisted);
-        if (take <= 0) return false;
-        // Merge: one listing per key, the whole stack repriced at today's unit — a single clean
-        // per-unit price rather than old units at old prices beside new units at new ones.
-        long merged = (long) open.item.getCount() + take;
-        open.item.setCount((int) Math.min(merged, Integer.MAX_VALUE));
-        open.price = open.item.getCount() * unit;
-        LOGGER.info("[EconomyCraft] Topped up quest buyback #{}: now {}x {} for {} ({} each).",
-                open.id, open.item.getCount(), key, open.price, unit);
+        AuctionListing listing = new AuctionListing();
+        listing.seller = QuestManager.BOT_UUID;
+        listing.item = proto.copyWithCount(take);
+        listing.price = take * unit;
+        long now = System.currentTimeMillis();
+        listing.createdAt = now;
+        listing.expiresAt = ExpirationUtil.expiresAt(now, EconomyConfig.get().auctionExpirationHours);
+        eco.getAuctions().addListing(listing);
+        long rest = withdrawn - take;
+        // Only one lot posts per sweep; anything over the lot size stays in the ledger for the next
+        // sweep rather than piling into an oversized stack. A purchase frees room in the open lot, so
+        // the remainder tops that lot up instead of opening a second one.
+        eco.getQuestStock().deposit(key, rest);
+        LOGGER.info("[EconomyCraft] Listed quest buyback #{}: {}x {} for {} ({} each).{}",
+                listing.id, take, key, listing.price, unit,
+                rest > 0 ? " " + rest + " more awaiting a free lot." : "");
         return true;
     }
 
-    private static AuctionListing findOpen(AuctionManager auctions, EconomyManager eco, String key) {
+    /**
+     * The open bot listing for {@code key} that still has room in its lot, or null when a fresh lot
+     * is needed. Room is judged against the item's own stack size, never the catalog's {@code stack}
+     * field — that field is hand-authored per entry and disagrees with the game for dozens of items.
+     */
+    private static AuctionListing findOpenWithRoom(AuctionManager auctions, EconomyManager eco,
+                                                   String key, int lot) {
         for (AuctionListing listing : auctions.getListings()) {
             if (!isBuybackListing(listing) || listing.item == null || listing.item.isEmpty()) continue;
-            if (key.equals(keyOf(eco, listing.item))) return listing;
+            if (!key.equals(keyOf(eco, listing.item))) continue;
+            if (QuestLogic.fitsInLot(listing.item.getCount(), lot)) return listing;
         }
         return null;
     }
