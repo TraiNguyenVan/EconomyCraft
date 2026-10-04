@@ -50,6 +50,18 @@ class QuestLogicTest {
         assertEquals(0L, QuestLogic.questUnit(0L, 0L, 0.5, 3.3));
     }
 
+    @Test
+    void buybackChargesFourFifthsOfEffectiveBuy() {
+        // The buyback discount: 100 * 0.8 = 80.
+        assertEquals(80L, QuestLogic.questUnit(100L, 0L, 0.8, 3.3));
+    }
+
+    @Test
+    void buybackSellOnlyUsesTheSameFallback() {
+        // 6 * 3.3 * 0.8 = 15.84 -> 16.
+        assertEquals(16L, QuestLogic.questUnit(0L, 6L, 0.8, 3.3));
+    }
+
     // --- eligible ---
 
     @Test

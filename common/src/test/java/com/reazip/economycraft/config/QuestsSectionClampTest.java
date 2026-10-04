@@ -5,7 +5,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -53,6 +52,7 @@ class QuestsSectionClampTest {
         assertEquals(0.5, quests.priceFactor);
         assertEquals(10, quests.weeklyCount);
         assertEquals(10, quests.maxConcurrent);
-        assertFalse(quests.buyback.enabled);
+        assertTrue(quests.buyback.enabled);
+        assertEquals(0.8, quests.buyback.priceFactor);
     }
 }

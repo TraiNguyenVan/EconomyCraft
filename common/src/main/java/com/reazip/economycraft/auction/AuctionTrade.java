@@ -5,6 +5,7 @@ import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.profession.ProfessionHooks;
+import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxQuote;
 import com.reazip.economycraft.tax.TaxScope;
@@ -48,11 +49,19 @@ public final class AuctionTrade {
         }
 
         long cost = claimed.price;
-        TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, cost, buyer.getUUID(), claimed.seller, eco);
-        long total = quote.total();
+        // A buyback listing is tax-free by design: the buyer pays the sticker price and the whole
+        // of it refills the bot wallet outside the mint cap. Faction rules never see the bot, and
+        // the bot never reads sale notifications, so both are skipped — not exempted, skipped.
+        boolean buyback = QuestManager.BOT_UUID.equals(claimed.seller);
+        long total = cost;
+        if (!buyback) {
+            TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, cost, buyer.getUUID(), claimed.seller, eco);
+            total = quote.total();
+        }
 
         String detail = EconomyCraft.describeItem(claimed.item.getCount(), claimed.item.getHoverName().getString());
-        PaymentResult payment = eco.transferMoney(buyer.getUUID(), claimed.seller, total, cost, EconomySources.AUCTION_PURCHASE, detail);
+        PaymentResult payment = eco.transferMoney(buyer.getUUID(), claimed.seller, total, cost,
+                buyback ? EconomySources.QUEST_BUYBACK : EconomySources.AUCTION_PURCHASE, detail);
         if (!payment.successful()) {
             auctions.restoreListing(claimed);
             PurchaseStatus status = payment.status() == com.reazip.economycraft.api.v1.BalanceMutationStatus.MAX_BALANCE_EXCEEDED
@@ -62,7 +71,9 @@ public final class AuctionTrade {
 
         ProfessionHooks.onAuctionPurchase(buyer);
 
-        auctions.notifySellerSale(claimed, buyer);
+        if (!buyback) {
+            auctions.notifySellerSale(claimed, buyer);
+        }
 
         boolean stored = deliverOrStore(auctions, buyer, claimed.item.copy());
         return new PurchaseResult(PurchaseStatus.OK, claimed.item.copy(), total, claimed.seller, stored);

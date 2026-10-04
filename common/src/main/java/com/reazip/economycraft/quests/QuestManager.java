@@ -76,6 +76,7 @@ public class QuestManager {
             postDrawn(eco, now);
             postedThisWeek = true;
         }
+        QuestBuyback.sweep(eco);
         save();
     }
 
@@ -88,6 +89,7 @@ public class QuestManager {
     private void rollover(EconomyManager eco, long now) {
         cancelLeftovers(eco);
         burnBotBalance(eco);
+        QuestBuyback.repriceAll(eco);
 
         var quests = EconomyConfig.get().quests;
         weekStartMs = now;

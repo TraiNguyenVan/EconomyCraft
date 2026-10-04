@@ -213,8 +213,8 @@
     "blacklist": [],
     "bot_name": "Server Quests",
     "buyback": {
-      "enabled": false,
-      "price_factor": 1.0
+      "enabled": true,
+      "price_factor": 0.8
     }
   }
 }

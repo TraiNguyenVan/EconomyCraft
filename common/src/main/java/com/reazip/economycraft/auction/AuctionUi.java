@@ -5,6 +5,7 @@ import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.HubUi;
 import com.reazip.economycraft.orders.OrdersUi;
+import com.reazip.economycraft.quests.QuestBuyback;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxQuote;
 import com.reazip.economycraft.tax.TaxScope;
@@ -35,11 +36,13 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
 import org.jetbrains.annotations.Nullable;
-
 import java.util.ArrayList;
+
 import java.util.Comparator;
+
 import java.util.List;
 
+import java.util.UUID;
 public final class AuctionUi {
     private AuctionUi() {}
 
@@ -68,10 +71,31 @@ public final class AuctionUi {
                 new RemoveMenu(id, inv, auctions, listing, player, query, sort, mineOnly));
     }
 
-    private static boolean canAfford(ServerPlayer player, long price) {
-        long total = TaxPolicy.total(TaxScope.TRANSACTION_AUCTION_BUY, price);
+    private static boolean canAfford(ServerPlayer player, AuctionListing listing) {
+        // A buyback listing charges exactly the sticker price — no buyer tax — so the afford
+        // check must not add the base-rate tax the purchase path will never collect.
+        long total = QuestBuyback.isBuybackListing(listing) ? listing.price
+                : TaxPolicy.total(TaxScope.TRANSACTION_AUCTION_BUY, listing.price);
         EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
         return eco.getBalance(player.getUUID(), true) >= total;
+    }
+
+    /**
+     * The buyer-side quote for a row: a buyback listing is tax-free by design, so it renders the
+     * exempt quote (the "(tax-free)" suffix) instead of running the faction rules against the bot.
+     */
+    private static TaxQuote quoteForBuyer(AuctionListing listing, UUID buyer, EconomyManager eco) {
+        if (QuestBuyback.isBuybackListing(listing)) {
+            return new TaxQuote(listing.price, 0.0, 0L, 0L, true, TaxScope.TRANSACTION_AUCTION_BUY.source());
+        }
+        return TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, listing.price, buyer, listing.seller, eco);
+    }
+
+    /** Marks a bot-owned row as quest surplus, mirroring the bounty tag on quest orders. */
+    private static void addBuybackLore(List<Component> lore, AuctionListing listing) {
+        if (QuestBuyback.isBuybackListing(listing)) {
+            lore.add(MenuUiSupport.labeledValue("Buy-back", "quest surplus", MenuUiSupport.LABEL_SECONDARY_COLOR));
+        }
     }
 
     private static Component createPriceLore(long price, long tax) {
@@ -340,10 +364,11 @@ public final class AuctionUi {
                 String sellerName = MenuUiSupport.resolvePlayerName(viewer.level().getServer(), l.seller);
                 boolean mine = viewer.getUUID().equals(l.seller);
                 EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
-                TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, l.price, viewer.getUUID(), l.seller, eco);
+                TaxQuote quote = quoteForBuyer(l, viewer.getUUID(), eco);
                 List<Component> lore = new ArrayList<>();
-                lore.add(createPriceLore(l.price, quote.amount()));
+                lore.add(createPriceLore(l.price, quote));
                 lore.add(MenuUiSupport.labeledValue("Seller", mine ? "you" : sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
+                addBuybackLore(lore, l);
                 lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(l.expiresAt)));
                 lore.add(MenuUiSupport.labeledValue("Click", mine ? "Remove listing" : "Buy it", MenuUiSupport.LABEL_SECONDARY_COLOR));
                 if (MenuUiSupport.hasContainerContents(l.item)) {
@@ -410,7 +435,7 @@ public final class AuctionUi {
                     if (listing.seller.equals(viewer.getUUID())) {
                         EconomySounds.click(viewer);
                         openRemove(viewer, auctions, listing, query, sort, mineOnly);
-                    } else if (!canAfford(viewer, listing.price)) {
+                    } else if (!canAfford(viewer, listing)) {
                         EconomySounds.failure(viewer);
                         viewer.sendSystemMessage(Component.literal("Not enough balance").withStyle(ChatFormatting.RED));
                     } else {
@@ -491,10 +516,11 @@ public final class AuctionUi {
 
             ItemStack item = listing.item.copy();
             EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
-            TaxQuote quote = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, listing.price, viewer.getUUID(), listing.seller, eco);
+            TaxQuote quote = quoteForBuyer(listing, viewer.getUUID(), eco);
             List<Component> lore = new ArrayList<>();
-            lore.add(createPriceLore(listing.price, quote.amount()));
+            lore.add(createPriceLore(listing.price, quote));
             lore.add(MenuUiSupport.labeledValue("Seller", sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
+            addBuybackLore(lore, listing);
             lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)));
             if (MenuUiSupport.hasContainerContents(listing.item)) {
                 lore.add(MenuUiSupport.labeledValue("Ctrl+Q", "Preview contents", MenuUiSupport.LABEL_SECONDARY_COLOR));

@@ -117,20 +117,22 @@ public class QuestsSection {
     }
 
     /**
-     * The Phase 2 buyback market: resell accumulated quest stock to players at a full effective-buy
-     * price, with the revenue refilling the bot wallet outside the mint cap.
+     * The Phase 2 buyback market: resells accumulated quest stock to players through ordinary
+     * {@code /ah} listings owned by the bot account, one listing per stocked item.
      *
-     * <p><strong>Not wired to anything yet.</strong> Tuning surface only, so enabling it is a config
-     * edit rather than a code change once the shop side lands — the same arrangement the faction and
-     * profession sections shipped under.
+     * <p>Unlisted stock lists on the next quest sweep and new fills merge into the open listing
+     * with the whole stack repriced at the current unit; open listings reprice weekly at the
+     * rollover; an expired listing's items return to the ledger and relist on the next sweep.
+     * Purchases are tax-free both ways — the buyer pays the sticker price and the whole of it
+     * refills the bot wallet outside the mint cap (leftover bot balance still burns at rollover).
      */
     public static class BuybackSettings {
         @SerializedName("enabled")
-        public boolean enabled = false;
+        public boolean enabled = true;
 
-        /** Fraction of the effective buy unit the buyback charges. {@code 1.0} sells stock back whole. */
+        /** Fraction of the effective buy unit the buyback charges. {@code 0.8} sells stock back discounted. */
         @SerializedName("price_factor")
-        public double priceFactor = 1.0;
+        public double priceFactor = 0.8;
 
         public void clamp() {
             priceFactor = ConfigClamp.percentage("quests.buyback.price_factor", priceFactor);

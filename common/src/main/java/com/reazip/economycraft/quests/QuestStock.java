@@ -38,6 +38,22 @@ public class QuestStock {
         save();
     }
 
+    /**
+     * Takes up to {@code amount} units off the ledger for a buyback listing, returning what was
+     * actually taken. Clamped, never negative: the listing owns its items once taken.
+     */
+    public synchronized long withdraw(String key, long amount) {
+        if (key == null || key.isBlank() || amount <= 0) return 0;
+        Long held = stock.get(key);
+        if (held == null || held <= 0) return 0;
+        long take = Math.min(held, amount);
+        long left = held - take;
+        if (left > 0) stock.put(key, left);
+        else stock.remove(key);
+        save();
+        return take;
+    }
+
     public synchronized Map<String, Long> snapshot() {
         return Map.copyOf(stock);
     }
