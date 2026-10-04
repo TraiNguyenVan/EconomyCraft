@@ -5,6 +5,7 @@ import com.reazip.economycraft.auction.AuctionExpiration;
 import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.util.AsyncFileWriter;
 import com.reazip.economycraft.api.v1.EconomyCraftApiBootstrap;
+import com.reazip.economycraft.negotiation.NegotiationEvents;
 import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
@@ -130,6 +131,16 @@ public final class EconomyCraft {
 
             if (eco.getDeliveries().hasDeliveries(player.getUUID())) {
                 sendPrompt(player, "You have unclaimed items: ", "[Claim]", "/eco deliveries");
+            }
+
+            // Price offers work like deliveries: the per-event messages above already queued while
+            // offline (sendPending), and this aggregate points at the review screens. The
+            // negotiator side needs no aggregate — every accept, decline and reprice notifies
+            // them directly, which is what sendPending just delivered.
+            int offerCount = NegotiationEvents.countOffersOnPlayerTargets(eco, player.getUUID());
+            if (offerCount > 0) {
+                sendPrompt(player, "You have " + offerCount + " price offer(s) on your listings and requests: ",
+                        "[Review]", "/ah");
             }
 
             if (EconomyPaths.hasSharedFolder(server)) {

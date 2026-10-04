@@ -13,6 +13,7 @@ import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.quests.QuestStock;
 import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.faction.FactionEffects;
 import com.reazip.economycraft.faction.FactionFiscalPass;
 import com.reazip.economycraft.faction.FactionId;
@@ -141,6 +142,7 @@ public class EconomyManager {
     private final QuestManager quests;
     private final QuestStock questStock;
     private final NotificationManager notifications;
+    private final NegotiationStore negotiations;
     private final Map<UUID, String> displayed = new ConcurrentHashMap<>();
     private final Set<UUID> scheduledProfileLookups = ConcurrentHashMap.newKeySet();
     private final Set<UUID> loggedUnresolvedNames = ConcurrentHashMap.newKeySet();
@@ -191,6 +193,7 @@ public class EconomyManager {
         this.quests = new QuestManager(server);
         this.questStock = new QuestStock(server);
         this.notifications = new NotificationManager(server);
+        this.negotiations = new NegotiationStore(dataDir.resolve("negotiations.json"));
         this.prices = new PriceRegistry(server);
         this.dynamicPrices = new DynamicPriceEngine(dataDir);
         dynamicPrices.refresh(server, balances);
@@ -812,6 +815,11 @@ public class EconomyManager {
 
     public NotificationManager getNotifications() {
         return notifications;
+    }
+
+    /** Non-binding price offers on auction listings and order requests. Never null. */
+    public NegotiationStore getNegotiations() {
+        return negotiations;
     }
 
     public PriceRegistry getPrices() {

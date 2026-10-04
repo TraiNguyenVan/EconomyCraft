@@ -1,8 +1,11 @@
 package com.reazip.economycraft.auction;
 
 import com.reazip.economycraft.DeliveryManager;
+import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.PriceRegistry;
+import com.reazip.economycraft.negotiation.NegotiationEvents;
+import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.util.ExpirationUtil;
 import net.minecraft.world.item.ItemStack;
@@ -33,6 +36,9 @@ public final class AuctionExpiration {
 
             ItemStack stack = removed.item.copy();
             auctions.addDelivery(removed.seller, stack, false);
+            NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.AH, removed.id,
+                    EconomyCraft.describeItem(stack.getCount(), stack.getHoverName().getString()),
+                    "expired");
             notifyExpired(eco, removed, stack);
         }
         if (anyExpired) {
@@ -84,6 +90,9 @@ public final class AuctionExpiration {
 
             ItemStack stack = removed.item.copy();
             auctions.addDelivery(removed.seller, stack, false);
+            NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.AH, removed.id,
+                    EconomyCraft.describeItem(stack.getCount(), stack.getHoverName().getString()),
+                    "was cleared by an admin");
             notifyCleared(eco, removed, stack);
         }
         if (cleared > 0) {

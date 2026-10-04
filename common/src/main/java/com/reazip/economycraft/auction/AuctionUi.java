@@ -4,6 +4,8 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.HubUi;
+import com.reazip.economycraft.negotiation.NegotiationEvents;
+import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.orders.OrdersUi;
 import com.reazip.economycraft.quests.QuestBuyback;
 import com.reazip.economycraft.tax.TaxPolicy;
@@ -18,6 +20,7 @@ import com.reazip.economycraft.util.EconomyPermissions.Nodes;
 import com.reazip.economycraft.util.EconomySounds;
 import com.reazip.economycraft.util.ExpirationUtil;
 import com.reazip.economycraft.util.ItemPickerUi;
+import com.reazip.economycraft.util.ItemsCompat;
 import com.reazip.economycraft.util.MenuUiSupport;
 import com.reazip.economycraft.util.NumberInputUi;
 import com.reazip.economycraft.util.SortMode;
@@ -45,6 +48,12 @@ import java.util.List;
 import java.util.UUID;
 public final class AuctionUi {
     private AuctionUi() {}
+
+    /** Buyer-side "Offer a price" button in the buy-confirm row. Set after fillFooter-proof setItem. */
+    private static final int OFFER_SLOT = 0;
+    /** Owner-side buttons in the remove-confirm row. */
+    private static final int EDIT_PRICE_SLOT = 0;
+    private static final int OFFERS_SLOT = 8;
 
     public static void open(ServerPlayer player, AuctionManager auctions) {
         open(player, auctions, 0, null, SortMode.DEFAULT, false);
@@ -529,6 +538,13 @@ public final class AuctionUi {
             container.setItem(MenuUiSupport.ROW_SUBJECT, item);
 
             container.setItem(MenuUiSupport.ROW_CANCEL, MenuUiSupport.cancelButton());
+            if (NegotiationEvents.canNegotiateAuction(listing)) {
+                container.setItem(OFFER_SLOT, MenuUiSupport.button(Items.PAPER, "Offer a price",
+                        ChatFormatting.GOLD,
+                        MenuUiSupport.hint("Suggest a different price"),
+                        MenuUiSupport.hint("Non-binding: the seller may reprice,"),
+                        MenuUiSupport.hint("and anyone can still buy first")));
+            }
             MenuUiSupport.fillFooter(container);
 
             for (Slot slot : MenuUiSupport.confirmRowSlots(container)) {
@@ -584,12 +600,70 @@ public final class AuctionUi {
                 AuctionUi.open((ServerPlayer) player, auctions, 0, query, sort, mineOnly);
                 return true;
             }
+
+            if (slot == OFFER_SLOT && NegotiationEvents.canNegotiateAuction(listing)) {
+                ServerPlayer sp = (ServerPlayer) player;
+                AuctionListing current = auctions.getListing(listing.id);
+                if (current == null || !NegotiationEvents.canNegotiateAuction(current)) {
+                    fail(sp, "Listing no longer available");
+                    sp.closeContainer();
+                    AuctionUi.open(sp, auctions, 0, query, sort, mineOnly);
+                    return true;
+                }
+                if (current.seller.equals(sp.getUUID())) {
+                    fail(sp, "You cannot offer on your own listing");
+                    sp.closeContainer();
+                    AuctionUi.open(sp, auctions, 0, query, sort, mineOnly);
+                    return true;
+                }
+                EconomySounds.click(sp);
+                ItemStack subject = current.item.copy();
+                NumberInputUi.openMoney(sp, "Offer a price", subject, "Offer", current.price,
+                        1, EconomyManager.MAX, "Send offer",
+                        offerPrice -> List.of(
+                                MenuUiSupport.labeledValue("Listed at",
+                                        EconomyCraft.formatMoney(current.price),
+                                        MenuUiSupport.LABEL_PRIMARY_COLOR),
+                                MenuUiSupport.hint("The seller is notified, not committed.")),
+                        (p, offerPrice) -> submitOffer(p, auctions, current.id, offerPrice, query, sort, mineOnly),
+                        p -> AuctionUi.openConfirm(p, auctions, listing, query, sort, mineOnly));
+                return true;
+            }
             return false;
         }
 
         private static void fail(ServerPlayer player, String message) {
             EconomySounds.failure(player);
             player.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
+        }
+
+        private static void submitOffer(ServerPlayer player, AuctionManager auctions, int listingId,
+                                        long offerPrice, @Nullable String query, SortMode sort, boolean mineOnly) {
+            AuctionListing current = auctions.getListing(listingId);
+            if (current == null || !NegotiationEvents.canNegotiateAuction(current)) {
+                fail(player, "Listing no longer available");
+                player.closeContainer();
+                AuctionUi.open(player, auctions, 0, query, sort, mineOnly);
+                return;
+            }
+            if (current.seller.equals(player.getUUID())) {
+                fail(player, "You cannot offer on your own listing");
+                player.closeContainer();
+                AuctionUi.open(player, auctions, 0, query, sort, mineOnly);
+                return;
+            }
+            EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+            eco.getNegotiations().makeOffer(NegotiationStore.Kind.AH, listingId, player.getUUID(), offerPrice);
+            NegotiationEvents.notifyNewOffer(eco, current.seller, player.getUUID(),
+                    EconomyCraft.describeItem(current.item.getCount(), current.item.getHoverName().getString()),
+                    offerPrice, listingId, true);
+            EconomySounds.success(player);
+            player.sendSystemMessage(Component.literal("Offered " + EconomyCraft.formatMoney(offerPrice)
+                            + " for " + current.item.getHoverName().getString()
+                            + " — the seller was notified.")
+                    .withStyle(ChatFormatting.GREEN));
+            player.closeContainer();
+            AuctionUi.open(player, auctions, 0, query, sort, mineOnly);
         }
     }
 
@@ -626,6 +700,16 @@ public final class AuctionUi {
             container.setItem(MenuUiSupport.ROW_SUBJECT, item);
 
             container.setItem(MenuUiSupport.ROW_CANCEL, MenuUiSupport.cancelButton());
+            if (NegotiationEvents.canNegotiateAuction(listing)) {
+                container.setItem(EDIT_PRICE_SLOT, MenuUiSupport.button(Items.NAME_TAG, "Edit price",
+                        ChatFormatting.AQUA, MenuUiSupport.hint("Reprice without relisting")));
+                int offerCount = eco.getNegotiations().countFor(NegotiationStore.Kind.AH, listing.id);
+                if (offerCount > 0) {
+                    container.setItem(OFFERS_SLOT, MenuUiSupport.button(Items.BOOK,
+                            "Offers (" + offerCount + ")", ChatFormatting.GOLD,
+                            MenuUiSupport.hint("Review buyer offers")));
+                }
+            }
             MenuUiSupport.fillFooter(container);
 
             for (Slot slot : MenuUiSupport.confirmRowSlots(container)) {
@@ -671,7 +755,299 @@ public final class AuctionUi {
                 AuctionUi.open((ServerPlayer) player, auctions, 0, query, sort, mineOnly);
                 return true;
             }
+            if (slot == EDIT_PRICE_SLOT && NegotiationEvents.canNegotiateAuction(listing)) {
+                ServerPlayer sp = (ServerPlayer) player;
+                AuctionListing current = auctions.getListing(listing.id);
+                if (current == null || !current.seller.equals(sp.getUUID())) {
+                    EconomySounds.failure(sp);
+                    sp.sendSystemMessage(Component.literal("Listing no longer available")
+                            .withStyle(ChatFormatting.RED));
+                    sp.closeContainer();
+                    AuctionUi.open(sp, auctions, 0, query, sort, mineOnly);
+                    return true;
+                }
+                EconomySounds.click(sp);
+                NumberInputUi.openMoney(sp, "Edit price", current.item.copy(), "Price", current.price,
+                        1, EconomyManager.MAX, "Confirm and update",
+                        newPrice -> listingLore(sp, current.item.getCount(), newPrice),
+                        (p, newPrice) -> applyPriceEdit(p, auctions, current.id, newPrice, query, sort, mineOnly),
+                        p -> openRemove(p, auctions, listing, query, sort, mineOnly));
+                return true;
+            }
+            if (slot == OFFERS_SLOT && NegotiationEvents.canNegotiateAuction(listing)) {
+                EconomySounds.click((ServerPlayer) player);
+                openOffers((ServerPlayer) player, auctions, listing.id, query, sort, mineOnly);
+                return true;
+            }
             return false;
+        }
+    }
+
+    private static void applyPriceEdit(ServerPlayer player, AuctionManager auctions, int listingId,
+                                       long newPrice, @Nullable String query, SortMode sort, boolean mineOnly) {
+        if (!auctions.setPrice(listingId, player.getUUID(), newPrice)) {
+            EconomySounds.failure(player);
+            player.sendSystemMessage(Component.literal("Listing no longer available")
+                    .withStyle(ChatFormatting.RED));
+            player.closeContainer();
+            AuctionUi.open(player, auctions, 0, query, sort, mineOnly);
+            return;
+        }
+        AuctionListing current = auctions.getListing(listingId);
+        EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+        String desc = current == null
+                ? "listing #" + listingId
+                : EconomyCraft.describeItem(current.item.getCount(), current.item.getHoverName().getString());
+        for (NegotiationStore.Offer offer : eco.getNegotiations().offersFor(NegotiationStore.Kind.AH, listingId)) {
+            NegotiationEvents.notifyRepriced(eco, offer.proposer(), desc, newPrice);
+        }
+        EconomySounds.success(player);
+        player.sendSystemMessage(Component.literal("Repriced to " + EconomyCraft.formatMoney(newPrice))
+                .withStyle(ChatFormatting.GREEN));
+        player.closeContainer();
+        AuctionUi.open(player, auctions, 0, query, sort, mineOnly);
+    }
+
+    private static void openOffers(ServerPlayer player, AuctionManager auctions, int listingId,
+                                   @Nullable String query, SortMode sort, boolean mineOnly) {
+        MenuUiSupport.openMenu(player, "Offers", (id, inv) ->
+                new OffersMenu(id, inv, auctions, player, listingId, query, sort, mineOnly));
+    }
+
+    private static class OffersMenu extends CompatMenu {
+        private final AuctionManager auctions;
+        private final ServerPlayer viewer;
+        private final int listingId;
+        @Nullable private final String query;
+        private final SortMode sort;
+        private final boolean mineOnly;
+        private final List<NegotiationStore.Offer> offers;
+        private final SimpleContainer container;
+        private final int rows;
+        private final int itemsPerPage;
+        private final int navRowStart;
+
+        OffersMenu(int id, Inventory inv, AuctionManager auctions, ServerPlayer viewer, int listingId,
+                   @Nullable String query, SortMode sort, boolean mineOnly) {
+            super(MenuUiSupport.getMenuType(MenuUiSupport.listMenuRows(
+                    Math.max(1, EconomyCraft.getManager(viewer.level().getServer())
+                            .getNegotiations().countFor(NegotiationStore.Kind.AH, listingId)))), id);
+            this.auctions = auctions;
+            this.viewer = viewer;
+            this.listingId = listingId;
+            this.query = query;
+            this.sort = sort;
+            this.mineOnly = mineOnly;
+            EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
+            List<NegotiationStore.Offer> all =
+                    eco.getNegotiations().offersFor(NegotiationStore.Kind.AH, listingId);
+            List<NegotiationStore.Offer> visible = new ArrayList<>();
+            for (NegotiationStore.Offer offer : all) {
+                if (MenuUiSupport.resolvePlayerName(viewer.level().getServer(), offer.proposer()) != null) {
+                    visible.add(offer);
+                }
+            }
+            this.offers = visible;
+            this.rows = MenuUiSupport.listMenuRows(Math.max(1, offers.size()));
+            this.itemsPerPage = (rows - 1) * 9;
+            this.navRowStart = itemsPerPage;
+            this.container = new SimpleContainer(rows * 9);
+            renderPage();
+            for (Slot slot : MenuUiSupport.readOnlyGridSlots(container, rows * 9)) {
+                this.addSlot(slot);
+            }
+            for (Slot slot : MenuUiSupport.playerInventorySlots(inv, 18 + rows * 18 + 14)) {
+                this.addSlot(slot);
+            }
+        }
+
+        private void renderPage() {
+            container.clearContent();
+            AuctionListing listing = auctions.getListing(listingId);
+            for (int i = 0; i < itemsPerPage && i < offers.size(); i++) {
+                NegotiationStore.Offer offer = offers.get(i);
+                String name = MenuUiSupport.resolvePlayerName(viewer.level().getServer(), offer.proposer());
+                ItemStack row = new ItemStack(Items.PAPER);
+                List<Component> lore = new ArrayList<>();
+                lore.add(MenuUiSupport.labeledValue("Offer",
+                        EconomyCraft.formatMoney(offer.price()), MenuUiSupport.LABEL_PRIMARY_COLOR));
+                if (listing != null) {
+                    lore.add(MenuUiSupport.labeledValue("Listed at",
+                            EconomyCraft.formatMoney(listing.price), MenuUiSupport.LABEL_PRIMARY_COLOR));
+                }
+                lore.add(MenuUiSupport.labeledValue("Click", "Accept or decline",
+                        MenuUiSupport.LABEL_SECONDARY_COLOR));
+                row.set(DataComponents.CUSTOM_NAME, Component.literal(name == null ? "?" : name)
+                        .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.YELLOW)));
+                row.set(DataComponents.LORE, new ItemLore(lore));
+                container.setItem(i, row);
+            }
+            if (offers.isEmpty()) {
+                container.setItem(4, MenuUiSupport.button(Items.BOOK, "No offers",
+                        ChatFormatting.YELLOW, MenuUiSupport.hint("New offers appear here")));
+            }
+            container.setItem(navRowStart + 4, MenuUiSupport.button(Items.BARRIER, "Back",
+                    ChatFormatting.RED));
+            MenuUiSupport.fillFooter(container);
+        }
+
+        @Override
+        protected boolean onClick(int slot, int dragType, ClickKind kind, Player player) {
+            if (kind != ClickKind.PICKUP) return false;
+            if (slot >= 0 && slot < navRowStart && slot < offers.size()) {
+                EconomySounds.click(viewer);
+                NegotiationStore.Offer offer = offers.get(slot);
+                MenuUiSupport.openMenu(viewer, "Offer", (id, inv) ->
+                        new OfferDecisionMenu(id, inv, auctions, viewer, listingId, offer,
+                                query, sort, mineOnly));
+                return true;
+            }
+            if (slot == navRowStart + 4) {
+                EconomySounds.click(viewer);
+                AuctionListing listing = auctions.getListing(listingId);
+                viewer.closeContainer();
+                if (listing != null && listing.seller.equals(viewer.getUUID())) {
+                    openRemove(viewer, auctions, listing, query, sort, mineOnly);
+                } else {
+                    AuctionUi.open(viewer, auctions, 0, query, sort, mineOnly);
+                }
+                return true;
+            }
+            return false;
+        }
+    }
+
+    private static class OfferDecisionMenu extends CompatMenu {
+        private static final int BACK_SLOT = 0;
+        private final AuctionManager auctions;
+        private final ServerPlayer viewer;
+        private final int listingId;
+        private final NegotiationStore.Offer offer;
+        @Nullable private final String query;
+        private final SortMode sort;
+        private final boolean mineOnly;
+        private final SimpleContainer container = new SimpleContainer(9);
+
+        OfferDecisionMenu(int id, Inventory inv, AuctionManager auctions, ServerPlayer viewer, int listingId,
+                          NegotiationStore.Offer offer, @Nullable String query, SortMode sort, boolean mineOnly) {
+            super(MenuType.GENERIC_9x1, id);
+            this.auctions = auctions;
+            this.viewer = viewer;
+            this.listingId = listingId;
+            this.offer = offer;
+            this.query = query;
+            this.sort = sort;
+            this.mineOnly = mineOnly;
+
+            container.setItem(BACK_SLOT, MenuUiSupport.backButton());
+            container.setItem(MenuUiSupport.ROW_CANCEL, MenuUiSupport.button(
+                    ItemsCompat.redStainedGlassPane(), "Decline", ChatFormatting.DARK_RED));
+
+            String name = MenuUiSupport.resolvePlayerName(viewer.level().getServer(), offer.proposer());
+            ItemStack subject = new ItemStack(Items.PAPER);
+            subject.set(DataComponents.CUSTOM_NAME, Component.literal(
+                            EconomyCraft.formatMoney(offer.price()) + " from " + (name == null ? "?" : name))
+                    .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.YELLOW)));
+            subject.set(DataComponents.LORE, new ItemLore(List.of(
+                    MenuUiSupport.hint("Accepting reprices the listing;"),
+                    MenuUiSupport.hint("the buyer must still buy it."))));
+            container.setItem(MenuUiSupport.ROW_SUBJECT, subject);
+
+            container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Accept"));
+            MenuUiSupport.fillFooter(container);
+
+            for (Slot slot : MenuUiSupport.confirmRowSlots(container)) {
+                this.addSlot(slot);
+            }
+            for (Slot slot : MenuUiSupport.playerInventorySlots(inv, 40)) {
+                this.addSlot(slot);
+            }
+        }
+
+        @Override
+        protected boolean onClick(int slot, int dragType, ClickKind kind, Player player) {
+            if (kind != ClickKind.PICKUP) return false;
+            if (slot == MenuUiSupport.ROW_CONFIRM) {
+                accept();
+                return true;
+            }
+            if (slot == MenuUiSupport.ROW_CANCEL) {
+                decline();
+                return true;
+            }
+            if (slot == BACK_SLOT) {
+                EconomySounds.click(viewer);
+                openOffers(viewer, auctions, listingId, query, sort, mineOnly);
+                return true;
+            }
+            return false;
+        }
+
+        private EconomyManager eco() {
+            return EconomyCraft.getManager(viewer.level().getServer());
+        }
+
+        private String describe(AuctionListing listing) {
+            return EconomyCraft.describeItem(listing.item.getCount(),
+                    listing.item.getHoverName().getString());
+        }
+
+        private void accept() {
+            AuctionListing listing = auctions.getListing(listingId);
+            if (listing == null || !listing.seller.equals(viewer.getUUID())
+                    || !NegotiationEvents.canNegotiateAuction(listing)) {
+                fail("Listing no longer available");
+                return;
+            }
+            NegotiationStore.Offer current =
+                    eco().getNegotiations().offerFrom(NegotiationStore.Kind.AH, listingId, offer.proposer());
+            if (current == null) {
+                fail("Offer no longer available");
+                return;
+            }
+            auctions.setPrice(listingId, viewer.getUUID(), current.price());
+            String desc = describe(listing);
+            List<NegotiationStore.Offer> rest =
+                    eco().getNegotiations().removeForTarget(NegotiationStore.Kind.AH, listingId);
+            NegotiationEvents.notifyAccepted(eco(), current.proposer(), desc, current.price());
+            for (NegotiationStore.Offer other : rest) {
+                if (!other.proposer().equals(current.proposer())) {
+                    NegotiationEvents.notifyDeclined(eco(), other.proposer(), desc, other.price());
+                }
+            }
+            EconomySounds.success(viewer);
+            viewer.sendSystemMessage(Component.literal("Accepted "
+                            + EconomyCraft.formatMoney(current.price()) + " for " + desc
+                            + " — the buyer was notified.")
+                    .withStyle(ChatFormatting.GREEN));
+            viewer.closeContainer();
+            AuctionUi.open(viewer, auctions, 0, query, sort, mineOnly);
+        }
+
+        private void decline() {
+            NegotiationStore.Offer removed = eco().getNegotiations()
+                    .removeOffer(NegotiationStore.Kind.AH, listingId, offer.proposer());
+            AuctionListing listing = auctions.getListing(listingId);
+            String desc = listing == null ? "listing #" + listingId : describe(listing);
+            if (removed != null) {
+                NegotiationEvents.notifyDeclined(eco(), removed.proposer(), desc, removed.price());
+                EconomySounds.success(viewer);
+                viewer.sendSystemMessage(Component.literal("Offer declined.")
+                        .withStyle(ChatFormatting.GREEN));
+            } else {
+                EconomySounds.failure(viewer);
+                viewer.sendSystemMessage(Component.literal("Offer no longer available.")
+                        .withStyle(ChatFormatting.RED));
+            }
+            viewer.closeContainer();
+            openOffers(viewer, auctions, listingId, query, sort, mineOnly);
+        }
+
+        private void fail(String message) {
+            EconomySounds.failure(viewer);
+            viewer.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
+            viewer.closeContainer();
+            AuctionUi.open(viewer, auctions, 0, query, sort, mineOnly);
         }
     }
 }

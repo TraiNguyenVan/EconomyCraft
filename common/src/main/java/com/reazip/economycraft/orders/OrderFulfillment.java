@@ -7,6 +7,8 @@ import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.SellService;
+import com.reazip.economycraft.negotiation.NegotiationEvents;
+import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.api.v1.BalanceMutationResult;
 import com.reazip.economycraft.tax.TaxPolicy;
@@ -44,6 +46,45 @@ public final class OrderFulfillment {
 
     public enum CancelStatus {
         OK, ORDER_GONE, NOT_OWNER, REFUND_FAILED
+    }
+
+    public enum RepriceStatus {
+        OK, ORDER_GONE, NOT_OWNER, INVALID_PRICE, CANT_AFFORD_RAISE, REFUND_FAILED
+    }
+
+    /**
+     * Reprices a request in place, adjusting the escrow to match. Raising the reward holds the
+     * difference up front (fails cleanly when the requester cannot afford it); lowering it
+     * refunds the difference (fails cleanly when the requester's balance cannot take it back).
+     * Either failure leaves the request untouched.
+     */
+    public static RepriceStatus setPrice(EconomyManager eco, UUID requester, int orderId, long newPrice) {
+        OrderManager orders = eco.getOrders();
+        OrderRequest peek = orders.getRequest(orderId);
+        if (peek == null) return RepriceStatus.ORDER_GONE;
+        if (!peek.requester.equals(requester)) return RepriceStatus.NOT_OWNER;
+        if (newPrice < 1 || newPrice > EconomyManager.MAX) return RepriceStatus.INVALID_PRICE;
+
+        long delta = newPrice - peek.price;
+        String detail = EconomyCraft.describeItem(peek.amount, peek.item.getHoverName().getString());
+        if (delta > 0) {
+            if (!eco.removeMoney(requester, delta, EconomySources.ORDER_ESCROW_HOLD, detail).successful()) {
+                return RepriceStatus.CANT_AFFORD_RAISE;
+            }
+            peek.price = newPrice;
+            peek.escrow += delta;
+        } else if (delta < 0) {
+            long refund = Math.min(-delta, Math.max(0, peek.escrow));
+            if (refund > 0) {
+                if (!eco.addMoney(requester, refund, EconomySources.ORDER_ESCROW_REFUND, detail).successful()) {
+                    return RepriceStatus.REFUND_FAILED;
+                }
+                peek.escrow -= refund;
+            }
+            peek.price = newPrice;
+        }
+        orders.markChanged();
+        return RepriceStatus.OK;
     }
 
     private record PaymentOutcome(boolean success, long payout, Status failureStatus) {}
@@ -153,6 +194,11 @@ public final class OrderFulfillment {
         } else {
             deliver(orders, requester, itemProto, claim.given());
         }
+        if (claim.exhausted()) {
+            NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.ORDER, claim.order().id,
+                    EconomyCraft.describeItem(claim.given(), itemProto.getHoverName().getString()),
+                    "was fully fulfilled");
+        }
         notifyRequester(eco.getServer(), requester, claim.given(), itemProto);
         orders.markChanged();
 
@@ -188,12 +234,14 @@ public final class OrderFulfillment {
         if (peek == null) return CancelStatus.ORDER_GONE;
         if (!peek.requester.equals(requester)) return CancelStatus.NOT_OWNER;
 
+        String desc = EconomyCraft.describeItem(peek.amount, peek.item.getHoverName().getString());
         OrderRequest order = orders.removeRequest(orderId);
         if (order == null) return CancelStatus.ORDER_GONE;
 
         var refund = refundEscrow(eco, orders, order);
         if (refund != null && !refund.successful()) return CancelStatus.REFUND_FAILED;
 
+        NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.ORDER, orderId, desc, "was removed");
         return CancelStatus.OK;
     }
 
@@ -216,6 +264,9 @@ public final class OrderFulfillment {
                 continue;
             }
 
+            NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.ORDER, order.id,
+                    EconomyCraft.describeItem(order.amount, order.item.getHoverName().getString()),
+                    "expired");
             notifyExpired(eco, order, refund);
         }
         if (anyExpired) orders.save();
@@ -257,6 +308,10 @@ public final class OrderFulfillment {
             }
 
             cleared++;
+
+            NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.ORDER, order.id,
+                    EconomyCraft.describeItem(order.amount, order.item.getHoverName().getString()),
+                    "was cleared by an admin");
             notifyCleared(eco, order, refund);
         }
         if (cleared > 0) orders.save();

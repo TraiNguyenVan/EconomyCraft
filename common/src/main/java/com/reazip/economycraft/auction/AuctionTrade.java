@@ -4,6 +4,8 @@ import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.api.v1.PaymentResult;
+import com.reazip.economycraft.negotiation.NegotiationEvents;
+import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.profession.ProfessionHooks;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.tax.TaxPolicy;
@@ -75,6 +77,10 @@ public final class AuctionTrade {
             auctions.notifySellerSale(claimed, buyer);
         }
 
+        NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.AH, claimed.id,
+                EconomyCraft.describeItem(claimed.item.getCount(), claimed.item.getHoverName().getString()),
+                "was sold");
+
         boolean stored = deliverOrStore(auctions, buyer, claimed.item.copy());
         return new PurchaseResult(PurchaseStatus.OK, claimed.item.copy(), total, claimed.seller, stored);
     }
@@ -92,6 +98,11 @@ public final class AuctionTrade {
         if (removed == null) {
             return new CancelResult(CancelStatus.LISTING_GONE, ItemStack.EMPTY, false);
         }
+
+        NegotiationEvents.invalidateTarget(EconomyCraft.getManager(auctions.getServer()),
+                NegotiationStore.Kind.AH, removed.id,
+                EconomyCraft.describeItem(removed.item.getCount(), removed.item.getHoverName().getString()),
+                "was removed");
 
         boolean stored = deliverOrStore(auctions, seller, removed.item.copy());
         return new CancelResult(CancelStatus.OK, removed.item.copy(), stored);

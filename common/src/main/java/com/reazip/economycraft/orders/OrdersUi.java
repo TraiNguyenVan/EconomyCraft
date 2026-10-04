@@ -4,6 +4,8 @@ import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.HubUi;
 import com.reazip.economycraft.SellService;
+import com.reazip.economycraft.negotiation.NegotiationEvents;
+import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
@@ -16,6 +18,7 @@ import com.reazip.economycraft.util.EconomySounds;
 import com.reazip.economycraft.util.ExpirationUtil;
 import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.ItemPickerUi;
+import com.reazip.economycraft.util.ItemsCompat;
 import com.reazip.economycraft.util.MenuUiSupport;
 import com.reazip.economycraft.util.NumberInputUi;
 import com.reazip.economycraft.util.SortMode;
@@ -41,6 +44,12 @@ import java.util.UUID;
 
 public final class OrdersUi {
     private OrdersUi() {}
+
+    /** Deliverer-side "Offer a price" button in the fulfill-confirm row. */
+    private static final int OFFER_SLOT = 0;
+    /** Requester-side buttons in the remove-confirm row. */
+    private static final int EDIT_PRICE_SLOT = 0;
+    private static final int OFFERS_SLOT = 8;
 
     public static void open(ServerPlayer player, EconomyManager eco) {
         open(player, eco, 0, null, SortMode.DEFAULT, false);
@@ -459,6 +468,13 @@ public final class OrdersUi {
             container.setItem(MenuUiSupport.ROW_SUBJECT, item);
 
             container.setItem(MenuUiSupport.ROW_CANCEL, MenuUiSupport.cancelButton());
+            if (NegotiationEvents.canNegotiateOrder(request)) {
+                container.setItem(OFFER_SLOT, MenuUiSupport.button(Items.PAPER, "Offer a price",
+                        ChatFormatting.GOLD,
+                        MenuUiSupport.hint("Suggest a different reward"),
+                        MenuUiSupport.hint("Non-binding: the requester may reprice,"),
+                        MenuUiSupport.hint("and anyone can still fulfill first")));
+            }
             MenuUiSupport.fillFooter(container);
 
             for (Slot slot : MenuUiSupport.confirmRowSlots(container)) {
@@ -523,12 +539,70 @@ public final class OrdersUi {
                 OrdersUi.open((ServerPlayer) player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
                 return true;
             }
+
+            if (slot == OFFER_SLOT && NegotiationEvents.canNegotiateOrder(request)) {
+                ServerPlayer serverPlayer = (ServerPlayer) player;
+                OrderRequest current = parent.orders.getRequest(request.id);
+                if (current == null || !NegotiationEvents.canNegotiateOrder(current)) {
+                    fail(serverPlayer, "Request no longer available");
+                    player.closeContainer();
+                    OrdersUi.open(serverPlayer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                    return true;
+                }
+                if (current.requester.equals(serverPlayer.getUUID())) {
+                    fail(serverPlayer, "You cannot offer on your own request");
+                    player.closeContainer();
+                    OrdersUi.open(serverPlayer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                    return true;
+                }
+                EconomySounds.click(serverPlayer);
+                ItemStack subject = current.item.copy();
+                subject.setCount(1);
+                NumberInputUi.openMoney(serverPlayer, "Offer a price", subject, "Offer", current.price,
+                        1, EconomyManager.MAX, "Send offer",
+                        offerPrice -> List.of(
+                                MenuUiSupport.labeledValue("Requested",
+                                        EconomyCraft.formatMoney(current.price),
+                                        MenuUiSupport.LABEL_PRIMARY_COLOR),
+                                MenuUiSupport.hint("The requester is notified, not committed.")),
+                        (p, offerPrice) -> submitOffer(parent, p, current.id, offerPrice),
+                        p -> parent.openConfirm(p, current));
+                return true;
+            }
             return false;
         }
 
         private static void fail(ServerPlayer player, String message) {
             EconomySounds.failure(player);
             player.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
+        }
+
+        private static void submitOffer(RequestMenu parent, ServerPlayer player, int requestId, long offerPrice) {
+            OrderRequest current = parent.orders.getRequest(requestId);
+            if (current == null || !NegotiationEvents.canNegotiateOrder(current)) {
+                fail(player, "Request no longer available");
+                player.closeContainer();
+                OrdersUi.open(player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                return;
+            }
+            if (current.requester.equals(player.getUUID())) {
+                fail(player, "You cannot offer on your own request");
+                player.closeContainer();
+                OrdersUi.open(player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                return;
+            }
+            parent.eco.getNegotiations().makeOffer(NegotiationStore.Kind.ORDER, requestId,
+                    player.getUUID(), offerPrice);
+            NegotiationEvents.notifyNewOffer(parent.eco, current.requester, player.getUUID(),
+                    EconomyCraft.describeItem(current.amount, current.item.getHoverName().getString()),
+                    offerPrice, requestId, false);
+            EconomySounds.success(player);
+            player.sendSystemMessage(Component.literal("Offered " + EconomyCraft.formatMoney(offerPrice)
+                            + " for " + current.item.getHoverName().getString()
+                            + " — the requester was notified.")
+                    .withStyle(ChatFormatting.GREEN));
+            player.closeContainer();
+            OrdersUi.open(player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
         }
     }
 
@@ -555,6 +629,17 @@ public final class OrdersUi {
             container.setItem(MenuUiSupport.ROW_SUBJECT, item);
 
             container.setItem(MenuUiSupport.ROW_CANCEL, MenuUiSupport.cancelButton());
+            if (NegotiationEvents.canNegotiateOrder(request)) {
+                container.setItem(EDIT_PRICE_SLOT, MenuUiSupport.button(Items.NAME_TAG, "Edit reward",
+                        ChatFormatting.AQUA, MenuUiSupport.hint("Reprice without reposting")));
+                int offerCount = parent.eco.getNegotiations()
+                        .countFor(NegotiationStore.Kind.ORDER, request.id);
+                if (offerCount > 0) {
+                    container.setItem(OFFERS_SLOT, MenuUiSupport.button(Items.BOOK,
+                            "Offers (" + offerCount + ")", ChatFormatting.GOLD,
+                            MenuUiSupport.hint("Review fulfiller offers")));
+                }
+            }
             MenuUiSupport.fillFooter(container);
 
             for (Slot slot : MenuUiSupport.confirmRowSlots(container)) {
@@ -596,7 +681,296 @@ public final class OrdersUi {
                 OrdersUi.open((ServerPlayer) player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
                 return true;
             }
+            if (slot == EDIT_PRICE_SLOT && NegotiationEvents.canNegotiateOrder(request)) {
+                ServerPlayer serverPlayer = (ServerPlayer) player;
+                OrderRequest current = parent.orders.getRequest(request.id);
+                if (current == null || !current.requester.equals(serverPlayer.getUUID())) {
+                    failStatic(serverPlayer, "Request no longer available");
+                    player.closeContainer();
+                    OrdersUi.open(serverPlayer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                    return true;
+                }
+                EconomySounds.click(serverPlayer);
+                ItemStack subject = current.item.copy();
+                subject.setCount(1);
+                NumberInputUi.openMoney(serverPlayer, "Edit reward", subject, "Total reward", current.price,
+                        1, EconomyManager.MAX, "Confirm and update",
+                        newPrice -> requestLore(serverPlayer, parent.eco, current.amount, newPrice),
+                        (p, newPrice) -> applyRewardEdit(parent, p, current.id, newPrice),
+                        p -> parent.openRemove(p, current));
+                return true;
+            }
+            if (slot == OFFERS_SLOT && NegotiationEvents.canNegotiateOrder(request)) {
+                EconomySounds.click((ServerPlayer) player);
+                openOffers(parent, (ServerPlayer) player, request.id);
+                return true;
+            }
             return false;
+        }
+
+        private static void fail(ServerPlayer player, String message) {
+            EconomySounds.failure(player);
+            player.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
+        }
+    }
+
+    private static void applyRewardEdit(RequestMenu parent, ServerPlayer player, int requestId, long newPrice) {
+        OrderFulfillment.RepriceStatus status =
+                OrderFulfillment.setPrice(parent.eco, player.getUUID(), requestId, newPrice);
+        switch (status) {
+            case OK -> {
+                OrderRequest current = parent.orders.getRequest(requestId);
+                String desc = current == null ? "request #" + requestId
+                        : EconomyCraft.describeItem(current.amount,
+                                current.item.getHoverName().getString());
+                for (NegotiationStore.Offer offer : parent.eco.getNegotiations()
+                        .offersFor(NegotiationStore.Kind.ORDER, requestId)) {
+                    NegotiationEvents.notifyRepriced(parent.eco, offer.proposer(), desc, newPrice);
+                }
+                EconomySounds.success(player);
+                player.sendSystemMessage(Component.literal("Reward updated to "
+                                + EconomyCraft.formatMoney(newPrice))
+                        .withStyle(ChatFormatting.GREEN));
+            }
+            case CANT_AFFORD_RAISE ->
+                    failStatic(player, "You can't afford to reserve " + EconomyCraft.formatMoney(newPrice));
+            case REFUND_FAILED ->
+                    failStatic(player, "Your balance is too high to receive the refund");
+            default -> failStatic(player, "Request no longer available");
+        }
+        player.closeContainer();
+        OrdersUi.open(player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+    }
+
+    private static void failStatic(ServerPlayer player, String message) {
+        EconomySounds.failure(player);
+        player.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
+    }
+
+    private static void openOffers(RequestMenu parent, ServerPlayer player, int requestId) {
+        MenuUiSupport.openMenu(player, "Offers", (id, inv) ->
+                new OrderOffersMenu(id, inv, parent, requestId));
+    }
+
+    private static class OrderOffersMenu extends CompatMenu {
+        private final RequestMenu parent;
+        private final int requestId;
+        private final List<NegotiationStore.Offer> offers;
+        private final SimpleContainer container;
+        private final int navRowStart;
+
+        OrderOffersMenu(int id, Inventory inv, RequestMenu parent, int requestId) {
+            super(MenuUiSupport.getMenuType(MenuUiSupport.listMenuRows(Math.max(1,
+                    parent.eco.getNegotiations().countFor(NegotiationStore.Kind.ORDER, requestId)))), id);
+            this.parent = parent;
+            this.requestId = requestId;
+            List<NegotiationStore.Offer> visible = new ArrayList<>();
+            for (NegotiationStore.Offer offer : parent.eco.getNegotiations()
+                    .offersFor(NegotiationStore.Kind.ORDER, requestId)) {
+                if (MenuUiSupport.resolvePlayerName(parent.eco.getServer(), offer.proposer()) != null) {
+                    visible.add(offer);
+                }
+            }
+            this.offers = visible;
+            int rows = MenuUiSupport.listMenuRows(Math.max(1, offers.size()));
+            this.navRowStart = (rows - 1) * 9;
+            this.container = new SimpleContainer(rows * 9);
+            renderPage(rows);
+            for (Slot slot : MenuUiSupport.readOnlyGridSlots(container, rows * 9)) {
+                this.addSlot(slot);
+            }
+            for (Slot slot : MenuUiSupport.playerInventorySlots(inv, 18 + rows * 18 + 14)) {
+                this.addSlot(slot);
+            }
+        }
+
+        private void renderPage(int rows) {
+            container.clearContent();
+            OrderRequest req = parent.orders.getRequest(requestId);
+            for (int i = 0; i < navRowStart && i < offers.size(); i++) {
+                NegotiationStore.Offer offer = offers.get(i);
+                String name = MenuUiSupport.resolvePlayerName(parent.eco.getServer(), offer.proposer());
+                ItemStack row = new ItemStack(Items.PAPER);
+                List<Component> lore = new ArrayList<>();
+                lore.add(MenuUiSupport.labeledValue("Offer",
+                        EconomyCraft.formatMoney(offer.price()), MenuUiSupport.LABEL_PRIMARY_COLOR));
+                if (req != null) {
+                    lore.add(MenuUiSupport.labeledValue("Requested",
+                            EconomyCraft.formatMoney(req.price), MenuUiSupport.LABEL_PRIMARY_COLOR));
+                }
+                lore.add(MenuUiSupport.labeledValue("Click", "Accept or decline",
+                        MenuUiSupport.LABEL_SECONDARY_COLOR));
+                row.set(DataComponents.CUSTOM_NAME, Component.literal(name == null ? "?" : name)
+                        .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.YELLOW)));
+                row.set(DataComponents.LORE, new ItemLore(lore));
+                container.setItem(i, row);
+            }
+            if (offers.isEmpty()) {
+                container.setItem(4, MenuUiSupport.button(Items.BOOK, "No offers",
+                        ChatFormatting.YELLOW, MenuUiSupport.hint("New offers appear here")));
+            }
+            container.setItem(navRowStart + 4, MenuUiSupport.button(Items.BARRIER, "Back",
+                    ChatFormatting.RED));
+            MenuUiSupport.fillFooter(container);
+        }
+
+        @Override
+        protected boolean onClick(int slot, int dragType, ClickKind kind, Player player) {
+            if (kind != ClickKind.PICKUP) return false;
+            if (slot >= 0 && slot < navRowStart && slot < offers.size()) {
+                EconomySounds.click(parent.viewer);
+                NegotiationStore.Offer offer = offers.get(slot);
+                MenuUiSupport.openMenu(parent.viewer, "Offer", (id, inv) ->
+                        new OrderOfferDecisionMenu(id, inv, parent, requestId, offer));
+                return true;
+            }
+            if (slot == navRowStart + 4) {
+                EconomySounds.click(parent.viewer);
+                OrderRequest req = parent.orders.getRequest(requestId);
+                parent.viewer.closeContainer();
+                if (req != null && req.requester.equals(parent.viewer.getUUID())) {
+                    parent.openRemove(parent.viewer, req);
+                } else {
+                    OrdersUi.open(parent.viewer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                }
+                return true;
+            }
+            return false;
+        }
+    }
+
+    private static class OrderOfferDecisionMenu extends CompatMenu {
+        private static final int BACK_SLOT = 0;
+        private final RequestMenu parent;
+        private final int requestId;
+        private final NegotiationStore.Offer offer;
+        private final SimpleContainer container = new SimpleContainer(9);
+
+        OrderOfferDecisionMenu(int id, Inventory inv, RequestMenu parent, int requestId,
+                               NegotiationStore.Offer offer) {
+            super(MenuType.GENERIC_9x1, id);
+            this.parent = parent;
+            this.requestId = requestId;
+            this.offer = offer;
+
+            container.setItem(BACK_SLOT, MenuUiSupport.backButton());
+            container.setItem(MenuUiSupport.ROW_CANCEL, MenuUiSupport.button(
+                    ItemsCompat.redStainedGlassPane(), "Decline", ChatFormatting.DARK_RED));
+
+            String name = MenuUiSupport.resolvePlayerName(parent.eco.getServer(), offer.proposer());
+            ItemStack subject = new ItemStack(Items.PAPER);
+            subject.set(DataComponents.CUSTOM_NAME, Component.literal(
+                            EconomyCraft.formatMoney(offer.price()) + " from " + (name == null ? "?" : name))
+                    .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.YELLOW)));
+            subject.set(DataComponents.LORE, new ItemLore(List.of(
+                    MenuUiSupport.hint("Accepting reprices the request;"),
+                    MenuUiSupport.hint("a higher reward holds more escrow."))));
+            container.setItem(MenuUiSupport.ROW_SUBJECT, subject);
+
+            container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Accept"));
+            MenuUiSupport.fillFooter(container);
+
+            for (Slot slot : MenuUiSupport.confirmRowSlots(container)) {
+                this.addSlot(slot);
+            }
+            for (Slot slot : MenuUiSupport.playerInventorySlots(inv, 40)) {
+                this.addSlot(slot);
+            }
+        }
+
+        @Override
+        protected boolean onClick(int slot, int dragType, ClickKind kind, Player player) {
+            if (kind != ClickKind.PICKUP) return false;
+            if (slot == MenuUiSupport.ROW_CONFIRM) {
+                accept();
+                return true;
+            }
+            if (slot == MenuUiSupport.ROW_CANCEL) {
+                decline();
+                return true;
+            }
+            if (slot == BACK_SLOT) {
+                EconomySounds.click(parent.viewer);
+                openOffers(parent, parent.viewer, requestId);
+                return true;
+            }
+            return false;
+        }
+
+        private String describe(OrderRequest req) {
+            return EconomyCraft.describeItem(req.amount, req.item.getHoverName().getString());
+        }
+
+        private void accept() {
+            OrderRequest req = parent.orders.getRequest(requestId);
+            if (req == null || !req.requester.equals(parent.viewer.getUUID())
+                    || !NegotiationEvents.canNegotiateOrder(req)) {
+                fail("Request no longer available");
+                return;
+            }
+            NegotiationStore.Offer current = parent.eco.getNegotiations()
+                    .offerFrom(NegotiationStore.Kind.ORDER, requestId, offer.proposer());
+            if (current == null) {
+                fail("Offer no longer available");
+                return;
+            }
+            OrderFulfillment.RepriceStatus status = OrderFulfillment.setPrice(parent.eco,
+                    parent.viewer.getUUID(), requestId, current.price());
+            if (status != OrderFulfillment.RepriceStatus.OK) {
+                if (status == OrderFulfillment.RepriceStatus.CANT_AFFORD_RAISE) {
+                    failStatic(parent.viewer, "You can't afford to reserve "
+                            + EconomyCraft.formatMoney(current.price()));
+                } else if (status == OrderFulfillment.RepriceStatus.REFUND_FAILED) {
+                    failStatic(parent.viewer, "Your balance is too high to receive the refund");
+                } else {
+                    fail("Request no longer available");
+                    return;
+                }
+                parent.viewer.closeContainer();
+                OrdersUi.open(parent.viewer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                return;
+            }
+            String desc = describe(req);
+            List<NegotiationStore.Offer> rest = parent.eco.getNegotiations()
+                    .removeForTarget(NegotiationStore.Kind.ORDER, requestId);
+            NegotiationEvents.notifyAccepted(parent.eco, current.proposer(), desc, current.price());
+            for (NegotiationStore.Offer other : rest) {
+                if (!other.proposer().equals(current.proposer())) {
+                    NegotiationEvents.notifyDeclined(parent.eco, other.proposer(), desc, other.price());
+                }
+            }
+            EconomySounds.success(parent.viewer);
+            parent.viewer.sendSystemMessage(Component.literal("Accepted "
+                            + EconomyCraft.formatMoney(current.price()) + " for " + desc
+                            + " — the fulfiller was notified.")
+                    .withStyle(ChatFormatting.GREEN));
+            parent.viewer.closeContainer();
+            OrdersUi.open(parent.viewer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+        }
+
+        private void decline() {
+            NegotiationStore.Offer removed = parent.eco.getNegotiations()
+                    .removeOffer(NegotiationStore.Kind.ORDER, requestId, offer.proposer());
+            OrderRequest req = parent.orders.getRequest(requestId);
+            String desc = req == null ? "request #" + requestId : describe(req);
+            if (removed != null) {
+                NegotiationEvents.notifyDeclined(parent.eco, removed.proposer(), desc, removed.price());
+                EconomySounds.success(parent.viewer);
+                parent.viewer.sendSystemMessage(Component.literal("Offer declined.")
+                        .withStyle(ChatFormatting.GREEN));
+            } else {
+                EconomySounds.failure(parent.viewer);
+                parent.viewer.sendSystemMessage(Component.literal("Offer no longer available.")
+                        .withStyle(ChatFormatting.RED));
+            }
+            parent.viewer.closeContainer();
+            openOffers(parent, parent.viewer, requestId);
+        }
+
+        private void fail(String message) {
+            failStatic(parent.viewer, message);
+            parent.viewer.closeContainer();
+            OrdersUi.open(parent.viewer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
         }
     }
 

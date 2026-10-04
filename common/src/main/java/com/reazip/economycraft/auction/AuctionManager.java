@@ -72,7 +72,9 @@ public class AuctionManager {
         return out;
     }
 
-    public AuctionListing getListing(int id) {
+    public MinecraftServer getServer() {
+        return server;
+    }    public AuctionListing getListing(int id) {
         return listings.get(id);
     }
 
@@ -97,6 +99,20 @@ public class AuctionManager {
 
     public void restoreListing(AuctionListing listing) {
         putAndPersist(listing);
+    }
+
+    /**
+     * Reprices a listing in place. Ownership is re-checked so a stale menu cannot move someone
+     * else's price; listeners fire so open menus refresh on the new value.
+     */
+    public boolean setPrice(int id, UUID seller, long price) {
+        if (price < 1) return false;
+        AuctionListing listing = listings.get(id);
+        if (listing == null || !seller.equals(listing.seller)) return false;
+        listing.price = price;
+        notifyListeners();
+        save();
+        return true;
     }
 
     private void putAndPersist(AuctionListing listing) {
