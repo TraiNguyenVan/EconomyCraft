@@ -4,6 +4,7 @@ import com.reazip.economycraft.admin.AdminUi;
 import com.reazip.economycraft.auction.AuctionUi;
 import com.reazip.economycraft.orders.OrdersUi;
 import com.reazip.economycraft.sell.SellUi;
+import com.reazip.economycraft.negotiation.OffersHubUi;
 import com.reazip.economycraft.shop.ShopUi;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
@@ -48,6 +49,7 @@ public final class HubUi {
     private static final int WORTH = 25;
     private static final int TRANSACTIONS = 28;
     private static final int DELIVERIES = 30;
+    private static final int OFFERS = 31;
     private static final int HELP = 32;
     private static final int TAGS_SLOT = 33;
     private static final int TOLLS = 34;
@@ -254,6 +256,18 @@ public final class HubUi {
                                 : "Nothing waiting right now.")));
             }
 
+            if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_OFFERS)) {
+                int[] offerCounts = OffersHubUi.counts(eco, viewer.getUUID());
+                container.setItem(OFFERS, MenuUiSupport.button(Items.PAPER, "Price offers",
+                        ChatFormatting.GOLD,
+                        offerCounts[0] > 0
+                                ? MenuUiSupport.labeledValue("On your items", offerCounts[0] + " waiting",
+                                        MenuUiSupport.LABEL_PRIMARY_COLOR)
+                                : MenuUiSupport.hint("Nothing waiting on your items."),
+                        MenuUiSupport.labeledValue("Yours open", String.valueOf(offerCounts[1]),
+                                MenuUiSupport.LABEL_SECONDARY_COLOR)));
+            }
+
             if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_TOLL)) {
                 container.setItem(TOLLS, MenuUiSupport.button(Items.OAK_FENCE_GATE, "Tolls", ChatFormatting.GOLD,
                         MenuUiSupport.hint("Manage the block you are looking at."),
@@ -323,6 +337,13 @@ public final class HubUi {
                         EconomySounds.click(viewer);
                         viewer.closeContainer();
                         OrdersUi.openClaims(viewer, eco);
+                    }
+                }
+                case OFFERS -> {
+                    if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_OFFERS)) {
+                        EconomySounds.click(viewer);
+                        viewer.closeContainer();
+                        OffersHubUi.open(viewer);
                     }
                 }
                 case LEADERBOARDS -> {

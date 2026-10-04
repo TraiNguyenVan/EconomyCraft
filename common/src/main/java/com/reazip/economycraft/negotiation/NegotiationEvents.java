@@ -5,8 +5,13 @@ import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.orders.OrderRequest;
 import com.reazip.economycraft.quests.QuestManager;
+import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.MenuUiSupport;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
 import java.util.UUID;
@@ -34,10 +39,60 @@ public final class NegotiationEvents {
     public static void notifyNewOffer(EconomyManager eco, UUID owner, UUID proposer,
                                       String itemDesc, long price, int targetId, boolean auction) {
         String proposerName = displayName(eco.getServer(), proposer);
-        String where = auction ? "listing #" + targetId : "request #" + targetId;
+        NegotiationStore.Kind kind = auction ? NegotiationStore.Kind.AH : NegotiationStore.Kind.ORDER;
         eco.getNotifications().notify(owner, proposerName + " offered "
                 + EconomyCraft.formatMoney(price) + " for your " + itemDesc
-                + " (" + where + "). Open it to review, edit your price, or accept.");
+                + " (" + (auction ? "listing #" : "request #") + targetId + "). Open it to review, edit your price, or accept.");
+        eco.getNotifications().flush();
+        sendReviewPrompt(eco, owner, kind, targetId);
+    }
+
+    /**
+     * The clickable shortcut to the offers hub, for owners who are online right now. It carries
+     * the target, so the click lands on that one listing's offers instead of on the hub overview.
+     * Offline owners are covered on login: the queued text above plus the aggregate prompt. This
+     * lives outside the queued notification because the queue stores plain text only.
+     */
+    private static void sendReviewPrompt(EconomyManager eco, UUID owner, NegotiationStore.Kind kind,
+                                          int targetId) {
+        MinecraftServer server = eco.getServer();
+        if (server == null) return;
+        ServerPlayer player = server.getPlayerList().getPlayer(owner);
+        if (player == null) return;
+        String command = hubCommand(kind, targetId);
+        ClickEvent ev = ChatCompat.runCommandEvent(command);
+        if (ev != null) {
+            Component msg = Component.literal("Review it now: ")
+                    .withStyle(ChatFormatting.YELLOW)
+                    .append(Component.literal("[Review]")
+                            .withStyle(s -> s.withUnderlined(true).withColor(ChatFormatting.GREEN)
+                                    .withClickEvent(ev)));
+            player.sendSystemMessage(msg);
+        } else {
+            ChatCompat.sendRunCommandTellraw(player, "Review it now: ", "[Review]", command);
+        }
+    }
+
+    /**
+     * The offers-hub deep link for one target. Always the {@code /eco} root, never the standalone
+     * alias: standalone commands can be switched off in config, and a notification link that
+     * silently does nothing is worse than a slightly longer command.
+     */
+    public static String hubCommand(NegotiationStore.Kind kind, int targetId) {
+        return "/eco offers " + (kind == NegotiationStore.Kind.AH ? "ah " : "order ") + targetId;
+    }
+
+    /** The offers-hub overview link, for the aggregate login prompt. */
+    public static String hubCommand() {
+        return "/eco offers";
+    }
+
+    /** The offerer pulled their offer; the owner is told, since they were reviewing a queue. */
+    public static void notifyWithdrawn(EconomyManager eco, UUID owner, UUID withdrawer,
+                                       String itemDesc, long price) {
+        eco.getNotifications().notify(owner, displayName(eco.getServer(), withdrawer)
+                + " withdrew their offer of " + EconomyCraft.formatMoney(price)
+                + " for " + itemDesc + ".");
         eco.getNotifications().flush();
     }
 
@@ -81,26 +136,6 @@ public final class NegotiationEvents {
                     + EconomyCraft.formatMoney(offer.price()) + " for " + itemDesc + " " + reason + ".");
         }
         if (!removed.isEmpty()) eco.getNotifications().flush();
-    }
-
-    /**
-     * How many open offers sit on this player's own negotiable targets — the login prompt count,
-     * mirroring the unclaimed-deliveries check.
-     */
-    public static int countOffersOnPlayerTargets(EconomyManager eco, UUID player) {
-        int count = 0;
-        NegotiationStore store = eco.getNegotiations();
-        for (AuctionListing listing : eco.getAuctions().getListings()) {
-            if (player.equals(listing.seller) && canNegotiateAuction(listing)) {
-                count += store.countFor(NegotiationStore.Kind.AH, listing.id);
-            }
-        }
-        for (OrderRequest request : eco.getOrders().getRequests()) {
-            if (player.equals(request.requester) && canNegotiateOrder(request)) {
-                count += store.countFor(NegotiationStore.Kind.ORDER, request.id);
-            }
-        }
-        return count;
     }
 
     public static String displayName(MinecraftServer server, UUID player) {

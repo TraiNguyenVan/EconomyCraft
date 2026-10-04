@@ -6,6 +6,7 @@ import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.util.AsyncFileWriter;
 import com.reazip.economycraft.api.v1.EconomyCraftApiBootstrap;
 import com.reazip.economycraft.negotiation.NegotiationEvents;
+import com.reazip.economycraft.negotiation.OffersHubUi;
 import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
@@ -134,13 +135,14 @@ public final class EconomyCraft {
             }
 
             // Price offers work like deliveries: the per-event messages above already queued while
-            // offline (sendPending), and this aggregate points at the review screens. The
-            // negotiator side needs no aggregate — every accept, decline and reprice notifies
-            // them directly, which is what sendPending just delivered.
-            int offerCount = NegotiationEvents.countOffersOnPlayerTargets(eco, player.getUUID());
-            if (offerCount > 0) {
-                sendPrompt(player, "You have " + offerCount + " price offer(s) on your listings and requests: ",
-                        "[Review]", "/ah");
+            // offline (sendPending), and this aggregate points at the hub. It used to link /ah,
+            // which silently ignored order offers entirely. The negotiator side needs no aggregate
+            // — every accept, decline, reprice and withdrawal notifies them directly.
+            int[] offerCounts = OffersHubUi.counts(eco, player.getUUID());
+            if (offerCounts[0] > 0) {
+                sendPrompt(player, "You have " + offerCounts[0]
+                                + " price offer(s) on your listings and requests: ",
+                        "[Review]", NegotiationEvents.hubCommand());
             }
 
             if (EconomyPaths.hasSharedFolder(server)) {

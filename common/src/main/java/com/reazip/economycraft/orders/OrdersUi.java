@@ -178,7 +178,7 @@ public final class OrdersUi {
         open(player, eco);
     }
 
-    private static class RequestMenu extends CompatMenu {
+    private static class RequestMenu extends CompatMenu implements RequestContext {
         private final OrderManager orders;
         private final EconomyManager eco;
         private final ServerPlayer viewer;
@@ -243,7 +243,8 @@ public final class OrdersUi {
             return list;
         }
 
-        private void updatePage() {
+        @Override
+        public void updatePage() {
             List<OrderRequest> updated = resolveRequests(orders, query, sort, mineOnly, viewer);
             if (MenuUiSupport.listMenuRows(updated.size()) != rows) {
                 OrdersUi.open(viewer, eco, 0, query, sort, mineOnly);
@@ -412,12 +413,49 @@ public final class OrdersUi {
             return false;
         }
 
-        private void openConfirm(ServerPlayer player, OrderRequest req) {
+        @Override
+        public void openConfirm(ServerPlayer player, OrderRequest req) {
             MenuUiSupport.openMenu(player, "Confirm", (id, inv) -> new ConfirmMenu(id, inv, req, RequestMenu.this));
         }
 
-        private void openRemove(ServerPlayer player, OrderRequest req) {
+        @Override
+        public void openRemove(ServerPlayer player, OrderRequest req) {
             MenuUiSupport.openMenu(player, "Remove", (id, inv) -> new RemoveMenu(id, inv, req, RequestMenu.this));
+        }
+
+        @Override
+        public EconomyManager eco() {
+            return eco;
+        }
+
+        @Override
+        public OrderManager orders() {
+            return orders;
+        }
+
+        @Override
+        public ServerPlayer viewer() {
+            return viewer;
+        }
+
+        @Override
+        public @Nullable String query() {
+            return query;
+        }
+
+        @Override
+        public SortMode sort() {
+            return sort;
+        }
+
+        @Override
+        public boolean mineOnly() {
+            return mineOnly;
+        }
+
+        @Override
+        public void backToList(ServerPlayer player) {
+            OrdersUi.open(player, eco, 0, query, sort, mineOnly);
         }
 
         @Override
@@ -429,15 +467,15 @@ public final class OrdersUi {
 
     private static class ConfirmMenu extends CompatMenu {
         private final OrderRequest request;
-        private final RequestMenu parent;
+        private final RequestContext parent;
         private final SimpleContainer container = new SimpleContainer(9);
 
-        ConfirmMenu(int id, Inventory inv, OrderRequest req, RequestMenu parent) {
+        ConfirmMenu(int id, Inventory inv, OrderRequest req, RequestContext parent) {
             super(MenuType.GENERIC_9x1, id);
             this.request = req;
             this.parent = parent;
 
-            int give = Math.min(OrderFulfillment.countHeld(parent.viewer, req.item), req.amount);
+            int give = Math.min(OrderFulfillment.countHeld(parent.viewer(), req.item), req.amount);
             boolean complete = give >= req.amount;
             long payout = OrderFulfillment.payoutFor(req, give);
 
@@ -446,7 +484,7 @@ public final class OrdersUi {
                     MenuUiSupport.labeledValue("Earn", EconomyCraft.formatMoney(payout), MenuUiSupport.LABEL_PRIMARY_COLOR)));
 
             ItemStack item = req.item.copy();
-            var server = parent.viewer.level().getServer();
+            var server = parent.viewer().level().getServer();
             String requesterName = MenuUiSupport.resolvePlayerName(server, req.requester);
             long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, req.price);
             item.setCount(1);
@@ -455,7 +493,7 @@ public final class OrdersUi {
             addBountyLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.labeledValue("Requester", requesterName, MenuUiSupport.LABEL_PRIMARY_COLOR));
-            int heldByViewer = OrderFulfillment.countHeld(parent.viewer, req.item);
+            int heldByViewer = OrderFulfillment.countHeld(parent.viewer(), req.item);
             itemLore.add(MenuUiSupport.labeledValue("You hold",
                     heldByViewer + " of " + req.amount, MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(req.expiresAt)));
@@ -496,7 +534,7 @@ public final class OrdersUi {
                 ServerPlayer serverPlayer = (ServerPlayer) player;
                 var server = serverPlayer.level().getServer();
 
-                OrderRequest current = parent.orders.getRequest(request.id);
+                OrderRequest current = parent.orders().getRequest(request.id);
                 int give = current == null ? 0 : Math.min(OrderFulfillment.countHeld(serverPlayer, current.item), current.amount);
                 if (current == null) {
                     EconomySounds.failure(serverPlayer);
@@ -505,7 +543,7 @@ public final class OrdersUi {
                     EconomySounds.failure(serverPlayer);
                     serverPlayer.sendSystemMessage(Component.literal("You have none to give").withStyle(ChatFormatting.RED));
                 } else {
-                    OrderFulfillment.Result result = OrderFulfillment.fulfill(parent.eco, serverPlayer, current.id, give);
+                    OrderFulfillment.Result result = OrderFulfillment.fulfill(parent.eco(), serverPlayer, current.id, give);
                     switch (result.status()) {
                         case OK -> {
                             EconomySounds.success(serverPlayer);
@@ -527,30 +565,30 @@ public final class OrdersUi {
 
                 parent.updatePage();
                 player.closeContainer();
-                OrdersUi.open(serverPlayer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return true;
             }
 
             if (slot == MenuUiSupport.ROW_CANCEL) {
                 EconomySounds.click((ServerPlayer) player);
                 player.closeContainer();
-                OrdersUi.open((ServerPlayer) player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                OrdersUi.open((ServerPlayer) player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return true;
             }
 
             if (slot == OFFER_SLOT && NegotiationEvents.canNegotiateOrder(request)) {
                 ServerPlayer serverPlayer = (ServerPlayer) player;
-                OrderRequest current = parent.orders.getRequest(request.id);
+                OrderRequest current = parent.orders().getRequest(request.id);
                 if (current == null || !NegotiationEvents.canNegotiateOrder(current)) {
                     fail(serverPlayer, "Request no longer available");
                     player.closeContainer();
-                    OrdersUi.open(serverPlayer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                    OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                     return true;
                 }
                 if (current.requester.equals(serverPlayer.getUUID())) {
                     fail(serverPlayer, "You cannot offer on your own request");
                     player.closeContainer();
-                    OrdersUi.open(serverPlayer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                    OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                     return true;
                 }
                 EconomySounds.click(serverPlayer);
@@ -575,23 +613,23 @@ public final class OrdersUi {
             player.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
         }
 
-        private static void submitOffer(RequestMenu parent, ServerPlayer player, int requestId, long offerPrice) {
-            OrderRequest current = parent.orders.getRequest(requestId);
+        private static void submitOffer(RequestContext parent, ServerPlayer player, int requestId, long offerPrice) {
+            OrderRequest current = parent.orders().getRequest(requestId);
             if (current == null || !NegotiationEvents.canNegotiateOrder(current)) {
                 fail(player, "Request no longer available");
                 player.closeContainer();
-                OrdersUi.open(player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return;
             }
             if (current.requester.equals(player.getUUID())) {
                 fail(player, "You cannot offer on your own request");
                 player.closeContainer();
-                OrdersUi.open(player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return;
             }
-            parent.eco.getNegotiations().makeOffer(NegotiationStore.Kind.ORDER, requestId,
+            parent.eco().getNegotiations().makeOffer(NegotiationStore.Kind.ORDER, requestId,
                     player.getUUID(), offerPrice);
-            NegotiationEvents.notifyNewOffer(parent.eco, current.requester, player.getUUID(),
+            NegotiationEvents.notifyNewOffer(parent.eco(), current.requester, player.getUUID(),
                     EconomyCraft.describeItem(current.amount, current.item.getHoverName().getString()),
                     offerPrice, requestId, false);
             EconomySounds.success(player);
@@ -600,16 +638,16 @@ public final class OrdersUi {
                             + " — the requester was notified.")
                     .withStyle(ChatFormatting.GREEN));
             player.closeContainer();
-            OrdersUi.open(player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+            OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
         }
     }
 
     private static class RemoveMenu extends CompatMenu {
         private final OrderRequest request;
-        private final RequestMenu parent;
+        private final RequestContext parent;
         private final SimpleContainer container = new SimpleContainer(9);
 
-        RemoveMenu(int id, Inventory inv, OrderRequest req, RequestMenu parent) {
+        RemoveMenu(int id, Inventory inv, OrderRequest req, RequestContext parent) {
             super(MenuType.GENERIC_9x1, id);
             this.request = req;
             this.parent = parent;
@@ -630,7 +668,7 @@ public final class OrdersUi {
             if (NegotiationEvents.canNegotiateOrder(request)) {
                 container.setItem(EDIT_PRICE_SLOT, MenuUiSupport.button(Items.NAME_TAG, "Edit reward",
                         ChatFormatting.AQUA, MenuUiSupport.hint("Reprice without reposting")));
-                int offerCount = parent.eco.getNegotiations()
+                int offerCount = parent.eco().getNegotiations()
                         .countFor(NegotiationStore.Kind.ORDER, request.id);
                 if (offerCount > 0) {
                     container.setItem(OFFERS_SLOT, MenuUiSupport.button(Items.BOOK,
@@ -654,7 +692,7 @@ public final class OrdersUi {
 
             if (slot == MenuUiSupport.ROW_CONFIRM) {
                 ServerPlayer serverPlayer = (ServerPlayer) player;
-                OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(parent.eco, serverPlayer.getUUID(), request.id);
+                OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(parent.eco(), serverPlayer.getUUID(), request.id);
                 switch (status) {
                     case OK -> {
                         EconomySounds.itemPickedUp(serverPlayer);
@@ -670,22 +708,22 @@ public final class OrdersUi {
                     }
                 }
                 player.closeContainer();
-                OrdersUi.open(serverPlayer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return true;
             }
             if (slot == MenuUiSupport.ROW_CANCEL) {
                 EconomySounds.click((ServerPlayer) player);
                 player.closeContainer();
-                OrdersUi.open((ServerPlayer) player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                OrdersUi.open((ServerPlayer) player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return true;
             }
             if (slot == EDIT_PRICE_SLOT && NegotiationEvents.canNegotiateOrder(request)) {
                 ServerPlayer serverPlayer = (ServerPlayer) player;
-                OrderRequest current = parent.orders.getRequest(request.id);
+                OrderRequest current = parent.orders().getRequest(request.id);
                 if (current == null || !current.requester.equals(serverPlayer.getUUID())) {
                     failStatic(serverPlayer, "Request no longer available");
                     player.closeContainer();
-                    OrdersUi.open(serverPlayer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                    OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                     return true;
                 }
                 EconomySounds.click(serverPlayer);
@@ -693,7 +731,7 @@ public final class OrdersUi {
                 subject.setCount(1);
                 NumberInputUi.openMoney(serverPlayer, "Edit reward", subject, "Total reward", current.price,
                         1, EconomyManager.MAX, "Confirm and update",
-                        newPrice -> requestLore(serverPlayer, parent.eco, current.amount, newPrice),
+                        newPrice -> requestLore(serverPlayer, parent.eco(), current.amount, newPrice),
                         (p, newPrice) -> applyRewardEdit(parent, p, current.id, newPrice),
                         p -> parent.openRemove(p, current));
                 return true;
@@ -712,18 +750,18 @@ public final class OrdersUi {
         }
     }
 
-    private static void applyRewardEdit(RequestMenu parent, ServerPlayer player, int requestId, long newPrice) {
+    private static void applyRewardEdit(RequestContext parent, ServerPlayer player, int requestId, long newPrice) {
         OrderFulfillment.RepriceStatus status =
-                OrderFulfillment.setPrice(parent.eco, player.getUUID(), requestId, newPrice);
+                OrderFulfillment.setPrice(parent.eco(), player.getUUID(), requestId, newPrice);
         switch (status) {
             case OK -> {
-                OrderRequest current = parent.orders.getRequest(requestId);
+                OrderRequest current = parent.orders().getRequest(requestId);
                 String desc = current == null ? "request #" + requestId
                         : EconomyCraft.describeItem(current.amount,
                                 current.item.getHoverName().getString());
-                for (NegotiationStore.Offer offer : parent.eco.getNegotiations()
+                for (NegotiationStore.Offer offer : parent.eco().getNegotiations()
                         .offersFor(NegotiationStore.Kind.ORDER, requestId)) {
-                    NegotiationEvents.notifyRepriced(parent.eco, offer.proposer(), desc, newPrice);
+                    NegotiationEvents.notifyRepriced(parent.eco(), offer.proposer(), desc, newPrice);
                 }
                 EconomySounds.success(player);
                 player.sendSystemMessage(Component.literal("Reward updated to "
@@ -737,7 +775,7 @@ public final class OrdersUi {
             default -> failStatic(player, "Request no longer available");
         }
         player.closeContainer();
-        OrdersUi.open(player, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+        OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
     }
 
     private static void failStatic(ServerPlayer player, String message) {
@@ -745,7 +783,85 @@ public final class OrdersUi {
         player.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
     }
 
-    private static void openOffers(RequestMenu parent, ServerPlayer player, int requestId) {
+    /**
+     * What the request screens need from whatever opened them. The list screen implements it with
+     * its live page state; the offers hub supplies {@link BareContext}, which has no list behind
+     * it — so Back leaves to the orders list instead of to a page that was never open.
+     */
+    private interface RequestContext {
+        EconomyManager eco();
+
+        OrderManager orders();
+
+        ServerPlayer viewer();
+
+        @Nullable String query();
+
+        SortMode sort();
+
+        boolean mineOnly();
+
+        void openConfirm(ServerPlayer player, OrderRequest req);
+
+        void openRemove(ServerPlayer player, OrderRequest req);
+
+        /** Back to the request list, preserving whatever list state the context carries. */
+        void backToList(ServerPlayer player);
+
+        /** Refresh the screen behind this one; a bare context has none, so it leaves instead. */
+        void updatePage();
+    }
+
+    /** The offers hub's context: nothing behind it but the orders list itself. */
+    private record BareContext(EconomyManager eco, OrderManager orders, ServerPlayer viewer)
+            implements RequestContext {
+        @Override
+        public @Nullable String query() {
+            return null;
+        }
+
+        @Override
+        public SortMode sort() {
+            return SortMode.DEFAULT;
+        }
+
+        @Override
+        public boolean mineOnly() {
+            return false;
+        }
+
+        @Override
+        public void openConfirm(ServerPlayer player, OrderRequest req) {
+            MenuUiSupport.openMenu(player, "Confirm", (id, inv) -> new ConfirmMenu(id, inv, req, this));
+        }
+
+        @Override
+        public void openRemove(ServerPlayer player, OrderRequest req) {
+            MenuUiSupport.openMenu(player, "Remove", (id, inv) -> new RemoveMenu(id, inv, req, this));
+        }
+
+        @Override
+        public void backToList(ServerPlayer player) {
+            OrdersUi.open(player, eco, 0, null, SortMode.DEFAULT, false);
+        }
+
+        @Override
+        public void updatePage() {
+            backToList(viewer);
+        }
+    }
+
+    /**
+     * Entry point for the offers hub: the review screen for one request, with no list context
+     * behind it. Deliberately no permission check — the caller (the hub) already gated on its own
+     * node, and this only ever shows offers on the viewer's own request.
+     */
+    public static void openOffersFor(ServerPlayer player, int requestId) {
+        EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+        openOffers(new BareContext(eco, eco.getOrders(), player), player, requestId);
+    }
+
+    private static void openOffers(RequestContext parent, ServerPlayer player, int requestId) {
         MenuUiSupport.openMenu(player, "Offers", (id, inv) ->
                 new OrderOffersMenu(id, inv, parent, requestId));
     }
@@ -755,9 +871,9 @@ public final class OrdersUi {
      * requested item, or unknown when they are offline (inventories can't be read then).
      * Returns -1 when unknown.
      */
-    private static int holdingOf(RequestMenu parent, OrderRequest req, UUID proposer) {
+    private static int holdingOf(RequestContext parent, OrderRequest req, UUID proposer) {
         if (req == null || req.item == null || req.item.isEmpty()) return -1;
-        ServerPlayer online = parent.eco.getServer().getPlayerList().getPlayer(proposer);
+        ServerPlayer online = parent.eco().getServer().getPlayerList().getPlayer(proposer);
         if (online == null) return -1;
         return OrderFulfillment.countHeld(online, req.item);
     }
@@ -776,21 +892,21 @@ public final class OrdersUi {
     }
 
     private static class OrderOffersMenu extends CompatMenu {
-        private final RequestMenu parent;
+        private final RequestContext parent;
         private final int requestId;
         private final List<NegotiationStore.Offer> offers;
         private final SimpleContainer container;
         private final int navRowStart;
 
-        OrderOffersMenu(int id, Inventory inv, RequestMenu parent, int requestId) {
+        OrderOffersMenu(int id, Inventory inv, RequestContext parent, int requestId) {
             super(MenuUiSupport.getMenuType(MenuUiSupport.listMenuRows(Math.max(1,
-                    parent.eco.getNegotiations().countFor(NegotiationStore.Kind.ORDER, requestId)))), id);
+                    parent.eco().getNegotiations().countFor(NegotiationStore.Kind.ORDER, requestId)))), id);
             this.parent = parent;
             this.requestId = requestId;
             List<NegotiationStore.Offer> visible = new ArrayList<>();
-            for (NegotiationStore.Offer offer : parent.eco.getNegotiations()
+            for (NegotiationStore.Offer offer : parent.eco().getNegotiations()
                     .offersFor(NegotiationStore.Kind.ORDER, requestId)) {
-                if (MenuUiSupport.resolvePlayerName(parent.eco.getServer(), offer.proposer()) != null) {
+                if (MenuUiSupport.resolvePlayerName(parent.eco().getServer(), offer.proposer()) != null) {
                     visible.add(offer);
                 }
             }
@@ -809,10 +925,10 @@ public final class OrdersUi {
 
         private void renderPage(int rows) {
             container.clearContent();
-            OrderRequest req = parent.orders.getRequest(requestId);
+            OrderRequest req = parent.orders().getRequest(requestId);
             for (int i = 0; i < navRowStart && i < offers.size(); i++) {
                 NegotiationStore.Offer offer = offers.get(i);
-                String name = MenuUiSupport.resolvePlayerName(parent.eco.getServer(), offer.proposer());
+                String name = MenuUiSupport.resolvePlayerName(parent.eco().getServer(), offer.proposer());
                 ItemStack row = new ItemStack(Items.PAPER);
                 List<Component> lore = new ArrayList<>();
                 lore.add(MenuUiSupport.labeledValue("Offer",
@@ -842,20 +958,20 @@ public final class OrdersUi {
         protected boolean onClick(int slot, int dragType, ClickKind kind, Player player) {
             if (kind != ClickKind.PICKUP) return false;
             if (slot >= 0 && slot < navRowStart && slot < offers.size()) {
-                EconomySounds.click(parent.viewer);
+                EconomySounds.click(parent.viewer());
                 NegotiationStore.Offer offer = offers.get(slot);
-                MenuUiSupport.openMenu(parent.viewer, "Offer", (id, inv) ->
+                MenuUiSupport.openMenu(parent.viewer(), "Offer", (id, inv) ->
                         new OrderOfferDecisionMenu(id, inv, parent, requestId, offer));
                 return true;
             }
             if (slot == navRowStart + 4) {
-                EconomySounds.click(parent.viewer);
-                OrderRequest req = parent.orders.getRequest(requestId);
-                parent.viewer.closeContainer();
-                if (req != null && req.requester.equals(parent.viewer.getUUID())) {
-                    parent.openRemove(parent.viewer, req);
+                EconomySounds.click(parent.viewer());
+                OrderRequest req = parent.orders().getRequest(requestId);
+                parent.viewer().closeContainer();
+                if (req != null && req.requester.equals(parent.viewer().getUUID())) {
+                    parent.openRemove(parent.viewer(), req);
                 } else {
-                    OrdersUi.open(parent.viewer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                    OrdersUi.open(parent.viewer(), parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 }
                 return true;
             }
@@ -865,12 +981,12 @@ public final class OrdersUi {
 
     private static class OrderOfferDecisionMenu extends CompatMenu {
         private static final int BACK_SLOT = 0;
-        private final RequestMenu parent;
+        private final RequestContext parent;
         private final int requestId;
         private final NegotiationStore.Offer offer;
         private final SimpleContainer container = new SimpleContainer(9);
 
-        OrderOfferDecisionMenu(int id, Inventory inv, RequestMenu parent, int requestId,
+        OrderOfferDecisionMenu(int id, Inventory inv, RequestContext parent, int requestId,
                                NegotiationStore.Offer offer) {
             super(MenuType.GENERIC_9x1, id);
             this.parent = parent;
@@ -881,7 +997,7 @@ public final class OrdersUi {
             container.setItem(MenuUiSupport.ROW_CANCEL, MenuUiSupport.button(
                     ItemsCompat.redStainedGlassPane(), "Decline", ChatFormatting.DARK_RED));
 
-            String name = MenuUiSupport.resolvePlayerName(parent.eco.getServer(), offer.proposer());
+            String name = MenuUiSupport.resolvePlayerName(parent.eco().getServer(), offer.proposer());
             ItemStack subject = new ItemStack(Items.PAPER);
             subject.set(DataComponents.CUSTOM_NAME, Component.literal(
                             EconomyCraft.formatMoney(offer.price()) + " from " + (name == null ? "?" : name))
@@ -889,7 +1005,7 @@ public final class OrdersUi {
             List<Component> subjectLore = new ArrayList<>();
             subjectLore.add(MenuUiSupport.hint("Accepting reprices the request;"));
             subjectLore.add(MenuUiSupport.hint("a higher reward holds more escrow."));
-            addHoldingLore(subjectLore, holdingOf(parent, parent.orders.getRequest(requestId), offer.proposer()));
+            addHoldingLore(subjectLore, holdingOf(parent, parent.orders().getRequest(requestId), offer.proposer()));
             subject.set(DataComponents.LORE, new ItemLore(subjectLore));
             container.setItem(MenuUiSupport.ROW_SUBJECT, subject);
             container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Accept"));
@@ -915,8 +1031,8 @@ public final class OrdersUi {
                 return true;
             }
             if (slot == BACK_SLOT) {
-                EconomySounds.click(parent.viewer);
-                openOffers(parent, parent.viewer, requestId);
+                EconomySounds.click(parent.viewer());
+                openOffers(parent, parent.viewer(), requestId);
                 return true;
             }
             return false;
@@ -927,75 +1043,75 @@ public final class OrdersUi {
         }
 
         private void accept() {
-            OrderRequest req = parent.orders.getRequest(requestId);
-            if (req == null || !req.requester.equals(parent.viewer.getUUID())
+            OrderRequest req = parent.orders().getRequest(requestId);
+            if (req == null || !req.requester.equals(parent.viewer().getUUID())
                     || !NegotiationEvents.canNegotiateOrder(req)) {
                 fail("Request no longer available");
                 return;
             }
-            NegotiationStore.Offer current = parent.eco.getNegotiations()
+            NegotiationStore.Offer current = parent.eco().getNegotiations()
                     .offerFrom(NegotiationStore.Kind.ORDER, requestId, offer.proposer());
             if (current == null) {
                 fail("Offer no longer available");
                 return;
             }
-            OrderFulfillment.RepriceStatus status = OrderFulfillment.setPrice(parent.eco,
-                    parent.viewer.getUUID(), requestId, current.price());
+            OrderFulfillment.RepriceStatus status = OrderFulfillment.setPrice(parent.eco(),
+                    parent.viewer().getUUID(), requestId, current.price());
             if (status != OrderFulfillment.RepriceStatus.OK) {
                 if (status == OrderFulfillment.RepriceStatus.CANT_AFFORD_RAISE) {
-                    failStatic(parent.viewer, "You can't afford to reserve "
+                    failStatic(parent.viewer(), "You can't afford to reserve "
                             + EconomyCraft.formatMoney(current.price()));
                 } else if (status == OrderFulfillment.RepriceStatus.REFUND_FAILED) {
-                    failStatic(parent.viewer, "Your balance is too high to receive the refund");
+                    failStatic(parent.viewer(), "Your balance is too high to receive the refund");
                 } else {
                     fail("Request no longer available");
                     return;
                 }
-                parent.viewer.closeContainer();
-                OrdersUi.open(parent.viewer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+                parent.viewer().closeContainer();
+                OrdersUi.open(parent.viewer(), parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return;
             }
             String desc = describe(req);
-            List<NegotiationStore.Offer> rest = parent.eco.getNegotiations()
+            List<NegotiationStore.Offer> rest = parent.eco().getNegotiations()
                     .removeForTarget(NegotiationStore.Kind.ORDER, requestId);
-            NegotiationEvents.notifyAccepted(parent.eco, current.proposer(), desc, current.price());
+            NegotiationEvents.notifyAccepted(parent.eco(), current.proposer(), desc, current.price());
             for (NegotiationStore.Offer other : rest) {
                 if (!other.proposer().equals(current.proposer())) {
-                    NegotiationEvents.notifyDeclined(parent.eco, other.proposer(), desc, other.price());
+                    NegotiationEvents.notifyDeclined(parent.eco(), other.proposer(), desc, other.price());
                 }
             }
-            EconomySounds.success(parent.viewer);
-            parent.viewer.sendSystemMessage(Component.literal("Accepted "
+            EconomySounds.success(parent.viewer());
+            parent.viewer().sendSystemMessage(Component.literal("Accepted "
                             + EconomyCraft.formatMoney(current.price()) + " for " + desc
                             + " — the fulfiller was notified.")
                     .withStyle(ChatFormatting.GREEN));
-            parent.viewer.closeContainer();
-            OrdersUi.open(parent.viewer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+            parent.viewer().closeContainer();
+            OrdersUi.open(parent.viewer(), parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
         }
 
         private void decline() {
-            NegotiationStore.Offer removed = parent.eco.getNegotiations()
+            NegotiationStore.Offer removed = parent.eco().getNegotiations()
                     .removeOffer(NegotiationStore.Kind.ORDER, requestId, offer.proposer());
-            OrderRequest req = parent.orders.getRequest(requestId);
+            OrderRequest req = parent.orders().getRequest(requestId);
             String desc = req == null ? "request #" + requestId : describe(req);
             if (removed != null) {
-                NegotiationEvents.notifyDeclined(parent.eco, removed.proposer(), desc, removed.price());
-                EconomySounds.success(parent.viewer);
-                parent.viewer.sendSystemMessage(Component.literal("Offer declined.")
+                NegotiationEvents.notifyDeclined(parent.eco(), removed.proposer(), desc, removed.price());
+                EconomySounds.success(parent.viewer());
+                parent.viewer().sendSystemMessage(Component.literal("Offer declined.")
                         .withStyle(ChatFormatting.GREEN));
             } else {
-                EconomySounds.failure(parent.viewer);
-                parent.viewer.sendSystemMessage(Component.literal("Offer no longer available.")
+                EconomySounds.failure(parent.viewer());
+                parent.viewer().sendSystemMessage(Component.literal("Offer no longer available.")
                         .withStyle(ChatFormatting.RED));
             }
-            parent.viewer.closeContainer();
-            openOffers(parent, parent.viewer, requestId);
+            parent.viewer().closeContainer();
+            openOffers(parent, parent.viewer(), requestId);
         }
 
         private void fail(String message) {
-            failStatic(parent.viewer, message);
-            parent.viewer.closeContainer();
-            OrdersUi.open(parent.viewer, parent.eco, 0, parent.query, parent.sort, parent.mineOnly);
+            failStatic(parent.viewer(), message);
+            parent.viewer().closeContainer();
+            OrdersUi.open(parent.viewer(), parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
         }
     }
 

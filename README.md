@@ -19,9 +19,25 @@ Requires Architectury API.
 | **Item Value**    | The buy and sell price of any item.                                                                                      |
 | **Deliveries**    | Items or payouts that couldn't be delivered directly (full inventory/completed while offline).                           |
 | **Transactions**  | Your recent balance history.                                                                                             |
+| **Price offers**  | Non-binding offers other players left on your listings and requests, and the ones you made. See [price offers](#price-offers). |
 | **Tolls**         | Manage the block you are looking at within five blocks; its fee appears on the action bar. See [toll management](wiki/Tolls.md). |
 
-Each screen also has a command: `/bal`, `/pay`, `/daily`, `/shop`, `/ah`, `/auction`, `/sell`, `/worth`, `/orders`, `/deliveries`, `/transactions`.
+Each screen also has a command: `/bal`, `/pay`, `/daily`, `/shop`, `/ah`, `/auction`, `/sell`, `/worth`, `/orders`, `/deliveries`, `/transactions`, `/offers`.
+
+### Price offers
+
+An offer is a price you suggest instead of the seller's asking price. It is **non-binding**: only the
+owner can accept it, and anyone can still buy or fulfil at the posted price first. Offers on
+server-funded bounties and quest buy-back listings are refused — those prices are policy and the bot
+never reads messages.
+
+- `/eco offers` (or `/offers`) opens the hub: offers waiting on your items first, then your own open
+  offers. Incoming rows open the review screen for that listing or request; your own rows offer
+  **Withdraw**.
+- `/eco offers ah <id>` and `/eco offers order <id>` open one target's offers directly. The
+  **Review it now** link in an offer message runs exactly that, so a click lands on the offers it is
+  about, and the login prompt for offers that arrived while you were offline points at the hub.
+- The owner is told about every new offer, acceptance, decline, reprice and withdrawal.
 
 ---
 
@@ -134,6 +150,7 @@ Admin and command access is gated by permission nodes. Any admin node not set by
 | `economycraft.command.transactions` | `/transactions`     |
 | `economycraft.command.worth`        | `/worth`            |
 | `economycraft.command.toll`         | `/eco toll`, `/toll`, and the Tolls menu |
+| `economycraft.command.offers`       | `/eco offers`, `/offers`      |
 
 ---
 

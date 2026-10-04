@@ -10,6 +10,8 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.admin.AdminUi;
+import com.reazip.economycraft.negotiation.NegotiationStore;
+import com.reazip.economycraft.negotiation.OffersHubUi;
 import com.reazip.economycraft.util.AsyncFileWriter;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.EconomySounds;
@@ -82,6 +84,7 @@ public final class EconomyCommands {
                 Nodes.COMMAND_SELL));
         registerStandalone(dispatcher, buildAuction("ah"), Nodes.COMMAND_AUCTION);
         registerStandalone(dispatcher, buildAuction("auction"), Nodes.COMMAND_AUCTION);
+        registerStandalone(dispatcher, buildOffers(), Nodes.COMMAND_OFFERS);
         registerStandalone(dispatcher, buildShop(), Nodes.COMMAND_SHOP);
         dispatcher.register(withCommandPermission(
                 buildOrders(buildContext).requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_ORDERS));
@@ -170,6 +173,7 @@ public final class EconomyCommands {
                 SellCommand.register().requires(s -> EconomyConfig.get().sellEnabled), Nodes.COMMAND_SELL));
         root.then(withCommandPermission(buildAuction("ah"), Nodes.COMMAND_AUCTION));
         root.then(withCommandPermission(buildAuction("auction"), Nodes.COMMAND_AUCTION));
+        root.then(withCommandPermission(buildOffers(), Nodes.COMMAND_OFFERS));
         root.then(withCommandPermission(buildShop(), Nodes.COMMAND_SHOP));
         root.then(withCommandPermission(buildOrders(buildContext), Nodes.COMMAND_ORDERS));
         root.then(withCommandPermission(buildDeliveries(), Nodes.COMMAND_DELIVERIES));
@@ -1010,6 +1014,49 @@ public final class EconomyCommands {
         player.sendSystemMessage(msg);
 
         return 1;
+    }
+
+    /**
+     * {@code /eco offers} opens the hub; {@code /eco offers ah <id>} and {@code /eco offers order
+     * <id>} deep-link into one target's review screen, which is what the "Review it now" click in
+     * an offer notification runs. The subcommand names match the ids the messages print
+     * ("listing #12", "request #7") so a player reading one can type the other.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> buildOffers() {
+        return literal("offers")
+                .executes(ctx -> openOffersHub(ctx.getSource(), null, 0))
+                .then(literal("ah")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> openOffersHub(ctx.getSource(),
+                                        NegotiationStore.Kind.AH,
+                                        IntegerArgumentType.getInteger(ctx, "id")))))
+                .then(literal("order")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> openOffersHub(ctx.getSource(),
+                                        NegotiationStore.Kind.ORDER,
+                                        IntegerArgumentType.getInteger(ctx, "id")))));
+    }
+
+    private static int openOffersHub(CommandSourceStack source, @Nullable NegotiationStore.Kind kind, int targetId) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can review price offers.")
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            if (kind == null) {
+                OffersHubUi.open(player);
+            } else {
+                OffersHubUi.openTarget(player, kind, targetId);
+            }
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to open the offers hub for {}",
+                    player.getDisplayName().getString(), e);
+            source.sendFailure(Component.literal("Failed to open price offers. Check server logs."));
+            return 0;
+        }
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildDeliveries() {

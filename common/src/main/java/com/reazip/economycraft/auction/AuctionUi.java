@@ -813,6 +813,17 @@ public final class AuctionUi {
         AuctionUi.open(player, auctions, 0, query, sort, mineOnly);
     }
 
+    /**
+     * Entry point for the offers hub: the review screen for one listing, with no list-screen
+     * context behind it, so Back falls out to the auction house rather than to the previous
+     * page. Deliberately no permission check — the caller (the hub) already gated on its own
+     * node, and this only ever shows offers on the viewer's own listing.
+     */
+    public static void openOffersFor(ServerPlayer player, int listingId) {
+        EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+        openOffers(player, eco.getAuctions(), listingId, null, SortMode.DEFAULT, false);
+    }
+
     private static void openOffers(ServerPlayer player, AuctionManager auctions, int listingId,
                                    @Nullable String query, SortMode sort, boolean mineOnly) {
         MenuUiSupport.openMenu(player, "Offers", (id, inv) ->

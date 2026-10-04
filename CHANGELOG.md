@@ -3,6 +3,35 @@
 All notable changes to EconomyCraft are documented here. This file is the `changelog-file` consumed by
 `.github/workflows/release.yml`, so a release published without updating it ships an empty changelog body.
 
+## Unreleased — Price offers hub
+
+Price offers — the non-binding bids a player can leave on someone else's auction listing or order
+request — now have one screen instead of two hunt-downs, and the messages that announce an offer
+link straight into it.
+
+### Added
+- **Offers hub** at `/eco offers` (standalone alias `/offers`), and as a **Price offers** button in the
+  `/eco` menu showing how many offers are waiting on your items and how many of yours are open.
+  Incoming rows come first, one per target, carrying the best offer and the offer count; a row opens
+  the existing per-listing / per-request review screen, which still owns accept, decline and the
+  notify fan-out. Outgoing rows are one per offer you made and offer **Withdraw**, which tells the
+  owner their queue changed.
+- **Deep links**: `/eco offers ah <id>` and `/eco offers order <id>` open one target's offers directly.
+  The "Review it now" click in an offer notification runs exactly that command, so the click lands on
+  the offers it is about. The login prompt for players who were offline when an offer arrived now
+  links the hub too — it used to link `/ah`, which silently ignored offers on order requests.
+- `NegotiationStore.offersByProposer` — the offerer's own view, newest first (the mirror of
+  `offersFor`, which answers for the target's owner).
+- `OffersHubModel` — the row selection rules, kept free of Minecraft types and unit-tested: one row
+  per target for incoming, one per offer for outgoing, incoming first, bot targets excluded, and no row
+  for a target that has already vanished.
+- Permission node `economycraft.command.offers`.
+
+### Changed
+- `NegotiationEvents.notifyWithdrawn` — the owner is now told when an offerer withdraws, instead of a
+  row silently disappearing from their review queue.
+- `NegotiationEvents.countOffersOnPlayerTargets` removed; the hub is the single place that counts.
+
 ## Unreleased — Container locks removed
 
 The `Cộng đồng` chest lock (spec D10 / P9-T14) has been **removed in full**, at the server owner's request.

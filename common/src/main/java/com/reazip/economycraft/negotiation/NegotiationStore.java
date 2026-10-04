@@ -84,6 +84,21 @@ public final class NegotiationStore {
         return count;
     }
 
+    /**
+     * Every offer one player has made, newest first. This is the offerer's own view — the mirror
+     * of {@link #offersFor}, which answers for the target's owner. Ordering is by
+     * {@code createdAt} because there is nothing to rank: one player holds at most one offer per
+     * target, so the useful sort is "what did I just do".
+     */
+    public List<Offer> offersByProposer(UUID proposer) {
+        List<Offer> out = new ArrayList<>();
+        for (Offer offer : offers.values()) {
+            if (offer.proposer().equals(proposer)) out.add(offer);
+        }
+        out.sort(Comparator.comparingLong(Offer::createdAt).reversed());
+        return out;
+    }
+
     public Offer offerFrom(Kind kind, int targetId, UUID proposer) {
         return offers.get(key(kind, targetId, proposer));
     }

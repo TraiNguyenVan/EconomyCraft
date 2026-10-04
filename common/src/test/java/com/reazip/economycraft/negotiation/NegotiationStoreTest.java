@@ -95,6 +95,23 @@ class NegotiationStoreTest {
     }
 
     @Test
+    void offersByProposerReturnsOnlyThatPlayerNewestFirst(@TempDir Path dir) throws Exception {
+        NegotiationStore store = storeIn(dir);
+        UUID mine = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        store.makeOffer(NegotiationStore.Kind.AH, 7, mine, 100);
+        Thread.sleep(5);
+        store.makeOffer(NegotiationStore.Kind.ORDER, 3, mine, 250);
+        store.makeOffer(NegotiationStore.Kind.AH, 7, other, 999);
+
+        List<NegotiationStore.Offer> mine2 = store.offersByProposer(mine);
+        assertEquals(List.of(250L, 100L),
+                mine2.stream().map(NegotiationStore.Offer::price).toList());
+        assertTrue(store.offersByProposer(other).stream()
+                .allMatch(offer -> offer.proposer().equals(other)));
+    }
+
+    @Test
     void reloadKeepsOffers(@TempDir Path dir) {
         Path file = dir.resolve("negotiations.json");
         UUID proposer = UUID.randomUUID();
