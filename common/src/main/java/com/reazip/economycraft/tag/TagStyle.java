@@ -16,10 +16,21 @@ import java.util.List;
  * {@code [Communism]} coloured from config. The nametag sits in the world and chat is a narrow column, so those
  * get {@code [☭]} only — D1's reason for splitting them.
  *
- * <p><strong>A Master is framed, not relabelled.</strong> {@link Tagged#mastered} draws the icon between
- * {@code << >>} in the job's {@code mastered_color} — with no brackets of its own — so a Master is
- * recognisable without the word "Master" having to interrupt the player's name. Rusted keeps its word,
- * because it is a penalty to be warned about.
+ * <p><strong>A job tag is three pieces, not one string: bracket, content, bracket.</strong> The two brackets are
+ * coloured separately from what they enclose, which is the whole of the Master treatment: a Master swaps the
+ * grey square brackets for gold guillemets, while the job icon inside keeps its own colour so a Master Builder
+ * still reads as a Builder. An Apprentice or a Rusted job keeps the grey brackets. Nothing is bold, because bold
+ * at nametag size competes with the icon rather than emphasising it.
+ *
+ * <p><strong>A party tag is untouched by all that</strong> — one run, brackets included, in the party's own
+ * colour. The rule above is a job-level rule and there is no party-level equivalent, because a party has no
+ * levels to show.
+ *
+ * <p><strong>Why guillemets and not lenticular brackets.</strong> {@code 【} (U+3010) is what a wreath around
+ * an icon wants to be, and it is not drawable here: vanilla ships {@code assets/minecraft/font/include/unifont.json}
+ * with an empty provider list, and {@code include/default.json} never includes it, so the whole CJK punctuation
+ * range is absent from the default font and 【 renders as a blank box. {@code «} (U+00AB) and {@code »} (U+00BB)
+ * are in that font, and are the heaviest bracket pair it has.
  *
  * <p><strong>Colours are raw RGB ints, never {@code ChatFormatting} names.</strong> A {@link TagSettings#color}
  * is a 24-bit value because the sixteen vanilla formatting colours do not include the yellow-green the icon set
@@ -33,17 +44,23 @@ import java.util.List;
  */
 public final class TagStyle {
 
+    /**
+     * The frame on every tag that is not a Master: ordinary square brackets in a neutral grey.
+     *
+     * <p>Deliberately a constant rather than a config key. It is not a taste knob — it is the "nothing to see
+     * here" colour, and the point of it is to recede so that the Master brackets are the only thing on the
+     * nametag drawing attention. A per-tag bracket colour is what {@code mastered_color} is for.
+     */
+    private static final int PLAIN_BRACKET_COLOR = 0x808080;
+
+    private static final String PLAIN_OPEN = "[";
+    private static final String PLAIN_CLOSE = "]";
+
+    /** U+00AB / U+00BB. See the class note on why not U+3010. */
+    private static final String MASTER_OPEN = "«";
+    private static final String MASTER_CLOSE = "»";
+
     private TagStyle() {
-    }
-
-    /** {@code [☭]} — the icon alone, in the tag's colour. For the nametag and for chat. */
-    public static Component shortTag(TagSettings settings) {
-        return bracket(settings.icon, settings.color);
-    }
-
-    /** {@code [Communism]} — the full label, in the tag's colour. For the tab list, which has the room. */
-    public static Component fullTag(TagSettings settings, String label) {
-        return bracket(label, settings.color);
     }
 
     /**
@@ -75,40 +92,17 @@ public final class TagStyle {
         return out.build();
     }
 
-    /** {@code [x]} with bracket and glyph in one colour, so a tag never renders half-tinted. */
-    private static Component bracket(String text, int rgb) {
-        return Component.literal("[" + text + "]").withStyle(style -> style.withColor(rgb));
+    /** One text run in one colour. The unit both bracket and content are built from. */
+    private static Component coloured(String text, int rgb) {
+        return Component.literal(text).withStyle(style -> style.withColor(rgb));
     }
 
     /**
-     * The Master treatment: {@code <<x>>}, bold, in the job's {@code mastered_color}.
+     * One tag to draw: a bracket pair, what it encloses, and whether that pair is a Master's.
      *
-     * <p>Unicode has no laurel-wreath glyph — and no font here that could carry a drawn one — so the wreath is
-     * stood in by chevrons around the icon, which is the one piece of framing the vanilla font does have.
-     *
-     * <p>The chevrons replace the brackets rather than wrapping them: the Master tag carries no {@code [ ]} of
-     * its own, so the two states differ in more than weight of outline and still cannot be mistaken for each other
-     * at nametag size. It stays <em>one</em> tag, never a second element the player has to read alongside the
-     * first.
-     *
-     * <p>The whole component is one colour and bold, because a tag that re-colours only part of itself reads as
-     * two different tags at nametag size.
-     */
-    private static Component framed(String text, int rgb) {
-        return Component.literal("<<" + text + ">>").withStyle(style -> style.withColor(rgb).withBold(true));
-    }
-
-    /** The colour a tag is drawn in: the Master colour when framed, the tag's own colour otherwise. */
-    private static int colourOf(TagSettings settings, boolean mastered) {
-        if (!mastered || !(settings instanceof ProfessionSettings profession)) return settings.color;
-        return profession.masteredColor;
-    }
-
-    /**
-     * One tag to draw: an icon, a colour and a label. Built by the caller from config, never stored.
-     *
-     * @param mastered whether this is a job at {@code MASTER}, which selects the {@code << >>} framing and the
-     *                 {@code mastered_color}. A party is never mastered, so it passes {@code false}
+     * @param mastered whether this is a job at {@code MASTER}, which selects the guillemets and
+     *                 {@code mastered_color} for the brackets. A party is never mastered, so it passes
+     *                 {@code false} and gets the grey square brackets
      */
     public record Tagged(TagSettings settings, String label, boolean mastered) {
 
@@ -120,14 +114,49 @@ public final class TagStyle {
             return new Tagged(settings, label, true);
         }
 
+        /** {@code [☭]} or {@code «☭»} — the icon alone. For the nametag and for chat. */
         public Component icon() {
-            int rgb = colourOf(settings, mastered);
-            return mastered ? framed(settings.icon, rgb) : bracket(settings.icon, rgb);
+            return wrap(settings.icon);
         }
 
+        /** {@code [Communism]} or {@code «Communism»} — the full label. For the tab list, which has the room. */
         public Component full() {
-            int rgb = colourOf(settings, mastered);
-            return mastered ? framed(label, rgb) : bracket(label, rgb);
+            return wrap(label);
+        }
+
+        /**
+         * Bracket, content, bracket — as three sibling components, so the brackets can carry their own colour
+         * without tinting the content.
+         *
+         * <p>Not one styled string: a single run can only be one colour, which would either grey out the job icon
+         * along with its brackets or leave the brackets untinted.
+         *
+         * <p><strong>Job tags only.</strong> A party tag stays a single run in its own colour, brackets included,
+         * so {@code [☭]} reads as one Communist mark rather than a grey frame with a red icon inside it. A party
+         * has no levels and therefore nothing to distinguish, so it has no use for the bracket rule.
+         */
+        private Component wrap(String text) {
+            if (!(settings instanceof ProfessionSettings)) {
+                return coloured(PLAIN_OPEN + text + PLAIN_CLOSE, settings.color);
+            }
+            String open = mastered ? MASTER_OPEN : PLAIN_OPEN;
+            String close = mastered ? MASTER_CLOSE : PLAIN_CLOSE;
+            int bracketColor = mastered ? masteredColor() : PLAIN_BRACKET_COLOR;
+            Mutable out = new Mutable();
+            out.add(coloured(open, bracketColor));
+            out.add(coloured(text, settings.color));
+            out.add(coloured(close, bracketColor));
+            return out.build();
+        }
+
+        /**
+         * The colour of a Master's brackets, falling back to the tag's own colour for a settings block that has no
+         * {@code mastered_color} of its own. The fallback is unreachable in practice — only a job is ever
+         * {@code mastered} — and exists so this cannot throw on a hand-edited config that dropped the key.
+         */
+        private int masteredColor() {
+            if (settings instanceof ProfessionSettings profession) return profession.masteredColor;
+            return settings.color;
         }
     }
 

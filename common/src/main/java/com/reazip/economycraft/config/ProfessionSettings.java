@@ -12,15 +12,15 @@ import com.google.gson.annotations.SerializedName;
  */
 public abstract class ProfessionSettings extends TagSettings {
 
-    /** Gold. Chosen to read as "finished" against all five job colours, none of which is gold. */
+    /** Gold, and the reason a Master is legible at nametag size. */
     public static final int DEFAULT_MASTERED_COLOR = 0xFFD700;
 
     /**
-     * The colour a Master tag is drawn in, in place of the job's own colour.
+     * The colour of a <em>Master's brackets</em> — not of the whole tag.
      *
-     * <p>Only ever read when the player has reached {@code MASTER}, and paired by the renderer with the
-     * {@code << >>} framing, so that a Master is distinguishable from an Apprentice at a glance without the word
-     * "Master" having to interrupt their name.
+     * <p>Only ever read at {@code MASTER}, and paired by the renderer with the guillemet pair: a Master is the one
+     * tag on a nametag whose brackets differ in shape and colour, so the job icon inside can keep its own colour
+     * and a Master Builder still reads as a Builder.
      */
     @SerializedName("mastered_color")
     public int masteredColor = DEFAULT_MASTERED_COLOR;

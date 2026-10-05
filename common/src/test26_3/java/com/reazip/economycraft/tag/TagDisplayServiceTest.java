@@ -178,36 +178,77 @@ class TagDisplayServiceTest {
 
         source.level = ProfessionLevel.MASTER;
         service.revalidate(PLAYER);
-        assertEquals("<<" + ProfessionId.MINER.displayName() + ">> Steve",
+        assertEquals("\u00ab" + ProfessionId.MINER.displayName() + "\u00bb Steve",
                 plain(TagStyle.tabRow(service.tagsOf(PLAYER), Component.literal("Steve"))));
     }
 
+    /**
+     * The brackets and the content are separate styled runs, so the colour has to be read off the children
+     * rather than off the tag itself. A tag that carried its own style would tint the icon with the brackets,
+     * which is the thing this split exists to prevent.
+     */
     @Test
-    void masterIconIsFramedInTheMasteredColourAndTheRestAreNot() {
+    void masterBracketsAreGoldAndTheIconKeepsTheJobColour() {
         source.profession = ProfessionId.MINER;
 
         source.level = ProfessionLevel.MASTER;
         service.revalidate(PLAYER);
         TagStyle.Tagged master = service.tagsOf(PLAYER).get(0);
-        assertEquals("<<" + ProfessionId.MINER.settings().icon + ">>", plain(master.icon()));
-        assertEquals(ProfessionSettings.DEFAULT_MASTERED_COLOR, master.icon().getStyle().getColor().getValue());
+        assertEquals("\u00ab" + ProfessionId.MINER.settings().icon + "\u00bb", plain(master.icon()));
+
+        List<Component> parts = master.icon().getSiblings();
+        assertEquals(3, parts.size(), "bracket, icon, bracket");
+        assertEquals(ProfessionSettings.DEFAULT_MASTERED_COLOR, colourOf(parts.get(0)));
+        assertEquals(ProfessionId.MINER.settings().color, colourOf(parts.get(1)), "the icon is not recoloured");
+        assertEquals(ProfessionSettings.DEFAULT_MASTERED_COLOR, colourOf(parts.get(2)));
+        assertFalse(parts.get(0).getStyle().isBold(), "no bold: it competes with the icon at nametag size");
+    }
+
+    @Test
+    void aNonMasterTagGetsGreySquareBrackets() {
+        source.profession = ProfessionId.MINER;
 
         source.level = ProfessionLevel.APPRENTICE;
         service.revalidate(PLAYER);
         TagStyle.Tagged apprentice = service.tagsOf(PLAYER).get(0);
         assertEquals("[" + ProfessionId.MINER.settings().icon + "]", plain(apprentice.icon()));
-        assertEquals(ProfessionId.MINER.settings().color, apprentice.icon().getStyle().getColor().getValue());
+
+        List<Component> parts = apprentice.icon().getSiblings();
+        assertEquals(3, parts.size());
+        assertEquals(0x808080, colourOf(parts.get(0)));
+        assertEquals(ProfessionId.MINER.settings().color, colourOf(parts.get(1)));
+        assertEquals(0x808080, colourOf(parts.get(2)));
     }
 
     @Test
-    void aPartyIsNeverFramed() {
+    void aRustedTagIsNotMasteredAndKeepsItsWord() {
+        source.profession = ProfessionId.MINER;
+        source.level = ProfessionLevel.RUSTED;
+        service.revalidate(PLAYER);
+
+        TagStyle.Tagged rusted = service.tagsOf(PLAYER).get(0);
+        assertEquals("[" + ProfessionId.MINER.settings().icon + "]", plain(rusted.icon()),
+                "the nametag icon is unchanged: Rusted is a word, not a frame");
+        assertEquals(0x808080, colourOf(rusted.icon().getSiblings().get(0)), "and it is not a Master's brackets");
+        assertEquals("[" + ProfessionId.MINER.displayName() + ": " + ProfessionLevel.RUSTED.displayName() + "] Steve",
+                plain(TagStyle.tabRow(service.tagsOf(PLAYER), Component.literal("Steve"))));
+    }
+
+    @Test
+    void aPartyTagIsOneRunInItsOwnColourAndIsNeverMastered() {
         source.faction = FactionId.MONARCHY;
         source.chosen = true;
         source.profession = null;
 
         TagStyle.Tagged party = service.tagsOf(PLAYER).get(0);
         assertEquals("[" + FactionId.MONARCHY.settings().icon + "]", plain(party.icon()));
-        assertEquals(FactionId.MONARCHY.settings().color, party.icon().getStyle().getColor().getValue());
+        assertEquals(FactionId.MONARCHY.settings().color, party.icon().getStyle().getColor().getValue(),
+                "brackets included: the party tag does not take the job rule");
+        assertTrue(party.icon().getSiblings().isEmpty(), "one run, so there are no separately coloured brackets");
+    }
+
+    private static int colourOf(Component component) {
+        return component.getStyle().getColor().getValue();
     }
 
     @Test
