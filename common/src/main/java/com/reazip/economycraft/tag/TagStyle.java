@@ -16,9 +16,10 @@ import java.util.List;
  * {@code [Communism]} coloured from config. The nametag sits in the world and chat is a narrow column, so those
  * get {@code [☭]} only — D1's reason for splitting them.
  *
- * <p><strong>A Master is framed, not relabelled.</strong> {@link Tagged#mastered} draws the same tag inside
- * {@code << >>} in the job's {@code mastered_color}, so a Master is recognisable without the word "Master"
- * having to interrupt the player's name. Rusted keeps its word, because it is a penalty to be warned about.
+ * <p><strong>A Master is framed, not relabelled.</strong> {@link Tagged#mastered} draws the icon between
+ * {@code << >>} in the job's {@code mastered_color} — with no brackets of its own — so a Master is
+ * recognisable without the word "Master" having to interrupt the player's name. Rusted keeps its word,
+ * because it is a penalty to be warned about.
  *
  * <p><strong>Colours are raw RGB ints, never {@code ChatFormatting} names.</strong> A {@link TagSettings#color}
  * is a 24-bit value because the sixteen vanilla formatting colours do not include the yellow-green the icon set
@@ -80,18 +81,21 @@ public final class TagStyle {
     }
 
     /**
-     * The Master treatment: {@code <<[x]>>}, bold, in the job's {@code mastered_color}.
+     * The Master treatment: {@code <<x>>}, bold, in the job's {@code mastered_color}.
      *
      * <p>Unicode has no laurel-wreath glyph — and no font here that could carry a drawn one — so the wreath is
-     * stood in by chevrons around the bracket, which is the one piece of framing the vanilla font does have. It
-     * stays <em>one</em> tag: the same {@code [x]} the Apprentice gets, with a frame round it, rather than a
-     * second element the player has to read alongside the first.
+     * stood in by chevrons around the icon, which is the one piece of framing the vanilla font does have.
      *
-     * <p>The whole component is one colour and bold, because a tag that re-colours only its bracket reads as two
-     * different tags at nametag size.
+     * <p>The chevrons replace the brackets rather than wrapping them: the Master tag carries no {@code [ ]} of
+     * its own, so the two states differ in more than weight of outline and still cannot be mistaken for each other
+     * at nametag size. It stays <em>one</em> tag, never a second element the player has to read alongside the
+     * first.
+     *
+     * <p>The whole component is one colour and bold, because a tag that re-colours only part of itself reads as
+     * two different tags at nametag size.
      */
     private static Component framed(String text, int rgb) {
-        return Component.literal("<<[" + text + "]>>").withStyle(style -> style.withColor(rgb).withBold(true));
+        return Component.literal("<<" + text + ">>").withStyle(style -> style.withColor(rgb).withBold(true));
     }
 
     /** The colour a tag is drawn in: the Master colour when framed, the tag's own colour otherwise. */

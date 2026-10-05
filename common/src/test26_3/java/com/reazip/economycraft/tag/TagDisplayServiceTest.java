@@ -178,7 +178,7 @@ class TagDisplayServiceTest {
 
         source.level = ProfessionLevel.MASTER;
         service.revalidate(PLAYER);
-        assertEquals("<<[" + ProfessionId.MINER.displayName() + "]>> Steve",
+        assertEquals("<<" + ProfessionId.MINER.displayName() + ">> Steve",
                 plain(TagStyle.tabRow(service.tagsOf(PLAYER), Component.literal("Steve"))));
     }
 
@@ -189,7 +189,7 @@ class TagDisplayServiceTest {
         source.level = ProfessionLevel.MASTER;
         service.revalidate(PLAYER);
         TagStyle.Tagged master = service.tagsOf(PLAYER).get(0);
-        assertEquals("<<[" + ProfessionId.MINER.settings().icon + "]>>", plain(master.icon()));
+        assertEquals("<<" + ProfessionId.MINER.settings().icon + ">>", plain(master.icon()));
         assertEquals(ProfessionSettings.DEFAULT_MASTERED_COLOR, master.icon().getStyle().getColor().getValue());
 
         source.level = ProfessionLevel.APPRENTICE;
