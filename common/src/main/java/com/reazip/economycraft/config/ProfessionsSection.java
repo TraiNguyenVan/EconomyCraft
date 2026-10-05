@@ -61,7 +61,7 @@ public class ProfessionsSection {
     }
 
     /** Builder: counts blocks placed, grants Haste while mining, and — per D11 — cannot actually grant reach. */
-    public static class BuilderSettings extends TagSettings {
+    public static class BuilderSettings extends ProfessionSettings {
         @SerializedName("level_up_count")
         public int levelUpCount = 1000;
 
@@ -140,7 +140,7 @@ public class ProfessionsSection {
     }
 
     /** Farmer: crops, animals, and a small chance of a second helping. */
-    public static class FarmerSettings extends TagSettings {
+    public static class FarmerSettings extends ProfessionSettings {
         @SerializedName("level_up_count")
         public int levelUpCount = 300;
 
@@ -200,7 +200,7 @@ public class ProfessionsSection {
     }
 
     /** Miner: counts ore, and gets Haste, doubled drops and lava protection. */
-    public static class MinerSettings extends TagSettings {
+    public static class MinerSettings extends ProfessionSettings {
         @SerializedName("level_up_count")
         public int levelUpCount = 270;
 
@@ -274,7 +274,7 @@ public class ProfessionsSection {
     }
 
     /** Merchant: counts villager trades and auction buys, and pays everything less. */
-    public static class MerchantSettings extends TagSettings {
+    public static class MerchantSettings extends ProfessionSettings {
         @SerializedName("villager_trade_count")
         public int villagerTradeCount = 50;
 
@@ -308,7 +308,7 @@ public class ProfessionsSection {
     }
 
     /** Soldier: counts kills, shifts damage both ways, and halves a debuff once. */
-    public static class SoldierSettings extends TagSettings {
+    public static class SoldierSettings extends ProfessionSettings {
         @SerializedName("kill_count")
         public int killCount = 100;
 

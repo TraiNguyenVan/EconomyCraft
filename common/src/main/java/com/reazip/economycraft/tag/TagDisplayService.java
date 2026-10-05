@@ -13,10 +13,12 @@ import net.minecraft.world.scores.Team;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -196,6 +198,35 @@ public final class TagDisplayService {
             if (!isStale(player.getUUID())) continue;
             applyTo(player);
         }
+        if (onlinePlayers.isEmpty()) return;
+        evictNonPlayers(scoreboardOf(onlinePlayers.get(0)), onlinePlayers);
+    }
+
+    /**
+     * Removes everything that is not an online player from the teams this class owns.
+     *
+     * <p><strong>Vanilla puts a tamed pet in its owner's team.</strong> That is how a wolf ends up wearing
+     * {@code [☭][⚒]}: the prefix is a property of the team, not of the player, and the pet is a member. Nothing
+     * here ever adds it — {@link #syncTeam} only ever calls {@code addPlayerToTeam} with a
+     * {@link ServerPlayer}'s own scoreboard name — so the entry arrives from vanilla and has to be removed here.
+     *
+     * <p>It has to be a sweep and not a one-off, because vanilla re-adds the pet whenever the owner is resolved
+     * again (tame, chunk load, owner login). Removing it on those events is not possible from here either: the
+     * choice of owner lives in vanilla's entity data, not in anything this mod observes.
+     *
+     * <p>Only teams under {@link #TEAM_NAMESPACE} are touched. A pet on another plugin's team is that plugin's
+     * business, and the player set is compared by scoreboard name so a player mid-join is never mistaken for a pet.
+     */
+    private void evictNonPlayers(Scoreboard scoreboard, List<ServerPlayer> onlinePlayers) {
+        Set<String> players = new HashSet<>();
+        for (ServerPlayer player : onlinePlayers) players.add(player.getScoreboardName());
+        for (PlayerTeam team : List.copyOf(scoreboard.getPlayerTeams())) {
+            if (!isOurs(team.getName())) continue;
+            for (String entry : List.copyOf(team.getPlayers())) {
+                if (players.contains(entry)) continue;
+                scoreboard.removePlayerFromTeam(entry, team);
+            }
+        }
     }
 
     /**
@@ -252,7 +283,11 @@ public final class TagDisplayService {
         if (faction != null) tags.add(TagStyle.Tagged.of(faction.settings(), faction.displayName()));
         ProfessionId profession = source.professionOf(player);
         if (profession != null) {
-            tags.add(TagStyle.Tagged.of(profession.settings(), professionLabel(profession, source.levelOf(player))));
+            ProfessionLevel level = source.levelOf(player);
+            String label = professionLabel(profession, level);
+            tags.add(level == ProfessionLevel.MASTER
+                    ? TagStyle.Tagged.mastered(profession.settings(), label)
+                    : TagStyle.Tagged.of(profession.settings(), label));
         }
         return tags;
     }
@@ -270,13 +305,13 @@ public final class TagDisplayService {
     }
 
     /**
-     * The tab list shows the level only when it is worth interrupting the name for: an Apprentice is the default
-     * and saying so on every row is noise, whereas Master and Rusted are the two states that change what a player
-     * can do, and a rusted player in particular has to be recognisable at a glance (Phase 9's rust penalty).
+     * The tab list names the level only when it is a warning: an Apprentice is the default and Master is carried by
+     * the {@code << >>} frame on the tag itself, so spelling either out would only interrupt the name — whereas a
+     * Rusted player has lost half their effect and has to be recognisable at a glance (Phase 9's rust penalty).
      */
     private static String professionLabel(ProfessionId profession, ProfessionLevel level) {
-        if (level == null || level == ProfessionLevel.APPRENTICE) return profession.displayName();
-        return profession.displayName() + ": " + level.displayName();
+        if (level == ProfessionLevel.RUSTED) return profession.displayName() + ": " + level.displayName();
+        return profession.displayName();
     }
 
     /**

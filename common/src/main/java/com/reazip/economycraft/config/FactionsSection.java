@@ -75,19 +75,19 @@ public class FactionsSection {
         public long incomeTaxTier1Threshold = 10_000L;
 
         @SerializedName("income_tax_tier1_rate")
-        public double incomeTaxTier1Rate = 0.005;
+        public double incomeTaxTier1Rate = 0.0025;
 
         @SerializedName("income_tax_tier2_threshold")
         public long incomeTaxTier2Threshold = 15_000L;
 
         @SerializedName("income_tax_tier2_rate")
-        public double incomeTaxTier2Rate = 0.0075;
+        public double incomeTaxTier2Rate = 0.00375;
 
         @SerializedName("income_tax_tier3_threshold")
         public long incomeTaxTier3Threshold = 22_000L;
 
         @SerializedName("income_tax_tier3_rate")
-        public double incomeTaxTier3Rate = 0.0125;
+        public double incomeTaxTier3Rate = 0.00625;
 
         /** {@code Đầu tư công}: how often a toll is paid without tax. The toll owner still receives the fee. */
         @SerializedName("toll_tax_exempt_chance")
@@ -114,7 +114,7 @@ public class FactionsSection {
     /** Capitalism: a daily rate that scales with how much wealth the party holds, plus a heavier toll tax. */
     public static class CapitalismSettings extends TagSettings {
         @SerializedName("daily_tax_rate")
-        public double dailyTaxRate = 0.05;
+        public double dailyTaxRate = 0.025;
 
         /**
          * D14: the global half of the rate. Read from the existing read-only inflation signal rather than a
@@ -173,11 +173,11 @@ public class FactionsSection {
     public static class MonarchySettings extends TagSettings {
         /**
          * D19: the spec gives Monarchy's {@code Cống nạp} as "an amount equal to the daily tax" but never
-         * states Monarchy's own rate. The designer set it at {@code 0.017} — under a third of Capitalism's — so
-         * the two parties tax unequally, which is the whole point of having two of them.
+         * states Monarchy's own rate, so it is admin-tunable here. The default sits well under Capitalism's,
+         * because the two parties taxing unequally is the whole point of having two of them.
          */
         @SerializedName("daily_tax_rate")
-        public double dailyTaxRate = 0.017;
+        public double dailyTaxRate = 0.01;
 
         /**
          * D19: Monarchy reads its inflation off the <em>server's</em> money supply, where Capitalism reads the

@@ -43,17 +43,17 @@
       "icon": "☭",
       "party_fee": 10,
       "income_tax_tier1_threshold": 10000,
-      "income_tax_tier1_rate": 0.005,
+      "income_tax_tier1_rate": 0.0025,
       "income_tax_tier2_threshold": 15000,
-      "income_tax_tier2_rate": 0.0075,
+      "income_tax_tier2_rate": 0.00375,
       "income_tax_tier3_threshold": 22000,
-      "income_tax_tier3_rate": 0.0125,
+      "income_tax_tier3_rate": 0.00625,
       "toll_tax_exempt_chance": 0.5
     },
     "capitalism": {
       "color": 5635925,
       "icon": "$",
-      "daily_tax_rate": 0.05,
+      "daily_tax_rate": 0.025,
       "use_global_inflation": true,
       "concentration_reference_share": 0.15,
       "concentration_elasticity": 1.0,
@@ -65,7 +65,7 @@
     "monarchy": {
       "color": 16777045,
       "icon": "♔",
-      "daily_tax_rate": 0.017,
+      "daily_tax_rate": 0.01,
       "money_supply_reference_per_player": 1000.0,
       "money_supply_inflation_max": 3.0,
       "corruption_multiplier": 1.0,
@@ -89,6 +89,7 @@
     "builder": {
       "color": 16755200,
       "icon": "⚒",
+      "mastered_color": 16766720,
       "level_up_count": 1000,
       "reach_bonus_apprentice_blocks": 1.0,
       "reach_bonus_master_blocks": 2.0,
@@ -138,6 +139,7 @@
     "farmer": {
       "color": 5627221,
       "icon": "☘",
+      "mastered_color": 16766720,
       "level_up_count": 300,
       "crop_boost_radius_blocks": 24,
       "crop_boost_cooldown_minutes": 4,
@@ -153,6 +155,7 @@
     "miner": {
       "color": 8952319,
       "icon": "⛏",
+      "mastered_color": 16766720,
       "level_up_count": 270,
       "ore_tags": [
         "#minecraft:ores"
@@ -182,6 +185,7 @@
     "merchant": {
       "color": 16777045,
       "icon": "⚖",
+      "mastered_color": 16766720,
       "villager_trade_count": 50,
       "max_trades_per_villager": 20,
       "auction_purchase_count": 5,
@@ -191,6 +195,7 @@
     "soldier": {
       "color": 16733525,
       "icon": "⚔",
+      "mastered_color": 16766720,
       "kill_count": 100,
       "damage_taken_factor_apprentice": 0.95,
       "damage_taken_factor_master": 0.85,

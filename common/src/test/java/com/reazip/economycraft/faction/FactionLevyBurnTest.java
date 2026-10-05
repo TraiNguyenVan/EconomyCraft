@@ -52,17 +52,17 @@ class FactionLevyBurnTest {
 
     @Test
     void levyBurnsFeeThenTaxThroughRemovals() {
-        // 30 000: $10 fee leaves 29 990, tier 3 at 1.25 % is 375 (D3 ordering).
+        // 30 000: $10 fee leaves 29 990, tier 3 at 0.625 % is 187 (D3 ordering).
         EconomyManager eco = nullRejectingManager(30_000L, 29_990L);
 
         FactionLevyService.Result result = FactionLevyService.applyCommunismLevy(eco, player, settings);
 
         assertEquals(10L, result.partyFeeCharged());
         assertTrue(result.partyFeePaid());
-        assertEquals(375L, result.incomeTaxCharged());
+        assertEquals(187L, result.incomeTaxCharged());
         assertTrue(result.incomeTaxPaid());
         verify(eco).removeMoney(player, 10L, EconomySources.PARTY_FEE, "Party fee");
-        verify(eco).removeMoney(player, 375L, EconomySources.INCOME_TAX, "Anti-speculation income tax");
+        verify(eco).removeMoney(player, 187L, EconomySources.INCOME_TAX, "Anti-speculation income tax");
         verify(eco, never()).transferMoney(any(), any(), anyLong(), anyLong(), any(), anyString());
     }
 

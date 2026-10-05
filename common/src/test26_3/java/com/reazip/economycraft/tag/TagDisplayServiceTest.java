@@ -1,6 +1,7 @@
 package com.reazip.economycraft.tag;
 
 import com.reazip.economycraft.EconomyConfig;
+import com.reazip.economycraft.config.ProfessionSettings;
 import com.reazip.economycraft.faction.FactionId;
 import com.reazip.economycraft.profession.ProfessionId;
 import com.reazip.economycraft.profession.ProfessionLevel;
@@ -146,24 +147,67 @@ class TagDisplayServiceTest {
     }
 
     @Test
-    void professionTagCarriesItsLevelOnlyWhenItIsWorthSaying() {
+    void professionTagNamesTheLevelOnlyWhenItIsAWarning() {
         source.profession = ProfessionId.MINER;
 
         source.level = ProfessionLevel.APPRENTICE;
         assertEquals(ProfessionId.MINER.displayName(), labelOf());
 
-        // Master and Rusted are the two states that change what a player can do, so the tab row interrupts the name
-        // for them. Apprentice is the default and saying so on every row would be noise.
+        // Master is carried by the << >> frame on the tag itself, so spelling it out would only interrupt the
+        // name. Rusted keeps its word: half the job's effect is gone and the player has to be able to see that.
         // Reads are served from the cache on purpose, so each level change goes through the same refresh the
         // server tick uses. Without this the test would be asserting that a read is live, which is the opposite of
         // the design (P3-T4 forbids a store lookup per rendered line).
         source.level = ProfessionLevel.MASTER;
         service.revalidate(PLAYER);
-        assertEquals(ProfessionId.MINER.displayName() + ": " + ProfessionLevel.MASTER.displayName(), labelOf());
+        assertEquals(ProfessionId.MINER.displayName(), labelOf());
 
         source.level = ProfessionLevel.RUSTED;
         service.revalidate(PLAYER);
         assertEquals(ProfessionId.MINER.displayName() + ": " + ProfessionLevel.RUSTED.displayName(), labelOf());
+    }
+
+    @Test
+    void masterIsFramedRatherThanRelabelled() {
+        source.profession = ProfessionId.MINER;
+
+        source.level = ProfessionLevel.APPRENTICE;
+        service.revalidate(PLAYER);
+        assertEquals("[" + ProfessionId.MINER.displayName() + "] Steve",
+                plain(TagStyle.tabRow(service.tagsOf(PLAYER), Component.literal("Steve"))));
+
+        source.level = ProfessionLevel.MASTER;
+        service.revalidate(PLAYER);
+        assertEquals("<<[" + ProfessionId.MINER.displayName() + "]>> Steve",
+                plain(TagStyle.tabRow(service.tagsOf(PLAYER), Component.literal("Steve"))));
+    }
+
+    @Test
+    void masterIconIsFramedInTheMasteredColourAndTheRestAreNot() {
+        source.profession = ProfessionId.MINER;
+
+        source.level = ProfessionLevel.MASTER;
+        service.revalidate(PLAYER);
+        TagStyle.Tagged master = service.tagsOf(PLAYER).get(0);
+        assertEquals("<<[" + ProfessionId.MINER.settings().icon + "]>>", plain(master.icon()));
+        assertEquals(ProfessionSettings.DEFAULT_MASTERED_COLOR, master.icon().getStyle().getColor().getValue());
+
+        source.level = ProfessionLevel.APPRENTICE;
+        service.revalidate(PLAYER);
+        TagStyle.Tagged apprentice = service.tagsOf(PLAYER).get(0);
+        assertEquals("[" + ProfessionId.MINER.settings().icon + "]", plain(apprentice.icon()));
+        assertEquals(ProfessionId.MINER.settings().color, apprentice.icon().getStyle().getColor().getValue());
+    }
+
+    @Test
+    void aPartyIsNeverFramed() {
+        source.faction = FactionId.MONARCHY;
+        source.chosen = true;
+        source.profession = null;
+
+        TagStyle.Tagged party = service.tagsOf(PLAYER).get(0);
+        assertEquals("[" + FactionId.MONARCHY.settings().icon + "]", plain(party.icon()));
+        assertEquals(FactionId.MONARCHY.settings().color, party.icon().getStyle().getColor().getValue());
     }
 
     @Test
