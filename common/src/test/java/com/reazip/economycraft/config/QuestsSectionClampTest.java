@@ -17,6 +17,7 @@ class QuestsSectionClampTest {
     @Test
     void garbageDegradesToUsableBoard() {
         QuestsSection quests = new QuestsSection();
+        quests.periodDays = 0;
         quests.weeklyBudget = -5L;
         quests.priceFactor = 2.0;
         quests.weeklyCount = 0;
@@ -30,6 +31,7 @@ class QuestsSectionClampTest {
 
         quests.clamp();
 
+        assertEquals(1, quests.periodDays);
         assertEquals(0L, quests.weeklyBudget);
         assertEquals(1.0, quests.priceFactor);
         assertEquals(1, quests.weeklyCount);
@@ -48,6 +50,7 @@ class QuestsSectionClampTest {
         quests.clamp();
 
         assertTrue(quests.enabled);
+        assertEquals(7, quests.periodDays);
         assertEquals(12_000L, quests.weeklyBudget);
         assertEquals(0.5, quests.priceFactor);
         assertEquals(10, quests.weeklyCount);

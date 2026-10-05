@@ -7,9 +7,9 @@ import org.slf4j.Logger;
 import java.util.List;
 
 /**
- * The {@code quests} section: the automatic weekly server bounty board.
+ * The {@code quests} section: the automatic server bounty board.
  *
- * <p>Once a week the server draws {@code weekly_count} distinct priced items and posts them all at once
+ * <p>Once a period of {@code period_days} days the server draws {@code weekly_count} distinct priced items and posts them all at once
  * as buy orders from a reserved bot account, each priced at {@code price_factor} of its effective buy
  * unit. Fills pay through the ordinary order path (including the order tax), and the bought items are
  * diverted into a stock ledger instead of a deliveries mailbox. The week is one-shot: a filled or
@@ -23,12 +23,27 @@ import java.util.List;
 public class QuestsSection {
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    /** Upper bound on one quest period. A longer board would leave every open quest expiring months out. */
+    public static final int MAX_PERIOD_DAYS = 365;
+
     @SerializedName("enabled")
     public boolean enabled = true;
 
     /**
-     * How many coins the bot may mint per rolling 7-day week. Posting stops when the next quest would
-     * exceed it; {@code 0} posts nothing.
+     * How many days one quest period lasts, counted from the moment the previous one rolled over.
+     *
+     * <p>The window is anchored to the last rollover, not to a calendar boundary, so the reset lands
+     * wherever the minute sweep happens to notice it and then holds there. Shortening this while a board
+     * is running does not wait for the current period to end: if the new, shorter window has already
+     * elapsed, the next sweep rolls over immediately and cancels the open quests. Lowering it in
+     * {@code /eco} admin or here is therefore a real action, not a display setting.
+     */
+    @SerializedName("period_days")
+    public int periodDays = 7;
+
+    /**
+     * How many coins the bot may mint per period. Posting stops when the next quest would exceed it;
+     * {@code 0} posts nothing.
      */
     @SerializedName("weekly_budget")
     public long weeklyBudget = 12_000L;
@@ -92,6 +107,7 @@ public class QuestsSection {
     public void clamp() {
         weeklyBudget = ConfigClamp.nonNegative("quests.weekly_budget", weeklyBudget);
         priceFactor = ConfigClamp.percentage("quests.price_factor", priceFactor);
+        periodDays = clampPeriodDays(periodDays);
         weeklyCount = clampAtLeastOne("quests.weekly_count", weeklyCount);
         maxConcurrent = clampAtLeastOne("quests.max_concurrent", maxConcurrent);
         minQuestUnit = ConfigClamp.nonNegative("quests.min_quest_unit", minQuestUnit);
@@ -114,6 +130,25 @@ public class QuestsSection {
             botName = botName.trim();
         }
         buyback.clamp();
+    }
+
+    /**
+     * A period is at least one day and at most {@link #MAX_PERIOD_DAYS}. {@code 0} is rejected rather
+     * than read as "never reset": a mistyped zero that silently froze the board would keep last period's
+     * quests open forever and stop the mint cap ever resetting, which is a far worse failure than a
+     * one-day period is an inconvenience.
+     */
+    private static int clampPeriodDays(int value) {
+        if (value < 1) {
+            LOGGER.warn("[EconomyCraft] quests.period_days ({}) is below 1; clamping to 1.", value);
+            return 1;
+        }
+        if (value > MAX_PERIOD_DAYS) {
+            LOGGER.warn("[EconomyCraft] quests.period_days ({}) is above the maximum of {}; clamping.",
+                    value, MAX_PERIOD_DAYS);
+            return MAX_PERIOD_DAYS;
+        }
+        return value;
     }
 
     private static int clampAtLeastOne(String fieldName, int value) {

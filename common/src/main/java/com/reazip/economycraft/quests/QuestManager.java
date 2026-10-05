@@ -31,17 +31,18 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * The automatic weekly bounty board.
+ * The automatic server bounty board.
  *
- * <p>Owns the rolling 7-day week: on rollover it cancels last week's leftover quest orders (escrow
- * refunds to the bot, then the leftover bot balance is burned so refunds never carry purchasing power
- * forward), draws ten fresh items, and posts them all at once as bot buy orders. A week is one-shot —
- * filled or skipped quests never repost, and an unspent budget simply never mints.
+ * <p>Owns the rolling period ({@code quests.period_days}, default 7): on rollover it cancels the previous
+ * period's leftover quest orders (escrow refunds to the bot, then the leftover bot balance is burned so
+ * refunds never carry purchasing power forward), draws ten fresh items, and posts them all at once as bot
+ * buy orders. A period is one-shot — filled or skipped quests never repost, and an unspent budget simply
+ * never mints.
  *
- * <p>The first week starts on the first sweep, which is why a fresh boot posts nothing until ticks run.
+ * <p>The first period starts on the first sweep, which is why a fresh boot posts nothing until ticks run.
  * Everything here runs on the server thread, called from the minute-tick gate.
  *
- * <p>Retuning {@code quests.price_factor} mid-week needs no rebuild and no new week: every sweep
+ * <p>Retuning {@code quests.price_factor} mid-period needs no rebuild and no new period: every sweep
  * compares each open order's posted unit against the live factor and cancel-reposts drifters at
  * the current unit, remainders kept, escrow refunded and relocked through the ordinary paths.
  */
@@ -51,8 +52,6 @@ public class QuestManager {
 
     /** Reserved requester for every quest order. Nil on purpose: version 0 is never a real player, so no Mojang lookup is ever attempted. */
     public static final UUID BOT_UUID = new UUID(0L, 0L);
-
-    static final long WEEK_MILLIS = 7L * 24 * 60 * 60 * 1000;
 
     private final Path file;
     private long weekStartMs;
@@ -77,7 +76,7 @@ public class QuestManager {
         eco.rememberPlayerName(BOT_UUID, quests.botName);
 
         long now = System.currentTimeMillis();
-        if (weekStartMs <= 0 || now - weekStartMs >= WEEK_MILLIS) {
+        if (QuestLogic.periodElapsed(weekStartMs, now, quests.periodDays)) {
             rollover(eco, now);
         }
         if (!postedThisWeek) {
@@ -110,7 +109,8 @@ public class QuestManager {
         postedKeys.clear();
         questOrderIds.clear();
         drawnKeys.addAll(QuestLogic.draw(candidates(eco), weekSeed, quests.weeklyCount));
-        LOGGER.info("[EconomyCraft] Quest week started: drew {} item(s).", drawnKeys.size());
+        LOGGER.info("[EconomyCraft] Quest period started ({} day(s)): drew {} item(s).",
+                quests.periodDays, drawnKeys.size());
         save();
     }
 
@@ -208,16 +208,17 @@ public class QuestManager {
             LOGGER.warn("[EconomyCraft] Bot could not fund the repriced quest for {}; it stays off the board this week.", key);
             return false;
         }
-        post(eco, proto, key, remainder, price, unit, System.currentTimeMillis(), weekStartMs + WEEK_MILLIS, false);
+        post(eco, proto, key, remainder, price, unit, System.currentTimeMillis(),
+                weekStartMs + QuestLogic.periodMillis(quests.periodDays), false);
         return true;
     }
 
     /**
      * Starts a fresh board on demand (the admin "Force re-draw" button): every open quest order is
      * cancelled through the ordinary path (escrow refunds to the bot), the draw state is wiped, and
-     * a new week is drawn and posted immediately — same clock, same cap, no waiting for a sweep.
+     * a new period is drawn and posted immediately — same clock, same cap, no waiting for a sweep.
      *
-     * <p>The week's mint cap stays consumed and the bot balance carries (it still burns at the next
+     * <p>The period's mint cap stays consumed and the bot balance carries (it still burns at the next
      * rollover), so a re-draw can never re-farm the budget. Buyback listings are untouched.
      *
      * @return how many fresh quests posted
@@ -242,6 +243,18 @@ public class QuestManager {
 
         LOGGER.info("[EconomyCraft] Admin forced a quest re-draw: {} quest(s) posted.", questOrderIds.size());
         return questOrderIds.size();
+    }
+
+    /** Milliseconds until the current period rolls over; {@code 0} if there is no live period yet. */
+    public long millisUntilPeriodEnd(long now) {
+        var quests = EconomyConfig.get().quests;
+        if (quests == null || !quests.enabled) return 0L;
+        return QuestLogic.millisUntilPeriodEnd(weekStartMs, now, quests.periodDays);
+    }
+
+    /** Open quest orders right now — how many a re-draw or an early rollover would cancel. */
+    public int openQuestCountNow(EconomyManager eco) {
+        return openQuestCount(eco);
     }
 
     private void cancelLeftovers(EconomyManager eco) {
@@ -290,7 +303,7 @@ public class QuestManager {
     private void postDrawn(EconomyManager eco, long now) {
         var quests = EconomyConfig.get().quests;
         long share = quests.weeklyCount <= 0 ? 0 : quests.weeklyBudget / quests.weeklyCount;
-        long weekEnd = weekStartMs + WEEK_MILLIS;
+        long weekEnd = weekStartMs + QuestLogic.periodMillis(quests.periodDays);
 
         for (String key : drawnKeys) {
             if (postedKeys.contains(key)) continue;

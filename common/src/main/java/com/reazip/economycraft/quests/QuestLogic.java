@@ -60,7 +60,40 @@ public final class QuestLogic {
     }
 
     /**
-     * The weekly draw: {@code count} distinct candidates in seeded-shuffle order.
+     * How long one quest period lasts, in milliseconds.
+     *
+     * <p>Whole days only: the board's job is to give players a fixed, predictable span to work through
+     * the same ten bounties, and an hour-granular dial is a knob nobody tunes well. The multiplication is
+     * wide enough that {@code days <= 365} cannot overflow a long.
+     */
+    public static long periodMillis(int days) {
+        return Math.max(1, days) * 24L * 60L * 60L * 1000L;
+    }
+
+    /**
+     * Whether the current period is over and the board must roll over.
+     *
+     * <p>A {@code periodStartMs} of {@code 0} or less means "no period has ever started here" — a fresh
+     * install or a state file that failed to load — and must count as elapsed, or the board would never
+     * draw its first set.
+     *
+     * <p>Reading this live off the configured period rather than a value frozen at draw time is deliberate:
+     * an admin who shortens the period mid-board wants the board to close, not to run to the length it
+     * was posted under.
+     */
+    public static boolean periodElapsed(long periodStartMs, long now, int periodDays) {
+        if (periodStartMs <= 0) return true;
+        return now - periodStartMs >= periodMillis(periodDays);
+    }
+
+    /** Milliseconds until the current period rolls over; {@code 0} once it has already elapsed. */
+    public static long millisUntilPeriodEnd(long periodStartMs, long now, int periodDays) {
+        if (periodStartMs <= 0) return 0L;
+        return Math.max(0L, periodMillis(periodDays) - (now - periodStartMs));
+    }
+
+    /**
+     * The periodic draw: {@code count} distinct candidates in seeded-shuffle order.
      *
      * <p>Seeded (not random) so a week is reproducible from its seed in logs and tests, and capped at
      * the candidate count so a thin catalog posts a thin week instead of failing.

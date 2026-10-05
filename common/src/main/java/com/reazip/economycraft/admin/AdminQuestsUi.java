@@ -3,6 +3,8 @@ package com.reazip.economycraft.admin;
 import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
+import com.reazip.economycraft.config.QuestsSection;
+import com.reazip.economycraft.quests.QuestLogic;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
 import com.reazip.economycraft.util.ConfirmUi;
@@ -30,7 +32,9 @@ import java.util.List;
  *
  * <p>Both fractions apply on the next quest sweep (a minute or two) — factor edits converge the
  * open orders automatically, and the shop-price gate takes new draws and buyback listings with
- * it. Only hand-editing the JSON files on disk still needs Reload from disk.
+ * it. The reset period is read live too, so shortening it rolls the board over on the next sweep;
+ * that case confirms first, since it cancels the quests players are standing on. Only hand-editing
+ * the JSON files on disk still needs Reload from disk.
  */
 public final class AdminQuestsUi {
     private AdminQuestsUi() {}
@@ -43,6 +47,7 @@ public final class AdminQuestsUi {
     private static final int BUYBACK_FACTOR = 14;
     private static final int BUDGET = 15;
     private static final int FORCE_REDRAW = 16;
+    private static final int PERIOD = 17;
     private static final int BACK = 18;
 
     public static void open(ServerPlayer player, EconomyManager eco) {
@@ -97,8 +102,13 @@ public final class AdminQuestsUi {
                     MenuUiSupport.line("Charges " + percent(quests.buyback.priceFactor) + " of effective buy.", ChatFormatting.WHITE),
                     MenuUiSupport.hint("Click to change. Live on next sweep.")));
 
-            container.setItem(BUDGET, MenuUiSupport.button(Items.GOLD_INGOT, "Weekly Budget", ChatFormatting.GOLD,
-                    MenuUiSupport.line(EconomyCraft.formatMoney(quests.weeklyBudget) + " per week.", ChatFormatting.WHITE),
+            container.setItem(BUDGET, MenuUiSupport.button(Items.GOLD_INGOT, "Period Budget", ChatFormatting.GOLD,
+                    MenuUiSupport.line(EconomyCraft.formatMoney(quests.weeklyBudget) + " per period.", ChatFormatting.WHITE),
+                    MenuUiSupport.hint("Click to change.")));
+
+            container.setItem(PERIOD, MenuUiSupport.button(Items.DAYLIGHT_DETECTOR, "Reset Period", ChatFormatting.LIGHT_PURPLE,
+                    MenuUiSupport.line("Board re-draws every " + pluralDays(quests.periodDays) + ".", ChatFormatting.WHITE),
+                    periodCountdownLine(eco),
                     MenuUiSupport.hint("Click to change.")));
 
             if (EconomyPermissions.checkAdmin(viewer, Nodes.ADMIN_RESET)) {
@@ -118,6 +128,26 @@ public final class AdminQuestsUi {
 
         private static String percent(double fraction) {
             return Math.round(fraction * 100) + "%";
+        }
+
+        private static String pluralDays(int days) {
+            return days + " day" + (days == 1 ? "" : "s");
+        }
+
+        /**
+         * The next reset, as {@code Nd Nh}. Worth showing here because the period is anchored to the
+         * last rollover rather than to a calendar boundary, so an admin who never touched the setting
+         * has no other way to see when the board will actually turn over.
+         */
+        private static Component periodCountdownLine(EconomyManager eco) {
+            long remaining = eco.getQuests().millisUntilPeriodEnd(System.currentTimeMillis());
+            if (remaining <= 0) {
+                return MenuUiSupport.hint("No board running — next sweep draws one.");
+            }
+            long totalMinutes = remaining / 60_000L;
+            long days = totalMinutes / 1440L;
+            long hours = (totalMinutes % 1440L) / 60L;
+            return MenuUiSupport.hint("Next reset in " + (days > 0 ? days + "d " : "") + hours + "h.");
         }
 
         @Override
@@ -182,6 +212,10 @@ public final class AdminQuestsUi {
                             },
                             p -> open(p, eco));
                 }
+                case PERIOD -> {
+                    EconomySounds.click(viewer);
+                    openPeriodInput(viewer, eco, quests.periodDays);
+                }
                 case FORCE_REDRAW -> {
                     if (!EconomyPermissions.checkAdmin(viewer, Nodes.ADMIN_RESET)) return true;
                     EconomySounds.click(viewer);
@@ -196,6 +230,61 @@ public final class AdminQuestsUi {
             }
             return true;
         }
+    }
+
+    /**
+     * Changing the period to something shorter than the time already served rolls the board over on the
+     * next sweep, which cancels every open quest. That is the honest reading of "reset every 3 days"
+     * applied to a board five days in, but it is a destructive action discovered by a player finding
+     * their bounty cancelled — so it gets a confirmation naming exactly what is still open.
+     */
+    private static void openPeriodInput(ServerPlayer viewer, EconomyManager eco, int currentDays) {
+        NumberInputUi.openDays(viewer, "Reset period", new ItemStack(Items.DAYLIGHT_DETECTOR),
+                "Reset period", currentDays, 1, QuestsSection.MAX_PERIOD_DAYS,
+                (p, next) -> {
+                    int days = (int) next.longValue();
+                    if (days < currentDays) {
+                        confirmShortenPeriod(p, eco, currentDays, days);
+                        return;
+                    }
+                    EconomyConfig.get().quests.periodDays = days;
+                    EconomyConfig.save();
+                    EconomySounds.click(p);
+                    open(p, eco);
+                },
+                p -> open(p, eco));
+    }
+
+    private static void confirmShortenPeriod(ServerPlayer viewer, EconomyManager eco, int fromDays, int toDays) {
+        long remaining = eco.getQuests().millisUntilPeriodEnd(System.currentTimeMillis());
+        int open = eco.getQuests().openQuestCountNow(eco);
+        boolean rollsNow = remaining <= 0 || remaining <= QuestLogic.periodMillis(toDays);
+
+        ItemStack icon = new ItemStack(Items.DAYLIGHT_DETECTOR);
+        icon.set(DataComponents.CUSTOM_NAME, Component.literal("Shorten the reset period?")
+                .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.RED)));
+        List<Component> warning = List.of(
+                MenuUiSupport.line("From " + fromDays + " day" + (fromDays == 1 ? "" : "s")
+                        + " down to " + toDays + ".", ChatFormatting.WHITE),
+                MenuUiSupport.line(open + " open quest order" + (open == 1 ? "" : "s")
+                        + (open == 1 ? " is" : " are") + " cancelled.", ChatFormatting.RED),
+                MenuUiSupport.hint("Escrow refunds to the server. The mint cap is spent either way."),
+                rollsNow
+                        ? MenuUiSupport.line("The board re-draws within a minute.", ChatFormatting.RED)
+                        : MenuUiSupport.line("The current board runs out as it stands.", ChatFormatting.GOLD));
+        ConfirmUi.open(viewer, "Reset every " + toDays + " day" + (toDays == 1 ? "" : "s") + "?", icon,
+                "Shorten period",
+                warning,
+                p -> {
+                    EconomyConfig.get().quests.periodDays = toDays;
+                    EconomyConfig.save();
+                    EconomySounds.click(p);
+                    p.sendSystemMessage(Component.literal("Quest board now re-draws every "
+                            + toDays + " day" + (toDays == 1 ? "" : "s") + ".")
+                            .withStyle(ChatFormatting.GOLD));
+                    open(p, eco);
+                },
+                p -> open(p, eco));
     }
 
     private static void confirmForceRedraw(ServerPlayer viewer, EconomyManager eco) {

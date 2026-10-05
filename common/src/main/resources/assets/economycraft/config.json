@@ -203,6 +203,7 @@
   },
   "quests": {
     "enabled": true,
+    "period_days": 7,
     "weekly_budget": 12000,
     "price_factor": 0.5,
     "weekly_count": 10,

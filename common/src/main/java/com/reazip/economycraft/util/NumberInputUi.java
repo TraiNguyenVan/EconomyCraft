@@ -27,6 +27,7 @@ public final class NumberInputUi {
     private static final int[] MONEY_STEPS = {1000, 100, 10, 1};
     private static final int[] COUNT_STEPS = {512, 64, 8, 1};
     private static final int[] PERCENT_STEPS = {25, 10, 5, 1};
+    private static final int[] DAY_STEPS = {30, 7, 1};
 
     private static final int VALUE_SLOT = 4;
     private static final int TYPE_SLOT = 13;
@@ -60,6 +61,17 @@ public final class NumberInputUi {
                                  BiConsumer<ServerPlayer, Long> onConfirm, Consumer<ServerPlayer> onCancel) {
         open(player, title, subject, label, initial, min, max, COUNT_STEPS, String::valueOf,
                 confirmLabel, confirmLore, onConfirm, onCancel);
+    }
+
+    /**
+     * A whole-day count. The steps are 30/7/1 because the only two day counts anyone sets are a week
+     * and a month — {@code openCount}'s item-stack steps would make both take thirty clicks.
+     */
+    public static void openDays(ServerPlayer player, String title, ItemStack subject, String label,
+                                long initial, long min, long max,
+                                BiConsumer<ServerPlayer, Long> onConfirm, Consumer<ServerPlayer> onCancel) {
+        open(player, title, subject, label, initial, min, max, DAY_STEPS, v -> v + " day" + (v == 1 ? "" : "s"),
+                "Confirm", null, onConfirm, onCancel);
     }
 
     public static void openPercent(ServerPlayer player, String title, ItemStack subject, String label,
