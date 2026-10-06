@@ -159,7 +159,8 @@ class BundledConfigTest {
     private static boolean isSection(Object value) {
         Package typePackage = value.getClass().getPackage();
         return typePackage != null
-                && typePackage.getName().equals("com.reazip.economycraft.config")
+                && (typePackage.getName().equals("com.reazip.economycraft.config")
+                    || typePackage.getName().equals("com.reazip.economycraft.gossip"))
                 && !value.getClass().isEnum();
     }
 

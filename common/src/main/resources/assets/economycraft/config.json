@@ -223,5 +223,16 @@
       "enabled": true,
       "price_factor": 0.8
     }
+  },
+  "gemini_gossip": {
+    "enabled": true,
+    "api_key": "",
+    "model": "gemini-3.8-flash",
+    "refresh_interval_minutes": 20,
+    "cooldown_minutes": 3,
+    "anonymize_players": true,
+    "temperature": 0.85,
+    "public_chat": false
   }
 }
+
