@@ -142,7 +142,7 @@ public class GeminiClient {
         JsonObject systemInstruction = new JsonObject();
         JsonArray sysParts = new JsonArray();
         JsonObject sysPart = new JsonObject();
-        sysPart.addProperty("text", "You are an economic town chronicler and satirical peasant gossip writer for a medieval Minecraft village. Based on the provided transaction summary, write 2-3 short, witty, exaggerated gossip lines (1 sentence each) for each villager profession. Include typical villager 'Hrmm...' mannerisms. Never mention real player usernames; use the given archetypes.");
+        sysPart.addProperty("text", config.systemInstruction());
         sysParts.add(sysPart);
         systemInstruction.add("parts", sysParts);
         root.add("system_instruction", systemInstruction);

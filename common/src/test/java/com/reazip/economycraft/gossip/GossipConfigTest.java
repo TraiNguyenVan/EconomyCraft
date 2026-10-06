@@ -29,6 +29,8 @@ class GossipConfigTest {
         assertTrue(config.anonymizePlayers(), "anonymizePlayers must default to true");
         assertEquals(0.85, config.temperature(), 1e-6, "temperature must default to 0.85");
         assertFalse(config.publicChat(), "publicChat must default to false");
+        assertEquals(GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, config.systemInstruction(),
+                "systemInstruction must default to DEFAULT_SYSTEM_INSTRUCTION");
     }
 
     @Test
@@ -52,7 +54,8 @@ class GossipConfigTest {
                   "cooldown_minutes": 10,
                   "anonymize_players": false,
                   "temperature": 0.4,
-                  "public_chat": true
+                  "public_chat": true,
+                  "system_instruction": "Custom prompt instructions here."
                 }
                 """;
 
@@ -66,6 +69,7 @@ class GossipConfigTest {
         assertFalse(config.anonymizePlayers());
         assertEquals(0.4, config.temperature(), 1e-6);
         assertTrue(config.publicChat());
+        assertEquals("Custom prompt instructions here.", config.systemInstruction());
     }
 
     @Test
@@ -217,6 +221,7 @@ class GossipConfigTest {
         assertTrue(json.contains("\"cooldown_minutes\""));
         assertTrue(json.contains("\"anonymize_players\""));
         assertTrue(json.contains("\"public_chat\""));
+        assertTrue(json.contains("\"system_instruction\""));
     }
 
     @Test

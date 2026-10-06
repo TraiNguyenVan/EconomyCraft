@@ -25,7 +25,8 @@ public record GossipConfig(
         @SerializedName("cooldown_minutes") int cooldownMinutes,
         @SerializedName("anonymize_players") boolean anonymizePlayers,
         @SerializedName("temperature") double temperature,
-        @SerializedName("public_chat") boolean publicChat
+        @SerializedName("public_chat") boolean publicChat,
+        @SerializedName("system_instruction") String systemInstruction
 ) {
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -37,6 +38,12 @@ public record GossipConfig(
     public static final boolean DEFAULT_ANONYMIZE_PLAYERS = true;
     public static final double DEFAULT_TEMPERATURE = 0.85;
     public static final boolean DEFAULT_PUBLIC_CHAT = false;
+    public static final String DEFAULT_SYSTEM_INSTRUCTION =
+            "You are a witty, satirical economic gossip for Minecraft villagers on an economy server. " +
+            "Based on the provided transaction summary, write 2-3 short, exaggerated gossip lines (1 sentence each) for each villager profession. " +
+            "Include typical villager 'Hrmm...' mannerisms. " +
+            "Always refer to money in dollars ('$'). " +
+            "Never mention real player usernames; use the given archetypes.";
 
     public static final int MIN_REFRESH_INTERVAL_MINUTES = 5;
     public static final int MAX_REFRESH_INTERVAL_MINUTES = 1440;
@@ -58,6 +65,24 @@ public record GossipConfig(
                 MIN_COOLDOWN_MINUTES, MAX_COOLDOWN_MINUTES);
         temperature = clampDouble("gemini_gossip.temperature", temperature,
                 MIN_TEMPERATURE, MAX_TEMPERATURE);
+        if (systemInstruction == null || systemInstruction.isBlank()) {
+            systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
+        } else {
+            systemInstruction = systemInstruction.trim();
+        }
+    }
+
+    public GossipConfig(
+            boolean enabled,
+            String apiKey,
+            String model,
+            int refreshIntervalMinutes,
+            int cooldownMinutes,
+            boolean anonymizePlayers,
+            double temperature,
+            boolean publicChat
+    ) {
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_SYSTEM_INSTRUCTION);
     }
 
     public static GossipConfig createDefault() {
@@ -69,7 +94,8 @@ public record GossipConfig(
                 DEFAULT_COOLDOWN_MINUTES,
                 DEFAULT_ANONYMIZE_PLAYERS,
                 DEFAULT_TEMPERATURE,
-                DEFAULT_PUBLIC_CHAT
+                DEFAULT_PUBLIC_CHAT,
+                DEFAULT_SYSTEM_INSTRUCTION
         );
     }
 
@@ -110,7 +136,8 @@ public record GossipConfig(
                 cooldownMinutes,
                 anonymizePlayers,
                 temperature,
-                publicChat
+                publicChat,
+                systemInstruction
         );
     }
 
@@ -152,6 +179,7 @@ public record GossipConfig(
             out.name("anonymize_players").value(value.anonymizePlayers());
             out.name("temperature").value(value.temperature());
             out.name("public_chat").value(value.publicChat());
+            out.name("system_instruction").value(value.systemInstruction());
             out.endObject();
         }
 
@@ -170,6 +198,7 @@ public record GossipConfig(
             boolean anonymizePlayers = DEFAULT_ANONYMIZE_PLAYERS;
             double temperature = DEFAULT_TEMPERATURE;
             boolean publicChat = DEFAULT_PUBLIC_CHAT;
+            String systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
 
             in.beginObject();
             while (in.hasNext()) {
@@ -187,6 +216,7 @@ public record GossipConfig(
                     case "anonymize_players" -> anonymizePlayers = in.nextBoolean();
                     case "temperature" -> temperature = in.nextDouble();
                     case "public_chat" -> publicChat = in.nextBoolean();
+                    case "system_instruction" -> systemInstruction = in.nextString();
                     default -> in.skipValue();
                 }
             }
@@ -200,7 +230,8 @@ public record GossipConfig(
                     cooldownMinutes,
                     anonymizePlayers,
                     temperature,
-                    publicChat
+                    publicChat,
+                    systemInstruction
             );
         }
     }
