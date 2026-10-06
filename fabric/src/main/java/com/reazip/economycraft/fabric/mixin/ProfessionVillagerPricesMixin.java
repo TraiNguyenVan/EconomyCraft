@@ -12,18 +12,31 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Villager price hook: applies the Lưỡi không xương discount (spec line 59).
  *
- * <p>Injected at the RETURN of {@code updateSpecialPrices}, which is the one place vanilla recomputes
- * every offer's {@code specialPriceDiff}. Hooking it there — rather than the trading menu — is what makes
- * the buff last more than a single trade: vanilla re-runs this method on every restock, gossip transfer,
- * reputation change and level-up, and it zeroes the whole field before re-applying the reputation and
- * Hero of the Village discounts. A discount applied anywhere else is wiped by the next reprice.
+ * <p>{@code updateSpecialPrices} is the one place vanilla recomputes every offer's
+ * {@code specialPriceDiff}: it zeroes the whole field, re-applies the reputation and Hero of the Village
+ * discounts, and then <em>sends the offers to the client</em>. Hooking anywhere other than between those
+ * two steps is wrong in both directions — before the reset and the discount is wiped, after the send and
+ * the client has already been told the undiscounted prices. So the injection sits immediately before the
+ * {@code getTradingPlayer()} call that guards the send: after vanilla's reset, before the packet.
  *
- * <p>Running after vanilla also means the mod's discount is <em>added</em> to the reputation and Hero of
- * the Village discounts rather than replacing them, so all three stack.
+ * <p>That placement also fixes the buff lasting only one trade. Vanilla re-runs this method on every
+ * restock, gossip transfer, reputation change and level-up; applying here means the discount is re-added
+ * each time rather than needing the trading menu reopened.
+ *
+ * <p>Vanilla zeroes first and this only <em>adds</em>, so the reputation, Hero of the Village and
+ * Lưỡi không xương discounts stack rather than overwrite one another, and
+ * {@code MerchantOffer#getModifiedCostCount} still clamps a stacked cost at 1 item.
  */
 @Mixin(Villager.class)
 abstract class ProfessionVillagerPricesMixin {
-    @Inject(method = "updateSpecialPrices", at = @At("RETURN"))
+    @Inject(
+            method = "updateSpecialPrices",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/world/entity/npc/villager/AbstractVillager;getTradingPlayer()Lnet/minecraft/world/entity/player/Player;",
+                    shift = At.Shift.BEFORE
+            )
+    )
     private void economycraft$applyMerchantDiscount(Player player, CallbackInfo ci) {
         if (player instanceof ServerPlayer serverPlayer) {
             MerchantEffects.applyVillagerTradeDiscount(serverPlayer, (Villager) (Object) this);
