@@ -100,10 +100,10 @@ class FactionRulesTest {
     }
 
     @Test
-    void anarchismIsNotTheSameAsHavingNoRecord() {
+    void anarchismIsStillNotTheSameAsHavingNoRecord() {
         // The store answers Anarchism for a player who never chose, but it keeps saying "no choice" so a party
-        // added later cannot inherit them (FactionStore's rule 1). The exemption above therefore keys off the
-        // record, not off the id — see aPlayerWhoHasNotChosenIsNotAnAnarchist.
+        // added later cannot inherit them (FactionStore's rule 1). The record stays the source of truth about
+        // the *choice*; the id is what the rules apply. See anUndecidedPlayerIsAnAnarchist.
         UUID neverChose = UUID.randomUUID();
         assertEquals(FactionId.ANARCHISM, factions.factionOf(neverChose));
         assertFalse(factions.hasChosen(neverChose));
@@ -115,25 +115,25 @@ class FactionRulesTest {
     }
 
     @Test
-    void aPlayerWhoHasNotChosenIsNotAnAnarchist() {
-        // The live trap this guards: `factionOf` says Anarchism for an undecided player, so a rule written
-        // against the id alone hands the largest exemption in the mod to every player who has never opened the
-        // party menu — which, on a server where parties are opt-in, is nearly all of them.
+    void anUndecidedPlayerIsAnAnarchistAndPaysNoTax() {
+        // Deliberate policy, not an oversight: the default party is Anarchism, and on this server nearly every
+        // player has chosen, so the undecided few are treated as Anarchists rather than handed a privileged
+        // exemption they never asked for. Choosing any other party is what lifts the default.
         UUID neverChose = UUID.randomUUID();
         assertEquals(FactionId.ANARCHISM, factions.factionOf(neverChose), "precondition: the id really is Anarchism");
 
         for (TaxScope scope : TaxScope.values()) {
             TaxQuote quoted = quote(scope, 1000L, 0.10, neverChose, null, alwaysRoll());
-            assertFalse(quoted.exempt(), "no choice must not be an exemption on " + scope);
-            assertEquals(100L, quoted.amount(), "full tax on " + scope);
-            assertEquals(1100L, quoted.total(), "the base is still added on " + scope);
+            assertTrue(quoted.exempt(), "no choice is still the default party on " + scope);
+            assertEquals(0L, quoted.amount(), "no tax on " + scope);
+            assertEquals(1000L, quoted.total(), "the base is still charged on " + scope);
         }
     }
 
     @Test
-    void aPlayerWhoHasNotChosenGetsNoOtherPartysDiscountEither() {
-        // Same reasoning for the rules that key on Communism, Capitalism and Monarchy: none of them apply to a
-        // player who has joined nothing, so there is nothing to inherit by default.
+    void anUndecidedPlayerGetsNoOtherPartysDiscount() {
+        // The default is one party, not a generic pass: nothing keyed on Communism, Capitalism or Monarchy
+        // fires for someone who reads as an Anarchist.
         UUID neverChose = UUID.randomUUID();
 
         assertEquals(1.0, alwaysRoll().rateMultiplier(TaxScope.TOLL, neverChose),
@@ -141,8 +141,8 @@ class FactionRulesTest {
         TaxQuote quoted = quote(TaxScope.TRANSACTION_SHOP, 1000L, 0.10, neverChose, null, alwaysRoll());
         assertEquals(0L, alwaysRoll().surcharge(TaxScope.TRANSACTION_SHOP, neverChose, quoted),
                 "no Monarchy import surcharge without a membership");
-        assertFalse(alwaysRoll().exempts(TaxScope.TOLL, neverChose, neverChose),
-                "the seller rule must not fire for two undecided players either");
+        assertTrue(alwaysRoll().exempts(TaxScope.TOLL, neverChose, neverChose),
+                "both sides are Anarchists, so the trade is exempt anyway");
     }
 
     // --- P9-T6: Communism "Đầu tư công" (spec 12) ---

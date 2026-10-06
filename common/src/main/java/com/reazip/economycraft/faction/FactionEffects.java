@@ -195,13 +195,12 @@ public final class FactionEffects {
     }
 
     /**
-     * The party {@code player} has actually joined, or {@code null} when they have joined none.
-     *
-     * @see FactionStore#hasChosen(UUID)
+     * The party {@code player} is subject to. A player who has not chosen falls on
+     * {@link FactionId#defaultFaction()}, so they get Anarchism's unclaimed-land and horse speed until they pick a
+     * party — the same rule {@code FactionTaxRules} and {@code TagDisplayService} apply, and for the same reason.
      */
     private static FactionId chosenFactionOf(EconomyManager eco, UUID player) {
-        FactionStore factions = eco.getFactions();
-        return factions.hasChosen(player) ? factions.factionOf(player) : null;
+        return eco.getFactions().factionOf(player);
     }
 
     public static void forget(ServerPlayer player) {

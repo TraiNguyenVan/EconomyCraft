@@ -79,16 +79,6 @@ public final class TagDisplayService {
 
         FactionId factionOf(UUID player);
 
-        /**
-         * Whether the player has actually chosen a party, as opposed to {@link #factionOf} handing back
-         * {@link FactionId#defaultFaction()} for them.
-         *
-         * <p>Needed because that default is Anarchism, so the id alone cannot tell a member of Anarchism from
-         * somebody who has never been asked. Every surface here draws what the player <em>chose</em>, so a player
-         * with no choice wears no party tag at all rather than being labelled with the party they never joined.
-         */
-        boolean hasChosenFaction(UUID player);
-
         ProfessionId professionOf(UUID player);
 
         ProfessionLevel levelOf(UUID player);
@@ -293,15 +283,19 @@ public final class TagDisplayService {
     }
 
     /**
-     * The party this player may be labelled with, or {@code null} when they have chosen none.
+     * The party this player is labelled with.
      *
      * <p>The single place that decision is made, because three things have to agree on it: what is drawn
      * ({@link #buildTags}), what is compared to detect staleness ({@link #signatureOf}), and which team the player
      * is put on ({@link #teamKeyOf}). If they disagreed, a player who chose a party would keep an unlabelled
      * nametag, or a player who reset would be stuck wearing it.
+     *
+     * <p>A player who has not chosen is drawn as an Anarchist, because {@link FactionId#defaultFaction()} is
+     * Anarchism and that is the party they are subject to everywhere else — tax, land, speed. The tag is the one
+     * surface a player always sees, so it must not read differently from the rules they are actually under.
      */
     private FactionId partyTagOf(UUID player) {
-        return source.hasChosenFaction(player) ? source.factionOf(player) : null;
+        return source.factionOf(player);
     }
 
     /**

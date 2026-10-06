@@ -218,11 +218,6 @@ public class EconomyManager {
             }
 
             @Override
-            public boolean hasChosenFaction(UUID player) {
-                return factions.hasChosen(player);
-            }
-
-            @Override
             public ProfessionId professionOf(UUID player) {
                 return professions.professionOf(player);
             }

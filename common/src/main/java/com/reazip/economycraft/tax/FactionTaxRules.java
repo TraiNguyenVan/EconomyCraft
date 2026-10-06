@@ -16,7 +16,7 @@ import java.util.function.DoubleSupplier;
  * <ul>
  *   <li><strong>Anarchism {@code Tự do}</strong> (spec 34) — a <em>member</em> is exempt from every scope. The
  *       base amount is untouched, so toll fees and purchase prices are still paid; only the tax disappears. A
- *       player who has not chosen a party is not a member of anything and gets no exemption; see
+ *       player who has not chosen is treated as an Anarchist, so they are exempt too; see
  *       {@link #chosenFactionOf}.</li>
  *   <li><strong>Communism {@code Đầu tư công}</strong> (spec 12) — a 50 % chance the <em>toll tax</em> is
  *       waived. The toll owner still receives the fee, because the fee is the base and never a tax.</li>
@@ -113,21 +113,21 @@ public final class FactionTaxRules implements TaxExemption {
     }
 
     /**
-     * The party {@code player} has actually joined, or {@code null} when there is no store to ask or they have
-     * joined nothing.
+     * The party {@code player} is subject to, or {@code null} when there is no store to ask.
      *
-     * <p>The {@code hasChosen} half is load-bearing, and it is why this is not simply {@code factionOf}: the
-     * store's answer for a player with no record is {@link FactionId#defaultFaction()}, which is Anarchism. So a
-     * player who has never been asked would be handed Anarchism's unconditional exemption from every tax scope on
-     * this server — the largest discount in the mod, granted to nobody who asked for it. Every rule here keys on
-     * a choice, and a player who has made no choice gets the unmodified tax.
+     * <p>This is {@link FactionId#defaultFaction()} for a player with no record, so <strong>a player who has not
+     * chosen is treated as an Anarchist</strong> — exempt from every scope, tagged {@code Ⓐ}, and unable to claim.
+     * That is a deliberate policy choice rather than an accident of the default: on a server where nearly every
+     * player has picked a party, the undecided few are not a meaningful group to grant a special exemption to,
+     * and a blank party reads on the tab list as a state nobody chose. Choosing any other party is what lifts the
+     * default. {@code /eco party reset} puts a player back here on purpose.
      *
-     * @return the chosen party, or {@code null} for no store, no player, or no choice
+     * @return the effective party, or {@code null} for no store or no player
      */
     @Nullable
     private FactionId chosenFactionOf(@Nullable UUID player) {
         if (factions == null || player == null) return null;
-        return factions.hasChosen(player) ? factions.factionOf(player) : null;
+        return factions.factionOf(player);
     }
 
     private boolean enabled() {

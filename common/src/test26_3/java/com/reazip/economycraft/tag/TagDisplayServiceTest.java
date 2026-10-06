@@ -45,18 +45,12 @@ class TagDisplayServiceTest {
     private static final class FakeSource implements TagDisplayService.TagSource {
 
         private FactionId faction;
-        private boolean chosen = true;
         private ProfessionId profession;
         private ProfessionLevel level = ProfessionLevel.APPRENTICE;
 
         @Override
         public FactionId factionOf(UUID player) {
             return faction;
-        }
-
-        @Override
-        public boolean hasChosenFaction(UUID player) {
-            return chosen;
         }
 
         @Override
@@ -105,34 +99,37 @@ class TagDisplayServiceTest {
     }
 
     @Test
-    void aPlayerWhoHasNotChosenWearNoPartyTag() {
-        // The store answers Anarchism for anyone who was never asked, so drawing `factionOf` alone would label
-        // every undecided player as an Anarchist — and, since a party is opt-in, that is a false statement about
-        // them rather than a default. The tab list, the nametag and the team key must all agree on this.
+    void aPlayerWhoHasNotChosenWearsTheAnarchistTag() {
+        // The store answers Anarchism for anyone who was never asked, and the tag follows the party a player
+        // is actually subject to - tax, land and speed all read the same id. A tag that disagreed with the
+        // rules would be the one surface every player always sees telling them something false.
         source.faction = FactionId.ANARCHISM;
-        source.chosen = false;
+        assertEquals(1, service.tagsOf(PLAYER).size());
 
-        assertTrue(service.tagsOf(PLAYER).isEmpty());
-        assertEquals("", plain(service.teamPrefixForTest(PLAYER)));
-        assertNull(service.tabRowFor(PLAYER, Component.literal("Steve")));
-        assertEquals("ec_no_no", service.teamKeyOf(PLAYER));
-
-        // Choosing is what puts the tag back, and it is the sweep that notices without anyone calling refresh().
-        source.chosen = true;
+        // Switching party is what changes it, and it is the sweep that notices without anyone calling refresh().
+        source.faction = FactionId.COMMUNISM;
         assertTrue(service.isStale(PLAYER));
         service.revalidate(PLAYER);
         assertEquals(1, service.tagsOf(PLAYER).size());
     }
 
     @Test
-    void aProfessionSurvivesHavingNoParty() {
-        // The mirror of the rule above: choosing a job is a real choice and its tag is shown, while the party
-        // slot stays empty rather than being filled in from the default.
+    void noPartySystemMeansNoTags() {
+        // The one genuinely tagless state: no backend, so factionOf is null. Not the same as "undecided".
+        source.faction = null;
+        assertTrue(service.tagsOf(PLAYER).isEmpty());
+        assertEquals("", plain(service.teamPrefixForTest(PLAYER)));
+        assertNull(service.tabRowFor(PLAYER, Component.literal("Steve")));
+        assertEquals("ec_no_no", service.teamKeyOf(PLAYER));
+    }
+
+    @Test
+    void aProfessionIsDrawnAlongsideWhicheverPartyThePlayerReadsAs() {
+        // Choosing a job is a real choice and its tag is shown, next to the party tag rather than instead of it.
         source.faction = FactionId.ANARCHISM;
-        source.chosen = false;
         source.profession = ProfessionId.BUILDER;
 
-        assertEquals(1, service.tagsOf(PLAYER).size());
+        assertEquals(2, service.tagsOf(PLAYER).size());
         assertEquals(ProfessionId.BUILDER.displayName(), labelOf());
     }
 
@@ -237,7 +234,6 @@ class TagDisplayServiceTest {
     @Test
     void aPartyTagIsOneRunInItsOwnColourAndIsNeverMastered() {
         source.faction = FactionId.MONARCHY;
-        source.chosen = true;
         source.profession = null;
 
         TagStyle.Tagged party = service.tagsOf(PLAYER).get(0);
