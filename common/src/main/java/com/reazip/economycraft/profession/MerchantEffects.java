@@ -105,6 +105,18 @@ public final class MerchantEffects {
     /**
      * Applies the Lưỡi không xương discount to a villager's active offers for the viewing player.
      * Only applies when right-clicking a villager with a job.
+     *
+     * <p><b>Call this from inside {@code Villager#updateSpecialPrices}, at its RETURN</b> — not from the
+     * trading menu. Vanilla recomputes every offer's {@code specialPriceDiff} in that method, and it starts
+     * by zeroing the whole field ({@code resetSpecialPrices()}) before re-applying the reputation and
+     * Hero of the Village discounts. A discount written from anywhere else is therefore wiped the next
+     * time the villager reprices — on restock, on a gossip transfer, on a reputation change, or on a
+     * level-up — which is why a menu-open hook makes the buff work for exactly one trade.
+     *
+     * <p>Because vanilla zeroes first and this only ever <em>adds</em>, the result is additive: reputation,
+     * Hero of the Village and Lưỡi không xương all stack instead of overwriting one another, and the
+     * {@code Mth.clamp(..., 1, maxStackSize)} in {@code MerchantOffer#getModifiedCostCount} still floors a
+     * stacked cost at 1 item.
      */
     public static void applyVillagerTradeDiscount(@Nullable ServerPlayer player, @Nullable Merchant trader) {
         if (player == null || trader == null) return;
@@ -114,6 +126,10 @@ public final class MerchantEffects {
 
     /**
      * Applies the Lưỡi không xương discount directly to the offer list.
+     *
+     * <p>Additive on purpose: whatever discount the villager already granted (reputation, Hero of the
+     * Village) stays in {@code specialPriceDiff} and this is subtracted on top of it. Requires the caller
+     * to have just reset the field, which {@code updateSpecialPrices} does.
      */
     public static void applyVillagerTradeDiscount(@Nullable ServerPlayer player, @Nullable MerchantOffers offers) {
         if (player == null || offers == null) return;
@@ -133,15 +149,4 @@ public final class MerchantEffects {
         }
     }
 
-    /** Resets any active special price diffs when trading closes. */
-    public static void resetVillagerTradeDiscount(@Nullable MerchantOffers offers) {
-        if (offers == null) return;
-        try {
-            for (MerchantOffer offer : offers) {
-                offer.resetSpecialPriceDiff();
-            }
-        } catch (Exception ignored) {
-            // Must not disrupt trade closing
-        }
     }
-}

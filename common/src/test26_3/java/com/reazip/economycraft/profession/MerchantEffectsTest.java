@@ -265,8 +265,95 @@ class MerchantEffectsTest {
         assertEquals(17, offer.getCostA().getCount(), "Modified cost should be 20 - 3 = 17");
 
         // Reset restores original price
-        MerchantEffects.resetVillagerTradeDiscount(offers);
+        offer.resetSpecialPriceDiff();
         assertEquals(0, offer.getSpecialPriceDiff());
         assertEquals(20, offer.getCostA().getCount(), "Reset restores original cost to 20");
+    }
+
+    /**
+     * The discount must be re-applied on every reprice, because vanilla zeroes specialPriceDiff first.
+     * This is the regression guard for "the buff only applies to the first trade": simulate vanilla's
+     * reset+recompute happening repeatedly and assert the discount is present every single time.
+     */
+    @Test
+    void discountSurvivesEveryVanillaReprice() {
+        MerchantOffer offer = new MerchantOffer(
+                new ItemCost(Items.EMERALD, 20), Optional.empty(), new ItemStack(Items.DIAMOND_SWORD, 1), 0, 12, 10, 0.05F
+        );
+        MerchantOffers offers = new MerchantOffers();
+        offers.add(offer);
+
+        double rate = 0.15D;
+
+        for (int trade = 1; trade <= 5; trade++) {
+            // Exactly what Villager#updateSpecialPrices does: zero the field, then add vanilla discounts.
+            offer.resetSpecialPriceDiff();
+
+            // ...and then the mod's hook at RETURN.
+            int discount = MerchantEffects.calculateOfferDiscount(offer.getBaseCostA().getCount(), rate);
+            if (discount > 0) {
+                offer.addToSpecialPriceDiff(-discount);
+            }
+
+            assertEquals(-3, offer.getSpecialPriceDiff(),
+                    "Trade " + trade + " must still carry the discount after a reprice");
+            assertEquals(17, offer.getCostA().getCount(),
+                    "Trade " + trade + " must cost 17, not the base 20");
+        }
+    }
+
+    /**
+     * The Merchant discount must stack with the villager's own discounts (reputation, Hero of the
+     * Village), never replace them. Vanilla grants those before our hook runs, so ours is purely additive.
+     */
+    @Test
+    void merchantDiscountStacksWithVillagerDiscounts() {
+        MerchantOffer offer = new MerchantOffer(
+                new ItemCost(Items.EMERALD, 20), Optional.empty(), new ItemStack(Items.DIAMOND_SWORD, 1), 0, 12, 10, 0.05F
+        );
+
+        // Vanilla: reputation + Hero of the Village, e.g. -2 and -6.
+        offer.resetSpecialPriceDiff();
+        offer.addToSpecialPriceDiff(-2);
+        offer.addToSpecialPriceDiff(-6);
+        assertEquals(-8, offer.getSpecialPriceDiff());
+
+        // Mod: 15% of 20 = 3, added on top rather than overwriting.
+        int discount = MerchantEffects.calculateOfferDiscount(offer.getBaseCostA().getCount(), 0.15D);
+        offer.addToSpecialPriceDiff(-discount);
+
+        assertEquals(-11, offer.getSpecialPriceDiff(), "Both discounts must be present, neither replaced");
+        assertEquals(9, offer.getCostA().getCount(), "20 - 8 - 3 = 9");
+    }
+
+    /** A fully stacked discount must never drive the cost below 1 item. */
+    @Test
+    void stackedDiscountsNeverDropCostBelowOne() {
+        MerchantOffer offer = new MerchantOffer(
+                new ItemCost(Items.EMERALD, 3), Optional.empty(), new ItemStack(Items.BREAD, 1), 0, 12, 10, 0.05F
+        );
+
+        offer.resetSpecialPriceDiff();
+        offer.addToSpecialPriceDiff(-2);   // reputation
+        offer.addToSpecialPriceDiff(-3);   // Hero of the Village
+
+        int discount = MerchantEffects.calculateOfferDiscount(offer.getBaseCostA().getCount(), 0.15D);
+        offer.addToSpecialPriceDiff(-discount);
+
+        assertTrue(offer.getSpecialPriceDiff() < 0, "discounts accumulate");
+        assertEquals(1, offer.getCostA().getCount(), "clamped at 1, never 0 or negative");
+    }
+
+    /** Non-merchants must not alter prices at all, so the hook is a no-op for them. */
+    @Test
+    void nonMerchantRateLeavesPriceUntouched() {
+        MerchantOffer offer = new MerchantOffer(
+                new ItemCost(Items.EMERALD, 20), Optional.empty(), new ItemStack(Items.DIAMOND_SWORD, 1), 0, 12, 10, 0.05F
+        );
+
+        offer.resetSpecialPriceDiff();
+        assertEquals(0, MerchantEffects.calculateOfferDiscount(offer.getBaseCostA().getCount(), 0.0D),
+                "a 0% rate yields no discount, so applyVillagerTradeDiscount returns early");
+        assertEquals(20, offer.getCostA().getCount());
     }
 }

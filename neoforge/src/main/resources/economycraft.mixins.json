@@ -12,7 +12,7 @@
     "ProfessionCraftMixin",
     "ProfessionSmeltMixin",
     "ProfessionTradeMixin",
-    "ProfessionMerchantMenuMixin",
+    "ProfessionVillagerPricesMixin",
     "ProfessionCombatMixin"
   ],
   "injectors": {
