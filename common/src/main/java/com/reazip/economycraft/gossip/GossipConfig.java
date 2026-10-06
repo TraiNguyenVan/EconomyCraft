@@ -174,6 +174,10 @@ public record GossipConfig(
             in.beginObject();
             while (in.hasNext()) {
                 String name = in.nextName();
+                if (in.peek() == com.google.gson.stream.JsonToken.NULL) {
+                    in.nextNull();
+                    continue;
+                }
                 switch (name) {
                     case "enabled" -> enabled = in.nextBoolean();
                     case "api_key" -> apiKey = in.nextString();

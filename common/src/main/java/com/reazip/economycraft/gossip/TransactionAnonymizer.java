@@ -28,21 +28,21 @@ public final class TransactionAnonymizer {
     private static final Pattern CONTROL_CHARS_PATTERN =
             Pattern.compile("[\\p{Cntrl}&&[^\r\n\t]]");
     private static final Pattern ZERO_WIDTH_CHARS_PATTERN =
-            Pattern.compile("[\u200B-\u200D\uFEFF\u00AD\u200E\u200F\u2028\u2029]");
+            Pattern.compile("[\u200B-\u200D\uFEFF\u00AD\u200E\u200F]");
     private static final Pattern LINE_BREAKS_PATTERN =
-            Pattern.compile("[\r\n\t]+");
+            Pattern.compile("[\r\n\t\u2028\u2029]+");
     private static final Pattern MULTIPLE_SPACES_PATTERN =
             Pattern.compile("\\s{2,}");
     private static final Pattern INSTRUCTION_OVERRIDE_PATTERN = Pattern.compile(
             "(?i)\\b(ignore|disregard|forget|override|bypass)\\b[\\s\\S]{0,35}\\b(previous|prior|earlier|above|system|all)\\b[\\s\\S]{0,35}\\b(instructions?|prompts?|rules?|commands?|guidelines?)\\b");
     private static final Pattern ROLE_MARKER_PATTERN = Pattern.compile(
-            "(?i)(^|[\\s\\[<(])(system|assistant|user|developer|admin|moderator)\\s*[:\\]>)]+\\s*");
+            "(?i)(^|[\\s\\[<(])(system|assistant|user|developer|admin|moderator|model)\\s*[:\\]>)]+\\s*");
     private static final Pattern CODE_FENCE_PATTERN = Pattern.compile(
             "```[a-zA-Z]*");
     private static final Pattern SPECIAL_TOKEN_PATTERN = Pattern.compile(
             "<\\|?[a-zA-Z0-9_.-]+\\|?>");
     private static final Pattern PROMPT_LEAK_PATTERN = Pattern.compile(
-            "(?i)\\b(output|print|repeat|leak|reveal|show)\\b[\\s\\S]{0,25}\\b(system\\s+prompt|instructions?|hidden\\s+rules?)\\b");
+            "(?i)\\b(output|print|repeat|leak|reveal|show)\\b[\\s\\S]{0,25}\\b(system\\s+prompts?|earlier\\s+prompts?|instructions?|hidden\\s+rules?)\\b");
 
     // --- Archetype Catalogs ---
     public static final String[] CAPITALISM_RICH = {

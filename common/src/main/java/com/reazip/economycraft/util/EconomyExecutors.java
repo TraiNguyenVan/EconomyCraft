@@ -13,4 +13,12 @@ public final class EconomyExecutors {
             return t;
         });
     }
+
+    public static java.util.concurrent.ScheduledExecutorService newSingleThreadScheduledExecutor(String threadName) {
+        return Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, threadName);
+            t.setDaemon(true);
+            return t;
+        });
+    }
 }

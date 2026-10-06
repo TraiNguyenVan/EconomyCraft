@@ -28,6 +28,31 @@ public final class TransactionLogReader {
         return CompletableFuture.supplyAsync(() -> readForPlayer(dir, player), EXECUTOR);
     }
 
+    public static CompletableFuture<List<TransactionEntry>> readRecentAsync(Path dir, int maxEntries) {
+        return CompletableFuture.supplyAsync(() -> readRecent(dir, maxEntries), EXECUTOR);
+    }
+
+    public static List<TransactionEntry> readRecent(Path dir, int maxEntries) {
+        List<TransactionEntry> entries = new ArrayList<>();
+        for (Path file : sortedLogFilesNewestFirst(dir)) {
+            List<String> lines;
+            try {
+                lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                LOGGER.warn("[EconomyCraft] Failed to read transaction log {}", file, e);
+                continue;
+            }
+            for (int i = lines.size() - 1; i >= 0; i--) {
+                TransactionEntry entry = parseLine(lines.get(i));
+                if (entry != null) {
+                    entries.add(entry);
+                    if (entries.size() >= maxEntries) return entries;
+                }
+            }
+        }
+        return entries;
+    }
+
     public static List<TransactionEntry> readForPlayer(Path dir, UUID player) {
         List<TransactionEntry> entries = new ArrayList<>();
         for (Path file : sortedLogFilesNewestFirst(dir)) {

@@ -29,6 +29,8 @@ import org.slf4j.Logger;
 
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
+import com.reazip.economycraft.gossip.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.Locale;
 
 public final class EconomyCraft {
@@ -38,6 +40,12 @@ public final class EconomyCraft {
     private static volatile EconomyManager manager;
     private static volatile MinecraftServer lastServer;
     private static final int EXPIRATION_CHECK_INTERVAL_TICKS = 20 * 60;
+
+    private static final AtomicReference<GossipPool> GOSSIP_POOL =
+            new AtomicReference<>(GossipPool.empty());
+    private static final CooldownTracker GOSSIP_COOLDOWN_TRACKER =
+            new CooldownTracker();
+    private static volatile GossipDigestWorker gossipWorker;
 
     public static void registerEvents() {
         if (EconomyCraftApiBootstrap.INITIALIZED == null) {
@@ -50,9 +58,49 @@ public final class EconomyCraft {
             EconomyCommands.register(dispatcher, registry, selection);
         });
 
-        LifecycleEvent.SERVER_STARTED.register(EconomyCraft::getManager);
+        // Initialize and register Villager gossip interaction listener
+        VillagerGossipListener.init(
+                GOSSIP_POOL,
+                GOSSIP_COOLDOWN_TRACKER,
+                () -> {
+                    var cfg = EconomyConfig.get();
+                    return cfg != null ? cfg.geminiGossip : GossipConfig.createDefault();
+                }
+        );
+        VillagerGossipListener.register();
+
+        LifecycleEvent.SERVER_STARTED.register(server -> {
+            EconomyCraft.getManager(server);
+            try {
+                var config = EconomyConfig.get().geminiGossip;
+                if (config != null && config.enabled()) {
+                    var client = new GeminiClient(config);
+                    gossipWorker = new GossipDigestWorker(
+                            server,
+                            config,
+                            client,
+                            GOSSIP_POOL,
+                            GOSSIP_COOLDOWN_TRACKER
+                    );
+                    gossipWorker.start();
+                    LOGGER.info("[EconomyCraft] Gemini Villager Gossip initialized (model: {}, interval: {}m)",
+                            config.model(), config.refreshIntervalMinutes());
+                }
+            } catch (Exception e) {
+                LOGGER.warn("[EconomyCraft] Failed to start Gemini Villager Gossip worker", e);
+            }
+        });
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
+            if (gossipWorker != null) {
+                try {
+                    gossipWorker.stop();
+                } catch (Exception e) {
+                    LOGGER.warn("[EconomyCraft] Error stopping Gemini gossip worker", e);
+                } finally {
+                    gossipWorker = null;
+                }
+            }
             if (manager != null && lastServer == server) {
                 manager.deactivate();
                 manager.save();
@@ -63,6 +111,18 @@ public final class EconomyCraft {
         PlayerEvent.PLAYER_JOIN.register(EconomyCraft::onPlayerJoin);
         PlayerEvent.PLAYER_QUIT.register(EconomyCraft::onPlayerQuit);
         TickEvent.SERVER_POST.register(EconomyCraft::onServerTick);
+    }
+
+    public static AtomicReference<GossipPool> getGossipPool() {
+        return GOSSIP_POOL;
+    }
+
+    public static CooldownTracker getGossipCooldownTracker() {
+        return GOSSIP_COOLDOWN_TRACKER;
+    }
+
+    public static @Nullable GossipDigestWorker getGossipWorker() {
+        return gossipWorker;
     }
 
     private static void onServerTick(MinecraftServer server) {

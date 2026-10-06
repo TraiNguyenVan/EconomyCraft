@@ -85,6 +85,13 @@ public class GeminiClient {
         return consecutiveFailures.get();
     }
 
+    public CompletableFuture<Optional<GossipPool>> generateRumors(@org.jetbrains.annotations.Nullable TransactionDigest digest) {
+        if (digest == null) {
+            return generateRumors("The village market is quiet with standard trade activity.");
+        }
+        return generateRumors(digest.toPromptContext());
+    }
+
     public CompletableFuture<Optional<GossipPool>> generateRumors(String economicContext) {
         String apiKey = config.getEffectiveApiKey();
         if (!config.enabled() || apiKey == null || apiKey.isBlank()) {
