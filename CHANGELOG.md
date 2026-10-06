@@ -3,6 +3,33 @@
 All notable changes to EconomyCraft are documented here. This file is the `changelog-file` consumed by
 `.github/workflows/release.yml`, so a release published without updating it ships an empty changelog body.
 
+## Unreleased — An undecided player is an Anarchist
+
+`FactionId.defaultFaction()` is Anarchism, so a player who has never run `/eco party` already *is* one as far
+as the store is concerned. Until now three of the four party rules read the **record** instead of the id, so
+that player paid full tax, wore no tag and got no speed bonus while being refused land — a state that reads as
+a bug on the tab list. All four rules now key on the effective id.
+
+### Changed
+- **Taxes** — an undecided player is exempt from every scope, exactly like a member of Anarchism. Previously
+  they paid full tax in all of them.
+- **Tags** — an undecided player wears `Ⓐ` on the tab list and the nametag. The tag follows the party a player
+  is actually subject to; it is the one surface every player always sees, so it must not disagree with the
+  rules. `TagDisplayService.TagSource` loses `hasChosenFaction` for this reason.
+- **Speed** — Anarchism's +15 % on unclaimed land and horses applies to an undecided player.
+
+Choosing a party lifts all of it, and `/eco party reset` restores the default on purpose.
+
+### Unchanged, deliberately
+- `FactionStore.hasChosen` and `FactionApi.hasChosen` still exist. The store's rule 1 — reading a player's
+  party must not create a choice — depends on them, as does the party menu's
+  `current: Vô chế [mặc định]` line, which is a statement about the *choice* rather than about the party.
+- A corrupt save still fails open: `hasChosen` is `false` for an unreadable record, and the tag layer no longer
+  consults it.
+
+The land side of this — an undecided player being refused claims, and land they already hold being released and
+refunded — lives in `shopguard`, which was changed to match.
+
 ## Unreleased — Price offers hub
 
 Price offers — the non-binding bids a player can leave on someone else's auction listing or order
