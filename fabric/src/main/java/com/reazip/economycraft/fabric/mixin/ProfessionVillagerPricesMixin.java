@@ -19,6 +19,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * the client has already been told the undiscounted prices. So the injection sits immediately before the
  * {@code getTradingPlayer()} call that guards the send: after vanilla's reset, before the packet.
  *
+ * <p>The {@code @At} target names the method without an owner: javac emits a bare
+ * {@code getTradingPlayer()} for this call site, so a target qualified with the declaring class
+ * ({@code AbstractVillager}) scans zero instructions and the game refuses to boot with an
+ * InjectionError. Verified against the decompiled bytecode rather than assumed.
+ *
  * <p>That placement also fixes the buff lasting only one trade. Vanilla re-runs this method on every
  * restock, gossip transfer, reputation change and level-up; applying here means the discount is re-added
  * each time rather than needing the trading menu reopened.
@@ -33,7 +38,7 @@ abstract class ProfessionVillagerPricesMixin {
             method = "updateSpecialPrices",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/world/entity/npc/villager/AbstractVillager;getTradingPlayer()Lnet/minecraft/world/entity/player/Player;",
+                    target = "Lnet/minecraft/world/entity/npc/villager/Villager;getTradingPlayer()Lnet/minecraft/world/entity/player/Player;",
                     shift = At.Shift.BEFORE
             )
     )
