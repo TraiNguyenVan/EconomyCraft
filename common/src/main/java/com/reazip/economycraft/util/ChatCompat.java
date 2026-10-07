@@ -78,6 +78,24 @@ public final class ChatCompat {
         return null;
     }
 
+    public static ClickEvent openUrlEvent(String url) {
+        try {
+            return new ClickEvent.OpenUrl(java.net.URI.create(url));
+        } catch (Throwable t) {
+            LOGGER.debug("[ChatCompat] OpenUrl creation failed for {}: {}", url, t.getMessage());
+            return null;
+        }
+    }
+
+    public static net.minecraft.network.chat.HoverEvent showTextHoverEvent(Component text) {
+        try {
+            return new net.minecraft.network.chat.HoverEvent.ShowText(text);
+        } catch (Throwable t) {
+            LOGGER.debug("[ChatCompat] ShowText hover event creation failed: {}", t.getMessage());
+            return null;
+        }
+    }
+
     public static void sendRunCommandTellraw(ServerPlayer target, String prefixText, String labelText, String cmd) {
         try {
             String json = getJson(prefixText, labelText, cmd);

@@ -122,6 +122,12 @@ public class EconomyConfig {
     @SerializedName("gemini_gossip")
     public GossipConfig geminiGossip = GossipConfig.createDefault();
 
+    /**
+     * In-game login MOTD displayed to players when connecting.
+     */
+    @SerializedName("motd")
+    public com.reazip.economycraft.config.MotdSection motd = new com.reazip.economycraft.config.MotdSection();
+
     public static final int MIN_TRANSACTION_LOG_RETENTION_DAYS = 1;
     public static final int WARN_TRANSACTION_LOG_RETENTION_DAYS = 90;
     public static final double MAX_DYNAMIC_PRICE_MULTIPLIER = 100.0;
@@ -179,10 +185,12 @@ public class EconomyConfig {
             parsed.professions = requireSection("professions", parsed.professions, ProfessionsSection::new);
             parsed.quests = requireSection("quests", parsed.quests, QuestsSection::new);
             parsed.geminiGossip = requireSection("gemini_gossip", parsed.geminiGossip, GossipConfig::createDefault);
+            parsed.motd = requireSection("motd", parsed.motd, com.reazip.economycraft.config.MotdSection::new);
             parsed.factions.clamp();
             parsed.professions.clamp();
             parsed.quests.clamp();
             parsed.geminiGossip = parsed.geminiGossip.clamped();
+            parsed.motd.clamp();
             INSTANCE = parsed;
             normalizeDynamicPriceBounds();
         } catch (Exception e) {

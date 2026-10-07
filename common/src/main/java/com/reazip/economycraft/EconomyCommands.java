@@ -196,6 +196,9 @@ public final class EconomyCommands {
         root.then(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s -> EconomyConfig.get().worthEnabled), Nodes.COMMAND_WORTH));
         root.then(buildGossip().requires(EconomyPermissions::hasAnyAdmin));
+        root.then(literal("motd").executes(ctx -> showMotd(ctx.getSource())));
+        root.then(literal("reload").requires(EconomyPermissions::hasAnyAdmin)
+                .executes(ctx -> reloadAll(ctx.getSource())));
 
         root.then(addMoney);
         root.then(setMoney);
@@ -1483,6 +1486,32 @@ public final class EconomyCommands {
                     });
                 });
 
+        return 1;
+    }
+
+    private static int showMotd(CommandSourceStack source) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player != null) {
+            com.reazip.economycraft.motd.MotdService.sendMotd(player);
+        } else {
+            var cfg = EconomyConfig.get().motd;
+            if (cfg != null && cfg.lines != null) {
+                for (String line : cfg.lines) {
+                    source.sendSuccess(() -> com.reazip.economycraft.motd.MotdFormatter.formatLine(line), false);
+                }
+            }
+        }
+        return 1;
+    }
+
+    private static int reloadAll(CommandSourceStack source) {
+        MinecraftServer server = source.getServer();
+        server.execute(() -> {
+            EconomyCraft.reloadFromDisk(server);
+            EconomyCraft.reloadGossipService(server);
+            resyncCommands(server);
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft] Reloaded configuration from disk.").withStyle(ChatFormatting.GREEN), false);
+        });
         return 1;
     }
 

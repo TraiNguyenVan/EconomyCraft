@@ -192,6 +192,7 @@ public final class EconomyCraft {
 
     private static void onServerTick(MinecraftServer server) {
         TollHud.tick(server);
+        com.reazip.economycraft.motd.MotdService.tick(server);
         // D20's removal half: the break hook only fires on ticks where a mining packet arrived, so without this
         // a player who stops mid-block would keep the bridged window's worth of Haste indefinitely.
         ProfessionHaste.expireStale(server, server.getTickCount());
@@ -273,6 +274,8 @@ public final class EconomyCraft {
             if (EconomyPaths.hasSharedFolder(server)) {
                 sendPrompt(player, "Found an older EconomyCraft setup. ", "[Import]", "/eco import");
             }
+
+            com.reazip.economycraft.motd.MotdService.scheduleOnJoin(player);
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to set up {} on join", player.getName().getString(), e);
         }
@@ -286,6 +289,7 @@ public final class EconomyCraft {
      * state, and a tag is derived from it.
      */
     private static void onPlayerQuit(ServerPlayer player) {
+        com.reazip.economycraft.motd.MotdService.onPlayerQuit(player);
         // Drop the Haste refresh bookkeeping; a reconnect starts clean rather than inheriting a stale window.
         ProfessionHaste.forget(player.getUUID());
         FactionEffects.forget(player);

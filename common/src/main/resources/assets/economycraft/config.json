@@ -237,6 +237,16 @@
     "dialogue_system_instruction": "Dialogue Instructions:\n1. Keep it short and easy to understand: most lines should be under 15 words. Avoid overly complex prose or purple vocabulary.\n2. Speak in exactly 1 concise, conversational sentence matching your personality, quirk, and relationship with this player.\n3. Address the player or your past memories directly when appropriate.\n4. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.\n5. Respond strictly with valid JSON with fields:\n   {\n     \"dialogue\": \"<your concise line>\",\n     \"sentiment_delta\": <-2 to 5 integer>\n   }",
     "pool_size_per_category": 3,
     "base_url": "https://generativelanguage.googleapis.com"
+  },
+  "motd": {
+    "enabled": true,
+    "delay_ticks": 40,
+    "lines": [
+      "&8&m----------------------------------------",
+      "&6Hello &e{player}&6!",
+      "&7If you want to share any ideas, create an issue at: &bhttps://github.com/TraiNguyenVan/EconomyCraft/issues",
+      "&8&m----------------------------------------"
+    ]
   }
 }
 
