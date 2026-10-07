@@ -184,20 +184,6 @@ public final class VillagerGossipListener {
             if (passesChance(chanceRollSupplier.getAsDouble(), config.privateChatChance())) {
                 if (memoryService != null) {
                     memoryService.handleInteraction(serverPlayer, villager);
-                } else if (!config.publicChat()) {
-                    // Fallback: if memory service is inactive and publicChat is disabled, send generic rumor privately
-                    GossipPool pool = poolSupplier.get();
-                    if (pool != null && !pool.isEmpty()) {
-                        GossipCategory category = ProfessionMapper.fromEntity(villager);
-                        String rumor = pool.getNextRoundRobinRumor(category);
-                        if (rumor != null && !rumor.isBlank()) {
-                            if (recentSpokenTracker != null) {
-                                recentSpokenTracker.recordSpoken(rumor);
-                            }
-                            Component message = formatRumor(villager, rumor);
-                            serverPlayer.sendSystemMessage(message);
-                        }
-                    }
                 }
             }
 
@@ -211,11 +197,8 @@ public final class VillagerGossipListener {
 
                 if (worker != null) {
                     worker.generateDynamicRumor(category).thenAccept(optRumor -> {
-                        String rumor = optRumor.orElseGet(() -> {
-                            GossipPool pool = poolSupplier.get();
-                            return (pool != null && !pool.isEmpty()) ? pool.getNextRoundRobinRumor(category) : null;
-                        });
-                        if (rumor != null && !rumor.isBlank()) {
+                        if (optRumor.isPresent() && !optRumor.get().isBlank()) {
+                            String rumor = optRumor.get();
                             if (recentSpokenTracker != null) {
                                 recentSpokenTracker.recordSpoken(rumor);
                             }
@@ -227,22 +210,6 @@ public final class VillagerGossipListener {
                             }
                         }
                     });
-                } else {
-                    GossipPool pool = poolSupplier.get();
-                    if (pool != null && !pool.isEmpty()) {
-                        String rumor = pool.getNextRoundRobinRumor(category);
-                        if (rumor != null && !rumor.isBlank()) {
-                            if (recentSpokenTracker != null) {
-                                recentSpokenTracker.recordSpoken(rumor);
-                            }
-                            Component message = formatRumor(villager, rumor);
-                            if (server != null) {
-                                server.getPlayerList().broadcastSystemMessage(message, false);
-                            } else {
-                                serverPlayer.sendSystemMessage(message);
-                            }
-                        }
-                    }
                 }
             }
         } catch (Throwable t) {

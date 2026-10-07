@@ -137,7 +137,7 @@ public class GossipDigestWorker {
     }
 
     /**
-     * Starts the periodic digest schedule.
+     * Starts the worker in on-demand dynamic mode (no background cron scheduler).
      */
     public synchronized void start() {
         if (running) return;
@@ -148,15 +148,7 @@ public class GossipDigestWorker {
             return;
         }
 
-        long intervalMinutes = Math.max(5, config.refreshIntervalMinutes());
-        // Run first cycle with an initial delay of 10 seconds to allow world initialization, then repeat
-        scheduledFuture = executor.scheduleAtFixedRate(
-                this::runDigestCycle,
-                10,
-                intervalMinutes * 60,
-                TimeUnit.SECONDS
-        );
-        LOGGER.info("[EconomyCraft-AI] Gossip digest worker started (interval: {}m)", intervalMinutes);
+        LOGGER.info("[EconomyCraft-AI] Gossip digest worker started in on-demand dynamic mode.");
     }
 
     /**
