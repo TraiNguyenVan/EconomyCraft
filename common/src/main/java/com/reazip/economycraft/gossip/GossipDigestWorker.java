@@ -13,8 +13,10 @@ import org.slf4j.Logger;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -34,6 +36,8 @@ import java.util.function.Supplier;
 public class GossipDigestWorker {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int DEFAULT_MAX_EVENTS = 30;
+    public static final Duration DEFAULT_MAX_LOOKBACK = Duration.ofHours(2);
+    public static final double HALF_LIFE_MINUTES = 30.0;
 
     private final GossipConfig config;
     private final GossipApiClient apiClient;
@@ -170,7 +174,7 @@ public class GossipDigestWorker {
                     rawEntries,
                     DEFAULT_MAX_EVENTS,
                     inflation,
-                    Duration.ofHours(24),
+                    DEFAULT_MAX_LOOKBACK,
                     config.anonymizePlayers(),
                     factionResolver
             );
@@ -224,6 +228,33 @@ public class GossipDigestWorker {
     }
 
     /**
+     * Asynchronously generates a fresh, unique single economic rumor on demand
+     * using the latest time-decayed transactions.
+     */
+    public CompletableFuture<Optional<String>> generateDynamicRumor(GossipCategory category) {
+        if (!config.enabled() || config.getEffectiveApiKey().isBlank() || apiClient.isCircuitOpen()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+
+        Path logsDir = logsDirSupplier.get();
+        List<TransactionEntry> rawEntries = logsDir != null
+                ? TransactionLogReader.readRecent(logsDir, 200)
+                : List.of();
+
+        double inflation = inflationSupplier.getAsDouble();
+        TransactionDigest digest = buildDigest(
+                rawEntries,
+                DEFAULT_MAX_EVENTS,
+                inflation,
+                DEFAULT_MAX_LOOKBACK,
+                config.anonymizePlayers(),
+                factionResolver
+        );
+
+        return apiClient.generateSingleRumor(category, digest.toPromptContext());
+    }
+
+    /**
      * Computes the economic significance score of a transaction for prompt prioritization.
      */
     public static double calculateSignificance(@Nullable TransactionEntry entry) {
@@ -252,22 +283,56 @@ public class GossipDigestWorker {
     }
 
     /**
-     * Filters and orders transactions by descending economic significance.
+     * Computes the economic significance score decayed exponentially over time.
+     * Transactions lose half their significance every 30 minutes, and transactions
+     * older than the 2-hour lookback window receive a score of 0.0.
+     */
+    public static double calculateDecayedSignificance(@Nullable TransactionEntry entry, Instant now) {
+        if (entry == null || entry.amount() == 0) return 0.0;
+        Instant time = entry.time();
+        if (time == null) {
+            time = now;
+        }
+        Duration age = Duration.between(time, now);
+        if (age.isNegative()) {
+            age = Duration.ZERO;
+        }
+        if (age.compareTo(DEFAULT_MAX_LOOKBACK) > 0) {
+            return 0.0;
+        }
+        double base = calculateSignificance(entry);
+        double minutes = age.toMillis() / 60_000.0;
+        double decayFactor = Math.pow(0.5, minutes / HALF_LIFE_MINUTES);
+        return base * decayFactor;
+    }
+
+    /**
+     * Filters and orders transactions by descending economic significance using current time decay.
      */
     public static List<TransactionEntry> filterSignificant(List<TransactionEntry> entries, int limit) {
+        return filterSignificant(entries, limit, Instant.now());
+    }
+
+    /**
+     * Filters and orders transactions by descending economic significance relative to a reference time.
+     */
+    public static List<TransactionEntry> filterSignificant(List<TransactionEntry> entries, int limit, Instant now) {
         if (entries == null || entries.isEmpty() || limit <= 0) {
             return List.of();
         }
 
         return entries.stream()
                 .filter(e -> e != null && e.amount() != 0)
-                .sorted(Comparator.comparingDouble(GossipDigestWorker::calculateSignificance).reversed())
+                .map(e -> Map.entry(e, calculateDecayedSignificance(e, now)))
+                .filter(e -> e.getValue() > 0.0)
+                .sorted(Comparator.<Map.Entry<TransactionEntry, Double>>comparingDouble(Map.Entry::getValue).reversed())
                 .limit(limit)
+                .map(Map.Entry::getKey)
                 .toList();
     }
 
     /**
-     * Builds an anonymized TransactionDigest from raw transaction logs.
+     * Builds an anonymized TransactionDigest from raw transaction logs using current time.
      */
     public static TransactionDigest buildDigest(
             List<TransactionEntry> rawEntries,
@@ -277,7 +342,22 @@ public class GossipDigestWorker {
             boolean anonymizePlayers,
             @Nullable Function<UUID, String> factionResolver
     ) {
-        List<TransactionEntry> topEvents = filterSignificant(rawEntries, maxEvents);
+        return buildDigest(rawEntries, maxEvents, inflation, lookbackWindow, anonymizePlayers, factionResolver, Instant.now());
+    }
+
+    /**
+     * Builds an anonymized TransactionDigest from raw transaction logs relative to a reference time.
+     */
+    public static TransactionDigest buildDigest(
+            List<TransactionEntry> rawEntries,
+            int maxEvents,
+            double inflation,
+            Duration lookbackWindow,
+            boolean anonymizePlayers,
+            @Nullable Function<UUID, String> factionResolver,
+            Instant now
+    ) {
+        List<TransactionEntry> topEvents = filterSignificant(rawEntries, maxEvents, now);
         List<String> formatted = TransactionAnonymizer.formatDigest(topEvents, anonymizePlayers, factionResolver);
         return new TransactionDigest(lookbackWindow, topEvents.size(), inflation, formatted);
     }

@@ -250,6 +250,201 @@ public class GossipApiClient {
                 });
     }
 
+    /**
+     * Asynchronously generates a single in-character economic rumor on demand for a specific profession.
+     */
+    public CompletableFuture<Optional<String>> generateSingleRumor(GossipCategory category, String economicContext) {
+        String apiKey = config.getEffectiveApiKey();
+        if (!config.enabled() || apiKey == null || apiKey.isBlank() || isCircuitOpen()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+
+        boolean isOpenAi = isOpenAiCompatible();
+        String url;
+        String requestJson;
+        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+                .timeout(Duration.ofSeconds(15))
+                .header("Content-Type", "application/json");
+
+        if (isOpenAi) {
+            url = baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions";
+            requestJson = buildOpenAiSingleRumorRequestBody(category, economicContext);
+            reqBuilder.header("Authorization", "Bearer " + apiKey);
+        } else {
+            url = String.format("%s/v1beta/models/%s:generateContent", baseUrl, config.model());
+            requestJson = buildGeminiSingleRumorRequestBody(category, economicContext);
+            reqBuilder.header("x-goog-api-key", apiKey);
+        }
+
+        HttpRequest request = reqBuilder
+                .uri(URI.create(url))
+                .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                .build();
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .<Optional<String>>thenApply(response -> {
+                    if (response.statusCode() == 200) {
+                        Optional<String> rumor = isOpenAi
+                                ? parseOpenAiSingleRumorResponse(response.body())
+                                : parseGeminiSingleRumorResponse(response.body());
+                        if (rumor.isPresent()) {
+                            recordSuccess();
+                            return rumor;
+                        } else {
+                            recordFailure(200, "Empty or blocked single rumor");
+                            return Optional.empty();
+                        }
+                    } else {
+                        recordFailure(response.statusCode(), "HTTP error in single rumor");
+                        return Optional.empty();
+                    }
+                })
+                .exceptionally(ex -> {
+                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
+                    LOGGER.warn("[EconomyCraft-AI] Single rumor request failed: {}", cause.toString());
+                    recordFailure(-1, cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName());
+                    return Optional.empty();
+                });
+    }
+
+    private String buildOpenAiSingleRumorRequestBody(GossipCategory category, String economicContext) {
+        JsonObject root = new JsonObject();
+        root.addProperty("model", config.model());
+        root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 1.5));
+        root.addProperty("max_tokens", 256);
+
+        JsonObject reasoning = new JsonObject();
+        reasoning.addProperty("effort", "none");
+        root.add("reasoning", reasoning);
+
+        JsonObject responseFormat = new JsonObject();
+        responseFormat.addProperty("type", "json_object");
+        root.add("response_format", responseFormat);
+
+        String systemPrompt = String.format(Locale.ROOT,
+                "You are a witty, satirical economic gossip for a %s villager on an economy Minecraft server.\n" +
+                "Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak.\n" +
+                "Always refer to money in dollars ('$'). Never mention real player usernames.\n" +
+                "Based on the recent transactions summary, write exactly ONE short, humorous rumor line (under 25 words) matching your profession.\n" +
+                "If recent market activity is quiet, make a witty remark about stable prices, inflation, or your trade stall.",
+                category.name().toLowerCase(Locale.ROOT));
+
+        JsonArray messages = new JsonArray();
+        JsonObject sysMsg = new JsonObject();
+        sysMsg.addProperty("role", "system");
+        sysMsg.addProperty("content", systemPrompt);
+        messages.add(sysMsg);
+
+        JsonObject userMsg = new JsonObject();
+        userMsg.addProperty("role", "user");
+        userMsg.addProperty("content", (economicContext != null ? economicContext : "The village market is quiet.")
+                + "\n\nRespond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
+        messages.add(userMsg);
+
+        root.add("messages", messages);
+        return GSON.toJson(root);
+    }
+
+    private String buildGeminiSingleRumorRequestBody(GossipCategory category, String economicContext) {
+        JsonObject root = new JsonObject();
+
+        String systemPrompt = String.format(Locale.ROOT,
+                "You are a witty, satirical economic gossip for a %s villager on an economy Minecraft server.\n" +
+                "Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak.\n" +
+                "Always refer to money in dollars ('$'). Never mention real player usernames.\n" +
+                "Based on the recent transactions summary, write exactly ONE short, humorous rumor line (under 25 words) matching your profession.\n" +
+                "If recent market activity is quiet, make a witty remark about stable prices, inflation, or your trade stall.",
+                category.name().toLowerCase(Locale.ROOT));
+
+        JsonObject sysObj = new JsonObject();
+        JsonArray sysParts = new JsonArray();
+        JsonObject sysPart = new JsonObject();
+        sysPart.addProperty("text", systemPrompt);
+        sysParts.add(sysPart);
+        sysObj.add("parts", sysParts);
+        root.add("system_instruction", sysObj);
+
+        JsonArray contents = new JsonArray();
+        JsonObject contentObj = new JsonObject();
+        JsonArray contentParts = new JsonArray();
+        JsonObject textPart = new JsonObject();
+        textPart.addProperty("text", (economicContext != null ? economicContext : "The village market is quiet.")
+                + "\n\nRespond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
+        contentParts.add(textPart);
+        contentObj.add("parts", contentParts);
+        contents.add(contentObj);
+        root.add("contents", contents);
+
+        JsonObject genConfig = new JsonObject();
+        genConfig.addProperty("response_mime_type", "application/json");
+        genConfig.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 1.5));
+        genConfig.addProperty("maxOutputTokens", 256);
+
+        JsonObject thinkingConfig = new JsonObject();
+        thinkingConfig.addProperty("thinkingBudget", 0);
+        genConfig.add("thinkingConfig", thinkingConfig);
+
+        JsonObject schema = new JsonObject();
+        schema.addProperty("type", "OBJECT");
+        JsonObject properties = new JsonObject();
+        JsonObject rumorProp = new JsonObject();
+        rumorProp.addProperty("type", "STRING");
+        properties.add("rumor", rumorProp);
+        JsonArray required = new JsonArray();
+        required.add("rumor");
+        schema.add("properties", properties);
+        schema.add("required", required);
+        genConfig.add("response_schema", schema);
+
+        root.add("generationConfig", genConfig);
+        return GSON.toJson(root);
+    }
+
+    private Optional<String> parseOpenAiSingleRumorResponse(String responseBody) {
+        try {
+            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
+            if (json == null || !json.has("choices")) return Optional.empty();
+            JsonArray choices = json.getAsJsonArray("choices");
+            if (choices.isEmpty()) return Optional.empty();
+            JsonObject first = choices.get(0).getAsJsonObject();
+            if (!first.has("message")) return Optional.empty();
+            JsonObject message = first.getAsJsonObject("message");
+            if (!message.has("content") || message.get("content").isJsonNull()) return Optional.empty();
+            return parseSingleRumorJson(message.get("content").getAsString());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<String> parseGeminiSingleRumorResponse(String responseBody) {
+        try {
+            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
+            if (json == null || !json.has("candidates")) return Optional.empty();
+            JsonArray candidates = json.getAsJsonArray("candidates");
+            if (candidates.isEmpty()) return Optional.empty();
+            JsonObject first = candidates.get(0).getAsJsonObject();
+            if (!first.has("content")) return Optional.empty();
+            JsonArray parts = first.getAsJsonObject("content").getAsJsonArray("parts");
+            if (parts == null || parts.isEmpty()) return Optional.empty();
+            return parseSingleRumorJson(parts.get(0).getAsJsonObject().get("text").getAsString());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    public Optional<String> parseSingleRumorJson(String rawText) {
+        try {
+            String cleanText = extractJsonObject(rawText);
+            JsonObject obj = GSON.fromJson(cleanText, JsonObject.class);
+            if (obj == null || !obj.has("rumor")) return Optional.empty();
+            String rumor = obj.get("rumor").getAsString().trim();
+            return rumor.isEmpty() ? Optional.empty() : Optional.of(rumor);
+        } catch (Exception e) {
+            LOGGER.warn("[EconomyCraft-AI] Failed to parse single rumor JSON: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
     private String buildOpenAiIndividualDialogueRequestBody(String systemPrompt) {
         JsonObject root = new JsonObject();
         root.addProperty("model", config.model());

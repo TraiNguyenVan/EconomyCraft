@@ -71,6 +71,33 @@ class GossipDigestWorkerTest {
     }
 
     @Test
+    @DisplayName("Time decay reduces significance with 30m half-life and drops entries older than 2 hours")
+    void testTimeDecayedSignificance() {
+        Instant now = Instant.now();
+        TransactionEntry fresh = new TransactionEntry(now, BalanceMutationType.PAYMENT_SENT, UUID.randomUUID(), "Alice", null, null, 1000L, 10000L, 9000L, "generic", "fresh_bread");
+        TransactionEntry halfHourOld = new TransactionEntry(now.minus(Duration.ofMinutes(30)), BalanceMutationType.PAYMENT_SENT, UUID.randomUUID(), "Alice", null, null, 1000L, 10000L, 9000L, "generic", "half_hour_bread");
+        TransactionEntry oneHourOld = new TransactionEntry(now.minus(Duration.ofMinutes(60)), BalanceMutationType.PAYMENT_SENT, UUID.randomUUID(), "Alice", null, null, 1000L, 10000L, 9000L, "generic", "one_hour_bread");
+        TransactionEntry threeHoursOld = new TransactionEntry(now.minus(Duration.ofHours(3)), BalanceMutationType.PAYMENT_SENT, UUID.randomUUID(), "Alice", null, null, 1000L, 10000L, 9000L, "generic", "old_bread");
+
+        double freshScore = GossipDigestWorker.calculateDecayedSignificance(fresh, now);
+        double halfHourScore = GossipDigestWorker.calculateDecayedSignificance(halfHourOld, now);
+        double oneHourScore = GossipDigestWorker.calculateDecayedSignificance(oneHourOld, now);
+        double threeHourScore = GossipDigestWorker.calculateDecayedSignificance(threeHoursOld, now);
+
+        assertEquals(1000.0, freshScore, 1e-4);
+        assertEquals(500.0, halfHourScore, 1e-4, "Should lose half weight at 30 minutes");
+        assertEquals(250.0, oneHourScore, 1e-4, "Should lose 75% weight at 60 minutes");
+        assertEquals(0.0, threeHourScore, 1e-4, "Older than 2 hours must be 0.0 (dropped)");
+
+        List<TransactionEntry> list = List.of(threeHoursOld, oneHourOld, fresh);
+        List<TransactionEntry> filtered = GossipDigestWorker.filterSignificant(list, 10, now);
+        assertEquals(2, filtered.size());
+        assertEquals(fresh, filtered.get(0));
+        assertEquals(oneHourOld, filtered.get(1));
+        assertFalse(filtered.contains(threeHoursOld));
+    }
+
+    @Test
     @DisplayName("T017: buildDigest constructs complete prompt digest with anonymization")
     void testBuildDigest() {
         UUID playerId = UUID.randomUUID();

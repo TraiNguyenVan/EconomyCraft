@@ -374,4 +374,36 @@ class GossipApiClientTest {
         List<String> diversified = GossipApiClient.diversifyRumors(naturalLines);
         assertEquals(naturalLines, diversified);
     }
+
+    @Test
+    void testParseSingleRumorJson() {
+        GossipApiClient client = createGeminiClient("key");
+        Optional<String> rumor = client.parseSingleRumorJson("```json\n{\"rumor\": \"Feather prices are soaring today!\"}\n```");
+        assertTrue(rumor.isPresent());
+        assertEquals("Feather prices are soaring today!", rumor.get());
+
+        assertTrue(client.parseSingleRumorJson("{}").isEmpty());
+        assertTrue(client.parseSingleRumorJson("invalid text").isEmpty());
+    }
+
+    @Test
+    void testGenerateSingleRumorGemini() throws Exception {
+        responseStatusCode = 200;
+        responsePayload = """
+        {
+          "candidates": [{
+            "content": {
+              "parts": [{
+                "text": "{\\"rumor\\":\\"Fresh bread selling for $5 a loaf!\\"}"
+              }]
+            }
+          }]
+        }
+        """;
+
+        GossipApiClient client = createGeminiClient("test-key");
+        Optional<String> result = client.generateSingleRumor(GossipCategory.FARMER, "Recent trade activity").join();
+        assertTrue(result.isPresent());
+        assertEquals("Fresh bread selling for $5 a loaf!", result.get());
+    }
 }

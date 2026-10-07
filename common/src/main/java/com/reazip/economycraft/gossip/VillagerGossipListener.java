@@ -38,9 +38,14 @@ public final class VillagerGossipListener {
         return cfg != null ? cfg.geminiGossip : GossipConfig.createDefault();
     };
     private static volatile @Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService memoryService = null;
+    private static volatile @Nullable Supplier<GossipDigestWorker> workerSupplier = null;
     private static volatile java.util.function.DoubleSupplier chanceRollSupplier = () -> java.util.concurrent.ThreadLocalRandom.current().nextDouble();
 
     private VillagerGossipListener() {}
+
+    public static void setWorkerSupplier(@Nullable Supplier<GossipDigestWorker> supplier) {
+        workerSupplier = supplier;
+    }
 
     public static void setChanceRollSupplier(@Nullable java.util.function.DoubleSupplier supplier) {
         chanceRollSupplier = supplier != null ? supplier : () -> java.util.concurrent.ThreadLocalRandom.current().nextDouble();
@@ -172,17 +177,36 @@ public final class VillagerGossipListener {
             if (config.publicChat()
                     && passesChance(chanceRollSupplier.getAsDouble(), config.publicChatChance())
                     && cooldownTracker.tryAcquirePublicBroadcast(cooldownMillis)) {
-                GossipPool pool = poolSupplier.get();
-                if (pool != null && !pool.isEmpty()) {
-                    GossipCategory category = ProfessionMapper.fromEntity(villager);
-                    String rumor = pool.getNextRoundRobinRumor(category);
-                    if (rumor != null && !rumor.isBlank()) {
-                        Component message = formatRumor(villager, "[" + category.name() + "] " + rumor);
-                        MinecraftServer server = serverPlayer.level().getServer();
-                        if (server != null) {
-                            server.getPlayerList().broadcastSystemMessage(message, false);
-                        } else {
-                            serverPlayer.sendSystemMessage(message);
+                GossipCategory category = ProfessionMapper.fromEntity(villager);
+                MinecraftServer server = serverPlayer.level().getServer();
+                GossipDigestWorker worker = workerSupplier != null ? workerSupplier.get() : com.reazip.economycraft.EconomyCraft.getGossipWorker();
+
+                if (worker != null) {
+                    worker.generateDynamicRumor(category).thenAccept(optRumor -> {
+                        String rumor = optRumor.orElseGet(() -> {
+                            GossipPool pool = poolSupplier.get();
+                            return (pool != null && !pool.isEmpty()) ? pool.getNextRoundRobinRumor(category) : null;
+                        });
+                        if (rumor != null && !rumor.isBlank()) {
+                            Component message = formatRumor(villager, "[" + category.name() + "] " + rumor);
+                            if (server != null) {
+                                server.execute(() -> server.getPlayerList().broadcastSystemMessage(message, false));
+                            } else {
+                                serverPlayer.sendSystemMessage(message);
+                            }
+                        }
+                    });
+                } else {
+                    GossipPool pool = poolSupplier.get();
+                    if (pool != null && !pool.isEmpty()) {
+                        String rumor = pool.getNextRoundRobinRumor(category);
+                        if (rumor != null && !rumor.isBlank()) {
+                            Component message = formatRumor(villager, "[" + category.name() + "] " + rumor);
+                            if (server != null) {
+                                server.getPlayerList().broadcastSystemMessage(message, false);
+                            } else {
+                                serverPlayer.sendSystemMessage(message);
+                            }
                         }
                     }
                 }
