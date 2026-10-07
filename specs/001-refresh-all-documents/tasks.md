@@ -294,7 +294,7 @@ documentation-only, consistent with FR-001.
   (f) **§6 invariant** — existing `balances.json`, `stats.json`, `auctions.json`, `orders.json` and `tolls.json`
   load unchanged; no new migration may touch an existing file. (FR-019, `partial`)
 
-- [ ] T062 Record why `Tài trợ` is not implemented, so the reason survives `TODO.md`. `TODO.md` §9 held the only
+- [X] T062 Record why `Tài trợ` is not implemented, so the reason survives `TODO.md`. `TODO.md` §9 held the only
   record — the spec marks the option read-only ("hiện tại option này chỉ để đọc") and specifies **no code**, and if
   the feature is ever wanted it is a **ShopGuard-side** one (the Communism builder collecting from non-members at
   their own tolls), not an EconomyCraft one. `contracts/wiki-page-contract.md` §4 records the owner's decision to mark

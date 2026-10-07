@@ -268,6 +268,16 @@ implements.
 When ShopGuard is absent, `ClaimBridge.isAvailable()` returns false and `FactionEffects` skips the claim
 rules, so Monarchy's claim cost and claim damage and Anarchism's wilderness speed degrade gracefully.
 
+#### `Tài trợ` is deliberately not implemented
+
+`wiki/Factions.md` lists the Communism buff `Tài trợ` (subsidy) as `chưa triển khai`. That is not an
+oversight and not a pending task, and do not "fix" it by adding code.
+
+The design spec marks the option **read-only** ("hiện tại option này chỉ để đọc") and specifies **no code**.
+If it is ever wanted, it is a **ShopGuard-side** feature — the Communism builder collecting from non-members
+at their own tolls — and not an EconomyCraft one. Any implementation would therefore extend the seam above
+rather than touch `FactionEffects`.
+
 ### Villager dialogue exists
 
 Gossip is built on villager dialogue — `gossip/GossipConfig.java`, `/eco gossip dialogue [prof]`. Villager
