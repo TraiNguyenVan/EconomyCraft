@@ -74,7 +74,7 @@ public final class EconomyCraft {
             try {
                 var config = EconomyConfig.get().geminiGossip;
                 if (config != null && config.enabled()) {
-                    var client = new GeminiClient(config);
+                    var client = new GossipApiClient(config);
                     gossipWorker = new GossipDigestWorker(
                             server,
                             config,
@@ -83,11 +83,11 @@ public final class EconomyCraft {
                             GOSSIP_COOLDOWN_TRACKER
                     );
                     gossipWorker.start();
-                    LOGGER.info("[EconomyCraft] Gemini Villager Gossip initialized (model: {}, interval: {}m)",
+                    LOGGER.info("[EconomyCraft] Villager Gossip AI initialized (model: {}, interval: {}m)",
                             config.model(), config.refreshIntervalMinutes());
                 }
             } catch (Exception e) {
-                LOGGER.warn("[EconomyCraft] Failed to start Gemini Villager Gossip worker", e);
+                LOGGER.warn("[EconomyCraft] Failed to start Villager Gossip AI worker", e);
             }
         });
 
@@ -96,7 +96,7 @@ public final class EconomyCraft {
                 try {
                     gossipWorker.stop();
                 } catch (Exception e) {
-                    LOGGER.warn("[EconomyCraft] Error stopping Gemini gossip worker", e);
+                    LOGGER.warn("[EconomyCraft] Error stopping Villager Gossip AI worker", e);
                 } finally {
                     gossipWorker = null;
                 }

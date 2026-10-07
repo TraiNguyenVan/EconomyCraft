@@ -34,7 +34,7 @@ public class GossipDigestWorker {
     private static final int DEFAULT_MAX_EVENTS = 30;
 
     private final GossipConfig config;
-    private final GeminiClient geminiClient;
+    private final GossipApiClient apiClient;
     private final AtomicReference<GossipPool> poolRef;
     private final @Nullable CooldownTracker cooldownTracker;
     private final Supplier<Path> logsDirSupplier;
@@ -49,13 +49,13 @@ public class GossipDigestWorker {
     public GossipDigestWorker(
             MinecraftServer server,
             GossipConfig config,
-            GeminiClient geminiClient,
+            GossipApiClient apiClient,
             AtomicReference<GossipPool> poolRef,
             @Nullable CooldownTracker cooldownTracker
     ) {
         this(
                 config,
-                geminiClient,
+                apiClient,
                 poolRef,
                 cooldownTracker,
                 () -> EconomyPaths.logsDir(server),
@@ -69,14 +69,14 @@ public class GossipDigestWorker {
                     var fac = mgr.getFactions().factionOf(uuid);
                     return fac != null ? fac.key() : null;
                 },
-                EconomyExecutors.newSingleThreadScheduledExecutor("EconomyCraft-Gemini-Worker"),
+                EconomyExecutors.newSingleThreadScheduledExecutor("EconomyCraft-AI-Worker"),
                 true
         );
     }
 
     public GossipDigestWorker(
             GossipConfig config,
-            GeminiClient geminiClient,
+            GossipApiClient apiClient,
             AtomicReference<GossipPool> poolRef,
             @Nullable CooldownTracker cooldownTracker,
             Supplier<Path> logsDirSupplier,
@@ -86,7 +86,7 @@ public class GossipDigestWorker {
             boolean ownsExecutor
     ) {
         this.config = config;
-        this.geminiClient = geminiClient;
+        this.apiClient = apiClient;
         this.poolRef = poolRef;
         this.cooldownTracker = cooldownTracker;
         this.logsDirSupplier = logsDirSupplier;
@@ -104,7 +104,7 @@ public class GossipDigestWorker {
         running = true;
 
         if (!config.enabled()) {
-            LOGGER.info("[EconomyCraft-Gemini] Gossip worker is disabled in configuration.");
+            LOGGER.info("[EconomyCraft-AI] Gossip worker is disabled in configuration.");
             return;
         }
 
@@ -116,7 +116,7 @@ public class GossipDigestWorker {
                 intervalMinutes * 60,
                 TimeUnit.SECONDS
         );
-        LOGGER.info("[EconomyCraft-Gemini] Gossip digest worker started (interval: {}m)", intervalMinutes);
+        LOGGER.info("[EconomyCraft-AI] Gossip digest worker started (interval: {}m)", intervalMinutes);
     }
 
     /**
@@ -131,7 +131,7 @@ public class GossipDigestWorker {
         if (ownsExecutor && !executor.isShutdown()) {
             executor.shutdown();
         }
-        LOGGER.info("[EconomyCraft-Gemini] Gossip digest worker stopped.");
+        LOGGER.info("[EconomyCraft-AI] Gossip digest worker stopped.");
     }
 
     public boolean isRunning() {
@@ -144,12 +144,12 @@ public class GossipDigestWorker {
     public void runDigestCycle() {
         try {
             if (!config.enabled() || config.getEffectiveApiKey().isBlank()) {
-                LOGGER.debug("[EconomyCraft-Gemini] Worker skipped: disabled or API key unset");
+                LOGGER.debug("[EconomyCraft-AI] Worker skipped: disabled or API key unset");
                 return;
             }
 
-            if (geminiClient.isCircuitOpen()) {
-                LOGGER.debug("[EconomyCraft-Gemini] Worker skipped: circuit breaker is open");
+            if (apiClient.isCircuitOpen()) {
+                LOGGER.debug("[EconomyCraft-AI] Worker skipped: circuit breaker is open");
                 return;
             }
 
@@ -173,21 +173,21 @@ public class GossipDigestWorker {
                     factionResolver
             );
 
-            geminiClient.generateRumors(digest)
+            apiClient.generateRumors(digest)
                     .thenAccept(optionalPool -> {
                         if (optionalPool.isPresent()) {
                             GossipPool newPool = optionalPool.get();
                             poolRef.set(newPool);
-                            LOGGER.info("[EconomyCraft-Gemini] Gossip pool updated atomically with {} categories",
+                            LOGGER.info("[EconomyCraft-AI] Gossip pool updated atomically with {} categories",
                                     newPool.rumorsByCategory().size());
                         }
                     })
                     .exceptionally(t -> {
-                        LOGGER.warn("[EconomyCraft-Gemini] Generation request failed: {}", t.getMessage());
+                        LOGGER.warn("[EconomyCraft-AI] Generation request failed: {}", t.getMessage());
                         return null;
                     });
         } catch (Throwable t) {
-            LOGGER.warn("[EconomyCraft-Gemini] Error during digest cycle: {}", t.getMessage());
+            LOGGER.warn("[EconomyCraft-AI] Error during digest cycle: {}", t.getMessage());
         }
     }
 

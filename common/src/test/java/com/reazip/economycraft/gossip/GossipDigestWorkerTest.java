@@ -112,10 +112,10 @@ class GossipDigestWorkerTest {
     }
 
     @Test
-    @DisplayName("T017: runDigestCycle queries Gemini and updates AtomicReference<GossipPool> atomically")
+    @DisplayName("T017: runDigestCycle queries API and updates AtomicReference<GossipPool> atomically")
     void testRunDigestCycleUpdatesPool() {
         GossipConfig config = new GossipConfig(true, "test-api-key", "gemini-3.8-flash", 20, 3, true, 0.85, false);
-        GeminiClient mockClient = mock(GeminiClient.class);
+        GossipApiClient mockClient = mock(GossipApiClient.class);
         when(mockClient.isCircuitOpen()).thenReturn(false);
 
         Map<GossipCategory, List<String>> rumors = Map.of(
@@ -152,7 +152,7 @@ class GossipDigestWorkerTest {
     @DisplayName("T017: runDigestCycle skips silently when API key is missing or circuit breaker is open")
     void testRunDigestCycleSkipsWhenUnconfiguredOrOpen() {
         GossipConfig noKeyConfig = new GossipConfig(true, "", "gemini-3.8-flash", 20, 3, true, 0.85, false);
-        GeminiClient mockClient = mock(GeminiClient.class);
+        GossipApiClient mockClient = mock(GossipApiClient.class);
         AtomicReference<GossipPool> poolRef = new AtomicReference<>(GossipPool.empty());
 
         GossipDigestWorker worker = new GossipDigestWorker(

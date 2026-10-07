@@ -245,6 +245,20 @@ class GossipConfigTest {
         assertTrue(json.contains("\"public_chat\""));
         assertTrue(json.contains("\"system_instruction\""));
         assertTrue(json.contains("\"pool_size_per_category\""));
+        assertTrue(json.contains("\"base_url\""));
+    }
+
+    @Test
+    @DisplayName("getEffectiveApiKey falls back to OPENAI_API_KEY env var when isOpenAiCompatible is true")
+    void openAiApiKeyFallback() {
+        GossipConfig config = new GossipConfig(
+                true, "", "gpt-4o", 20, 3, true, 0.85, false,
+                GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, 3, "https://api.openai.com/v1"
+        );
+        assertTrue(config.isOpenAiCompatible());
+
+        Map<String, String> env = Map.of("OPENAI_API_KEY", "sk-secret-env-key");
+        assertEquals("sk-secret-env-key", config.getEffectiveApiKey(env::get));
     }
 
     @Test

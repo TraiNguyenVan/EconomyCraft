@@ -61,7 +61,7 @@ class ResilienceTest {
     @DisplayName("T020: Missing or blank API key completes silently without throwing exceptions or making HTTP calls")
     void testMissingApiKeySilentFallback() {
         GossipConfig emptyKeyConfig = new GossipConfig(true, "", "gemini-3.8-flash", 20, 3, true, 0.85, false);
-        GeminiClient client = new GeminiClient(
+        GossipApiClient client = new GossipApiClient(
                 emptyKeyConfig,
                 HttpClient.newHttpClient(),
                 "http://127.0.0.1:" + port,
@@ -84,7 +84,7 @@ class ResilienceTest {
         WallClock mutableClock = time::get;
 
         GossipConfig config = new GossipConfig(true, "valid-key", "gemini-3.8-flash", 20, 3, true, 0.85, false);
-        GeminiClient client = new GeminiClient(
+        GossipApiClient client = new GossipApiClient(
                 config,
                 HttpClient.newHttpClient(),
                 "http://127.0.0.1:" + port,
@@ -135,7 +135,7 @@ class ResilienceTest {
                 """);
 
         GossipConfig config = new GossipConfig(true, "valid-key", "gemini-3.8-flash", 20, 3, true, 0.85, false);
-        GeminiClient client = new GeminiClient(
+        GossipApiClient client = new GossipApiClient(
                 config,
                 HttpClient.newHttpClient(),
                 "http://127.0.0.1:" + port,
@@ -154,7 +154,7 @@ class ResilienceTest {
         mockResponseBody.set("This is completely invalid non-JSON { [ syntax");
 
         GossipConfig config = new GossipConfig(true, "valid-key", "gemini-3.8-flash", 20, 3, true, 0.85, false);
-        GeminiClient client = new GeminiClient(
+        GossipApiClient client = new GossipApiClient(
                 config,
                 HttpClient.newHttpClient(),
                 "http://127.0.0.1:" + port,
@@ -192,7 +192,7 @@ class ResilienceTest {
     @DisplayName("T020: Worker runs safely and isolates errors during digest cycle")
     void testWorkerIsolatesErrorsDuringCycle() {
         GossipConfig config = new GossipConfig(true, "valid-key", "gemini-3.8-flash", 20, 3, true, 0.85, false);
-        GeminiClient client = new GeminiClient(
+        GossipApiClient client = new GossipApiClient(
                 config,
                 HttpClient.newHttpClient(),
                 "http://127.0.0.1:" + port,

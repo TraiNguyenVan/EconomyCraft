@@ -21,13 +21,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Empirical challenger stress test suite for GeminiClient and TransactionAnonymizer.
+ * Empirical challenger stress test suite for GossipApiClient and TransactionAnonymizer.
  * Stress-tests prompt injection vectors, boundary conditions, circuit breaker states,
  * 429 quota exhaustion, and malformed API payloads.
  */
 class ChallengerStressTest {
 
-    // --- Mock HTTP Server Setup for GeminiClient ---
+    // --- Mock HTTP Server Setup for GossipApiClient ---
     private HttpServer server;
     private int port;
     private MutableClock clock;
@@ -71,9 +71,9 @@ class ChallengerStressTest {
         }
     }
 
-    private GeminiClient createClient(String apiKey) {
+    private GossipApiClient createClient(String apiKey) {
         GossipConfig config = new GossipConfig(true, apiKey, "gemini-3.8-flash", 20, 3, true, 0.85, false);
-        return new GeminiClient(config, HttpClient.newHttpClient(), "http://127.0.0.1:" + port, clock);
+        return new GossipApiClient(config, HttpClient.newHttpClient(), "http://127.0.0.1:" + port, clock);
     }
 
     private TransactionEntry createEntry(String playerName, String counterpartyName, String source, long amount, String detail) {
@@ -304,7 +304,7 @@ class ChallengerStressTest {
         responseStatusCode = 503;
         responsePayload = "Service Unavailable";
 
-        GeminiClient client = createClient("test-api-key");
+        GossipApiClient client = createClient("test-api-key");
         assertFalse(client.isCircuitOpen());
 
         // Call 1 -> Fail
@@ -338,7 +338,7 @@ class ChallengerStressTest {
         responseStatusCode = 500;
         responsePayload = "Error";
 
-        GeminiClient client = createClient("test-key");
+        GossipApiClient client = createClient("test-key");
         for (int i = 0; i < 3; i++) {
             client.generateRumors("ctx").get();
         }
@@ -382,7 +382,7 @@ class ChallengerStressTest {
         responseStatusCode = 500;
         responsePayload = "Error";
 
-        GeminiClient client = createClient("test-key");
+        GossipApiClient client = createClient("test-key");
         for (int i = 0; i < 3; i++) {
             client.generateRumors("ctx").get();
         }
@@ -408,7 +408,7 @@ class ChallengerStressTest {
         responseStatusCode = 429;
         responsePayload = "Rate limit exceeded";
 
-        GeminiClient client = createClient("test-key");
+        GossipApiClient client = createClient("test-key");
         assertFalse(client.isCircuitOpen());
 
         client.generateRumors("ctx").get();
@@ -430,45 +430,45 @@ class ChallengerStressTest {
     @Test
     @DisplayName("Response Parsing: Corrupted or missing candidate structures return Optional.empty()")
     void testCorruptedCandidateStructures() {
-        GeminiClient client = createClient("test-key");
+        GossipApiClient client = createClient("test-key");
 
         // Empty body
-        assertTrue(client.parseResponse("").isEmpty());
-        assertTrue(client.parseResponse("   ").isEmpty());
-        assertTrue(client.parseResponse(null).isEmpty());
+        assertTrue(client.parseGeminiResponse("").isEmpty());
+        assertTrue(client.parseGeminiResponse("   ").isEmpty());
+        assertTrue(client.parseGeminiResponse(null).isEmpty());
 
         // Non-object JSON
-        assertTrue(client.parseResponse("[]").isEmpty());
-        assertTrue(client.parseResponse("\"hello\"").isEmpty());
-        assertTrue(client.parseResponse("123").isEmpty());
+        assertTrue(client.parseGeminiResponse("[]").isEmpty());
+        assertTrue(client.parseGeminiResponse("\"hello\"").isEmpty());
+        assertTrue(client.parseGeminiResponse("123").isEmpty());
 
         // Missing or null candidates
-        assertTrue(client.parseResponse("{}").isEmpty());
-        assertTrue(client.parseResponse("{\"candidates\": []}").isEmpty());
-        assertTrue(client.parseResponse("{\"candidates\": null}").isEmpty());
+        assertTrue(client.parseGeminiResponse("{}").isEmpty());
+        assertTrue(client.parseGeminiResponse("{\"candidates\": []}").isEmpty());
+        assertTrue(client.parseGeminiResponse("{\"candidates\": null}").isEmpty());
 
         // Missing content or parts
-        assertTrue(client.parseResponse("{\"candidates\": [{}]}").isEmpty());
-        assertTrue(client.parseResponse("{\"candidates\": [{\"content\": {}}]}").isEmpty());
-        assertTrue(client.parseResponse("{\"candidates\": [{\"content\": {\"parts\": []}}]}").isEmpty());
-        assertTrue(client.parseResponse("{\"candidates\": [{\"content\": {\"parts\": [{}]}}]}").isEmpty());
+        assertTrue(client.parseGeminiResponse("{\"candidates\": [{}]}").isEmpty());
+        assertTrue(client.parseGeminiResponse("{\"candidates\": [{\"content\": {}}]}").isEmpty());
+        assertTrue(client.parseGeminiResponse("{\"candidates\": [{\"content\": {\"parts\": []}}]}").isEmpty());
+        assertTrue(client.parseGeminiResponse("{\"candidates\": [{\"content\": {\"parts\": [{}]}}]}").isEmpty());
 
         // FinishReason SAFETY
-        assertTrue(client.parseResponse("{\"candidates\": [{\"finishReason\": \"SAFETY\"}]}").isEmpty());
+        assertTrue(client.parseGeminiResponse("{\"candidates\": [{\"finishReason\": \"SAFETY\"}]}").isEmpty());
     }
 
     @Test
     @DisplayName("Response Parsing: Null tokens and corrupted category arrays handled safely")
     void testNullTokensAndCorruptedCategoryArrays() {
-        GeminiClient client = createClient("test-key");
+        GossipApiClient client = createClient("test-key");
 
         // parts[0].text is "null"
         String nullTextJson = "{\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"null\"}]}}]}";
-        assertTrue(client.parseResponse(nullTextJson).isEmpty());
+        assertTrue(client.parseGeminiResponse(nullTextJson).isEmpty());
 
         // parts[0].text is broken JSON
         String brokenJson = "{\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"{not-valid\"}]}}]}";
-        assertTrue(client.parseResponse(brokenJson).isEmpty());
+        assertTrue(client.parseGeminiResponse(brokenJson).isEmpty());
 
         // Category value is null or non-array -> safely ignored
         String nullCategoryJson = """
@@ -482,7 +482,7 @@ class ChallengerStressTest {
           }]
         }
         """;
-        Optional<GossipPool> pool = client.parseResponse(nullCategoryJson);
+        Optional<GossipPool> pool = client.parseGeminiResponse(nullCategoryJson);
         assertTrue(pool.isPresent(), "Valid categories must survive while corrupted ones are ignored");
         assertEquals("Valid general rumor", pool.get().getRandomRumor(GossipCategory.GENERAL));
         assertTrue(pool.get().getRumors(GossipCategory.FARMER).isEmpty());
@@ -501,19 +501,19 @@ class ChallengerStressTest {
         }
         """;
         // When Gson tries to getAsString on JsonNull, it throws UnsupportedOperationException, caught and returns empty
-        Optional<GossipPool> nullElementPool = client.parseResponse(arrayWithNullJson);
+        Optional<GossipPool> nullElementPool = client.parseGeminiResponse(arrayWithNullJson);
         assertNotNull(nullElementPool);
     }
 
     @Test
     @DisplayName("Markdown Fence Stripping: Handles all variations without throwing")
     void testMarkdownFenceStrippingVariations() {
-        assertEquals("{\"a\":1}", GeminiClient.stripMarkdownFences("```json\n{\"a\":1}\n```"));
-        assertEquals("{\"a\":1}", GeminiClient.stripMarkdownFences("```JSON\n{\"a\":1}\n```"));
-        assertEquals("{\"a\":1}", GeminiClient.stripMarkdownFences("```\n{\"a\":1}\n```"));
-        assertEquals("{}", GeminiClient.stripMarkdownFences("```json\n{}\n```"));
-        assertEquals("", GeminiClient.stripMarkdownFences("```json```"));
-        assertEquals("", GeminiClient.stripMarkdownFences("```"));
-        assertEquals("", GeminiClient.stripMarkdownFences(null));
+        assertEquals("{\"a\":1}", GossipApiClient.stripMarkdownFences("```json\n{\"a\":1}\n```"));
+        assertEquals("{\"a\":1}", GossipApiClient.stripMarkdownFences("```JSON\n{\"a\":1}\n```"));
+        assertEquals("{\"a\":1}", GossipApiClient.stripMarkdownFences("```\n{\"a\":1}\n```"));
+        assertEquals("{}", GossipApiClient.stripMarkdownFences("```json\n{}\n```"));
+        assertEquals("", GossipApiClient.stripMarkdownFences("```json```"));
+        assertEquals("", GossipApiClient.stripMarkdownFences("```"));
+        assertEquals("", GossipApiClient.stripMarkdownFences(null));
     }
 }

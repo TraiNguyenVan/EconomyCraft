@@ -3,6 +3,7 @@ package com.reazip.economycraft.gossip;
 import com.google.gson.*;
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.time.WallClock;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 import java.net.URI;
@@ -17,15 +18,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Asynchronous HTTP/2 client for the Google Gemini Generative Language REST API.
+ * Asynchronous HTTP/2 client for LLM providers generating villager gossip.
  *
- * <p>Enforces header authentication ({@code x-goog-api-key}), {@code BLOCK_ONLY_HIGH} safety thresholds,
- * low-latency {@code thinkingBudget: 0}, and a 3-consecutive-failure / 30-minute quiet period circuit breaker.
+ * <p>Auto-detects the provider from {@code baseUrl}:
+ * <ul>
+ *   <li><b>Google Gemini:</b> Uses Generative Language REST API with {@code x-goog-api-key} and structured {@code response_schema}.</li>
+ *   <li><b>OpenAI-compatible:</b> Uses standard {@code /chat/completions} endpoint with {@code Authorization: Bearer <key>}
+ *       and {@code response_format: {"type": "json_object"}}. Compatible with OpenAI, OpenRouter, DeepSeek, Groq, Ollama, etc.</li>
+ * </ul>
+ *
+ * <p>Protected by a 3-consecutive-failure / 30-minute quiet period circuit breaker.
  */
-public class GeminiClient {
+public class GossipApiClient {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new Gson();
-    public static final String DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com";
+    public static final String DEFAULT_BASE_URL = GossipConfig.DEFAULT_BASE_URL;
     private static final long QUIET_PERIOD_MILLIS = 30 * 60 * 1000L; // 30 minutes
     private static final int FAILURE_THRESHOLD = 3;
 
@@ -37,19 +44,19 @@ public class GeminiClient {
     private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
     private final AtomicLong circuitOpenUntilMillis = new AtomicLong(0L);
 
-    public GeminiClient(GossipConfig config) {
+    public GossipApiClient(GossipConfig config) {
         this(config, HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_2)
                 .connectTimeout(Duration.ofSeconds(10))
                 .build(),
-                DEFAULT_BASE_URL,
+                config.baseUrl(),
                 WallClock.SYSTEM);
     }
 
-    public GeminiClient(GossipConfig config, HttpClient httpClient, String baseUrl, WallClock clock) {
+    public GossipApiClient(GossipConfig config, HttpClient httpClient, String baseUrl, WallClock clock) {
         this.config = config;
         this.httpClient = httpClient;
-        this.baseUrl = baseUrl;
+        this.baseUrl = (baseUrl != null && !baseUrl.isBlank()) ? baseUrl : config.baseUrl();
         this.clock = clock;
     }
 
@@ -73,10 +80,10 @@ public class GeminiClient {
         int failures = consecutiveFailures.incrementAndGet();
         if (failures >= FAILURE_THRESHOLD) {
             circuitOpenUntilMillis.set(clock.millis() + QUIET_PERIOD_MILLIS);
-            LOGGER.warn("[EconomyCraft-Gemini] Circuit breaker opened after {} failures (last status: {}, reason: {}). Pausing requests for 30m.",
+            LOGGER.warn("[EconomyCraft-AI] Circuit breaker opened after {} failures (last status: {}, reason: {}). Pausing requests for 30m.",
                     failures, statusCode, reason);
         } else {
-            LOGGER.warn("[EconomyCraft-Gemini] Request failed (failures: {}/{}, status: {}, reason: {}).",
+            LOGGER.warn("[EconomyCraft-AI] Request failed (failures: {}/{}, status: {}, reason: {}).",
                     failures, FAILURE_THRESHOLD, statusCode, reason);
         }
     }
@@ -85,7 +92,7 @@ public class GeminiClient {
         return consecutiveFailures.get();
     }
 
-    public CompletableFuture<Optional<GossipPool>> generateRumors(@org.jetbrains.annotations.Nullable TransactionDigest digest) {
+    public CompletableFuture<Optional<GossipPool>> generateRumors(@Nullable TransactionDigest digest) {
         if (digest == null) {
             return generateRumors("The village market is quiet with standard trade activity.");
         }
@@ -102,21 +109,34 @@ public class GeminiClient {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
-        String url = String.format("%s/v1beta/models/%s:generateContent", baseUrl, config.model());
-        String requestJson = buildRequestBody(economicContext);
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("x-goog-api-key", apiKey)
-                .header("Content-Type", "application/json")
+        boolean isOpenAi = isOpenAiCompatible();
+        String url;
+        String requestJson;
+        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                 .timeout(Duration.ofSeconds(25))
+                .header("Content-Type", "application/json");
+
+        if (isOpenAi) {
+            url = baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions";
+            requestJson = buildOpenAiRequestBody(economicContext);
+            reqBuilder.header("Authorization", "Bearer " + apiKey);
+        } else {
+            url = String.format("%s/v1beta/models/%s:generateContent", baseUrl, config.model());
+            requestJson = buildGeminiRequestBody(economicContext);
+            reqBuilder.header("x-goog-api-key", apiKey);
+        }
+
+        HttpRequest request = reqBuilder
+                .uri(URI.create(url))
                 .POST(HttpRequest.BodyPublishers.ofString(requestJson))
                 .build();
 
         return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .<Optional<GossipPool>>thenApply(response -> {
                     if (response.statusCode() == 200) {
-                        Optional<GossipPool> pool = parseResponse(response.body());
+                        Optional<GossipPool> pool = isOpenAi
+                                ? parseOpenAiResponse(response.body())
+                                : parseGeminiResponse(response.body());
                         if (pool.isPresent()) {
                             recordSuccess();
                             return pool;
@@ -135,7 +155,13 @@ public class GeminiClient {
                 });
     }
 
-    public String buildRequestBody(String economicContext) {
+    public boolean isOpenAiCompatible() {
+        return config.isOpenAiCompatible();
+    }
+
+    // --- Gemini Request / Response ---
+
+    public String buildGeminiRequestBody(String economicContext) {
         JsonObject root = new JsonObject();
 
         // system_instruction
@@ -210,7 +236,7 @@ public class GeminiClient {
         return GSON.toJson(root);
     }
 
-    public Optional<GossipPool> parseResponse(String responseBody) {
+    public Optional<GossipPool> parseGeminiResponse(String responseBody) {
         try {
             JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
             if (json == null || !json.has("candidates")) {
@@ -222,7 +248,7 @@ public class GeminiClient {
             }
             JsonObject first = candidates.get(0).getAsJsonObject();
             if (first.has("finishReason") && "SAFETY".equalsIgnoreCase(first.get("finishReason").getAsString())) {
-                LOGGER.warn("[EconomyCraft-Gemini] Generation blocked by safety filter.");
+                LOGGER.warn("[EconomyCraft-AI] Generation blocked by safety filter.");
                 return Optional.empty();
             }
             if (!first.has("content")) {
@@ -234,8 +260,76 @@ public class GeminiClient {
                 return Optional.empty();
             }
             String text = parts.get(0).getAsJsonObject().get("text").getAsString();
-            String cleanText = stripMarkdownFences(text);
+            return parseGossipJson(text);
+        } catch (Exception e) {
+            LOGGER.warn("[EconomyCraft-AI] Failed to parse Gemini response: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
 
+    // --- OpenAI Compatible Request / Response ---
+
+    public String buildOpenAiRequestBody(String economicContext) {
+        JsonObject root = new JsonObject();
+        root.addProperty("model", config.model());
+        root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 2.0));
+        root.addProperty("max_tokens", Math.max(1024, config.poolSizePerCategory() * 250));
+
+        JsonObject responseFormat = new JsonObject();
+        responseFormat.addProperty("type", "json_object");
+        root.add("response_format", responseFormat);
+
+        JsonArray messages = new JsonArray();
+
+        // System message
+        JsonObject sysMsg = new JsonObject();
+        sysMsg.addProperty("role", "system");
+        sysMsg.addProperty("content", config.systemInstruction() + "\nRespond strictly with valid JSON containing keys for categories: farmer, blacksmith, cleric, librarian, nitwit, general. Each key maps to an array of rumor strings.");
+        messages.add(sysMsg);
+
+        // User message
+        JsonObject userMsg = new JsonObject();
+        userMsg.addProperty("role", "user");
+        String promptText = (economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>")
+                + String.format("\n\nConstraint: Write exactly %d short, witty gossip lines for each villager profession category.", config.poolSizePerCategory());
+        userMsg.addProperty("content", promptText);
+        messages.add(userMsg);
+
+        root.add("messages", messages);
+        return GSON.toJson(root);
+    }
+
+    public Optional<GossipPool> parseOpenAiResponse(String responseBody) {
+        try {
+            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
+            if (json == null || !json.has("choices")) {
+                return Optional.empty();
+            }
+            JsonArray choices = json.getAsJsonArray("choices");
+            if (choices.isEmpty()) {
+                return Optional.empty();
+            }
+            JsonObject first = choices.get(0).getAsJsonObject();
+            if (!first.has("message")) {
+                return Optional.empty();
+            }
+            JsonObject message = first.getAsJsonObject("message");
+            if (!message.has("content") || message.get("content").isJsonNull()) {
+                return Optional.empty();
+            }
+            String content = message.get("content").getAsString();
+            return parseGossipJson(content);
+        } catch (Exception e) {
+            LOGGER.warn("[EconomyCraft-AI] Failed to parse OpenAI response: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    // --- Common JSON Parsing ---
+
+    public Optional<GossipPool> parseGossipJson(String rawText) {
+        try {
+            String cleanText = stripMarkdownFences(rawText);
             JsonObject rumorsObj = GSON.fromJson(cleanText, JsonObject.class);
             if (rumorsObj == null) {
                 return Optional.empty();
@@ -259,7 +353,7 @@ public class GeminiClient {
 
             return Optional.of(new GossipPool(map, Instant.now()));
         } catch (Exception e) {
-            LOGGER.warn("[EconomyCraft-Gemini] Failed to parse Gemini response: {}", e.getMessage());
+            LOGGER.warn("[EconomyCraft-AI] Failed to parse gossip JSON: {}", e.getMessage());
             return Optional.empty();
         }
     }

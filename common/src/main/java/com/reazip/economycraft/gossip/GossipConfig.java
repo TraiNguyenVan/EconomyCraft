@@ -27,13 +27,15 @@ public record GossipConfig(
         @SerializedName("temperature") double temperature,
         @SerializedName("public_chat") boolean publicChat,
         @SerializedName("system_instruction") String systemInstruction,
-        @SerializedName("pool_size_per_category") int poolSizePerCategory
+        @SerializedName("pool_size_per_category") int poolSizePerCategory,
+        @SerializedName("base_url") String baseUrl
 ) {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     public static final boolean DEFAULT_ENABLED = true;
     public static final String DEFAULT_API_KEY = "";
     public static final String DEFAULT_MODEL = "gemini-3.8-flash";
+    public static final String DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com";
     public static final int DEFAULT_REFRESH_INTERVAL_MINUTES = 20;
     public static final int DEFAULT_COOLDOWN_MINUTES = 3;
     public static final boolean DEFAULT_ANONYMIZE_PLAYERS = true;
@@ -63,6 +65,14 @@ public record GossipConfig(
         } else {
             model = model.trim();
         }
+        if (baseUrl == null || baseUrl.isBlank()) {
+            baseUrl = DEFAULT_BASE_URL;
+        } else {
+            baseUrl = baseUrl.trim();
+            if (baseUrl.endsWith("/")) {
+                baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+            }
+        }
         refreshIntervalMinutes = clampInt("gemini_gossip.refresh_interval_minutes", refreshIntervalMinutes,
                 MIN_REFRESH_INTERVAL_MINUTES, MAX_REFRESH_INTERVAL_MINUTES);
         cooldownMinutes = clampInt("gemini_gossip.cooldown_minutes", cooldownMinutes,
@@ -88,7 +98,7 @@ public record GossipConfig(
             double temperature,
             boolean publicChat
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
     }
 
     public GossipConfig(
@@ -102,7 +112,22 @@ public record GossipConfig(
             boolean publicChat,
             String systemInstruction
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_POOL_SIZE_PER_CATEGORY);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
+    }
+
+    public GossipConfig(
+            boolean enabled,
+            String apiKey,
+            String model,
+            int refreshIntervalMinutes,
+            int cooldownMinutes,
+            boolean anonymizePlayers,
+            double temperature,
+            boolean publicChat,
+            String systemInstruction,
+            int poolSizePerCategory
+    ) {
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, poolSizePerCategory, DEFAULT_BASE_URL);
     }
 
     public static GossipConfig createDefault() {
@@ -116,13 +141,40 @@ public record GossipConfig(
                 DEFAULT_TEMPERATURE,
                 DEFAULT_PUBLIC_CHAT,
                 DEFAULT_SYSTEM_INSTRUCTION,
-                DEFAULT_POOL_SIZE_PER_CATEGORY
+                DEFAULT_POOL_SIZE_PER_CATEGORY,
+                DEFAULT_BASE_URL
         );
     }
 
     /**
-     * Resolves the active API key, falling back to the {@code GEMINI_API_KEY} environment variable
-     * if the configured key is blank.
+     * Determines whether the endpoint is OpenAI-compatible based on the configured baseUrl and model.
+     * If baseUrl contains "generativelanguage.googleapis.com", it is Google Gemini REST API.
+     * If baseUrl is "https://api.openai.com", "openrouter", "deepseek", "groq", or ends with "/v1", it is OpenAI-compatible.
+     * When baseUrl is a localhost or custom IP without explicit provider, it defaults to OpenAI-compatible
+     * unless the model starts with "gemini-".
+     */
+    public boolean isOpenAiCompatible() {
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return false;
+        }
+        String lower = baseUrl.toLowerCase();
+        if (lower.contains("generativelanguage.googleapis.com")) {
+            return false;
+        }
+        if (lower.contains("openai") || lower.contains("openrouter") || lower.contains("groq")
+                || lower.contains("deepseek") || lower.contains("/v1") || lower.contains("ollama")) {
+            return true;
+        }
+        // If user configured a Gemini model on a custom host/proxy (e.g. localhost test server for Gemini)
+        if (model != null && model.toLowerCase().startsWith("gemini")) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Resolves the active API key, falling back to the {@code GEMINI_API_KEY} or {@code OPENAI_API_KEY}
+     * environment variable if the configured key is blank.
      *
      * @return non-null trimmed API key or empty string if not configured
      */
@@ -136,6 +188,12 @@ public record GossipConfig(
     public String getEffectiveApiKey(Function<String, String> envLookup) {
         if (!apiKey.isBlank()) {
             return apiKey;
+        }
+        if (isOpenAiCompatible()) {
+            String openAiKey = envLookup.apply("OPENAI_API_KEY");
+            if (openAiKey != null && !openAiKey.isBlank()) {
+                return openAiKey.trim();
+            }
         }
         String envKey = envLookup.apply("GEMINI_API_KEY");
         if (envKey != null && !envKey.isBlank()) {
@@ -159,7 +217,8 @@ public record GossipConfig(
                 temperature,
                 publicChat,
                 systemInstruction,
-                poolSizePerCategory
+                poolSizePerCategory,
+                baseUrl
         );
     }
 
@@ -203,6 +262,7 @@ public record GossipConfig(
             out.name("public_chat").value(value.publicChat());
             out.name("system_instruction").value(value.systemInstruction());
             out.name("pool_size_per_category").value(value.poolSizePerCategory());
+            out.name("base_url").value(value.baseUrl());
             out.endObject();
         }
 
@@ -223,6 +283,7 @@ public record GossipConfig(
             boolean publicChat = DEFAULT_PUBLIC_CHAT;
             String systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
             int poolSizePerCategory = DEFAULT_POOL_SIZE_PER_CATEGORY;
+            String baseUrl = DEFAULT_BASE_URL;
 
             in.beginObject();
             while (in.hasNext()) {
@@ -242,6 +303,7 @@ public record GossipConfig(
                     case "public_chat" -> publicChat = in.nextBoolean();
                     case "system_instruction" -> systemInstruction = in.nextString();
                     case "pool_size_per_category" -> poolSizePerCategory = in.nextInt();
+                    case "base_url" -> baseUrl = in.nextString();
                     default -> in.skipValue();
                 }
             }
@@ -257,7 +319,8 @@ public record GossipConfig(
                     temperature,
                     publicChat,
                     systemInstruction,
-                    poolSizePerCategory
+                    poolSizePerCategory,
+                    baseUrl
             );
         }
     }
