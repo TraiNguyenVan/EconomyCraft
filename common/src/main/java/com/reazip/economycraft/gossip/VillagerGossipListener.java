@@ -150,8 +150,8 @@ public final class VillagerGossipListener {
                 memoryService.handleInteraction(serverPlayer, villager);
             }
 
-            // 2. Deliver public economic rumor (broadcast to all players if public_chat is enabled)
-            if (config.publicChat()) {
+            // 2. Deliver public economic rumor (broadcast to all players if public_chat is enabled AND global server throttle permits)
+            if (config.publicChat() && cooldownTracker.tryAcquirePublicBroadcast(cooldownMillis)) {
                 GossipPool pool = poolSupplier.get();
                 if (pool != null && !pool.isEmpty()) {
                     GossipCategory category = ProfessionMapper.fromEntity(villager);
