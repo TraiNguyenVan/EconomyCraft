@@ -140,6 +140,15 @@ public final class TransactionAnonymizer {
         return text;
     }
 
+    public static final UUID BOT_UUID = new UUID(0L, 0L);
+
+    public static boolean isServerQuest(@Nullable UUID id, @Nullable String name) {
+        if (id != null && (id.equals(BOT_UUID) || (id.getMostSignificantBits() == 0L && id.getLeastSignificantBits() == 0L))) {
+            return true;
+        }
+        return name != null && name.equalsIgnoreCase("Server Quests");
+    }
+
     /**
      * Resolves a player UUID, faction, and wealth balance to a flavorful archetype string.
      */
@@ -149,6 +158,10 @@ public final class TransactionAnonymizer {
             long balance,
             @Nullable String role
     ) {
+        if (isServerQuest(playerId, null)) {
+            return "the town quest board";
+        }
+
         String normalizedFaction = factionId != null ? factionId.toLowerCase(Locale.ROOT) : "";
 
         String[] pool;
@@ -184,8 +197,13 @@ public final class TransactionAnonymizer {
             boolean anonymizePlayers,
             @Nullable Function<UUID, String> factionResolver
     ) {
+        boolean isQuestActor = isServerQuest(entry.player(), entry.playerName());
+        boolean isQuestCounterparty = isServerQuest(entry.counterparty(), entry.counterpartyName());
+
         String rawActor;
-        if (anonymizePlayers) {
+        if (isQuestActor) {
+            rawActor = "the town quest board";
+        } else if (anonymizePlayers) {
             String faction = factionResolver != null ? factionResolver.apply(entry.player()) : null;
             rawActor = resolveArchetype(entry.player(), faction, entry.balanceAfter(), null);
         } else {
@@ -196,7 +214,9 @@ public final class TransactionAnonymizer {
         String actor = capitalizeFirst(rawActor);
 
         String counterparty;
-        if (entry.counterparty() != null) {
+        if (isQuestCounterparty) {
+            counterparty = "the town quest board";
+        } else if (entry.counterparty() != null) {
             if (anonymizePlayers) {
                 String faction = factionResolver != null ? factionResolver.apply(entry.counterparty()) : null;
                 counterparty = resolveArchetype(entry.counterparty(), faction, 0, null);
@@ -228,10 +248,19 @@ public final class TransactionAnonymizer {
             } else if (source.equals(EconomySources.SHOP_SALE.asString())) {
                 return "- " + actor + " sold " + item + " to the market shop for " + formattedAmount + ".";
             } else if (source.equals(EconomySources.ORDER_FULFILLMENT.asString())) {
+                if (isQuestCounterparty) {
+                    return "- " + actor + " fulfilled a town bounty of " + item + " for the quest board earning " + formattedAmount + ".";
+                }
                 return "- " + actor + " fulfilled a supply order of " + item + " for " + counterparty + " earning " + formattedAmount + ".";
             } else if (source.equals(EconomySources.ORDER_ESCROW_HOLD.asString())) {
+                if (isQuestActor) {
+                    return "- The town quest board funded a community bounty depositing " + formattedAmount + " in escrow for " + item + ".";
+                }
                 return "- " + actor + " placed a buy order depositing " + formattedAmount + " in escrow for " + item + ".";
             } else if (source.equals(EconomySources.ORDER_ESCROW_REFUND.asString())) {
+                if (isQuestActor) {
+                    return "- The town quest board recycled " + formattedAmount + " from an expired community bounty for " + item + ".";
+                }
                 return "- " + actor + " reclaimed " + formattedAmount + " from an expired buy order for " + item + ".";
             } else if (source.equals(EconomySources.QUEST_FUNDING.asString())) {
                 return "- The guild funded a town bounty of " + formattedAmount + " for commodities.";

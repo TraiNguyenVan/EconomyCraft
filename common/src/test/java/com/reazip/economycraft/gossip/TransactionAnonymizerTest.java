@@ -290,4 +290,58 @@ class TransactionAnonymizerTest {
         assertTrue(digest.get(1).contains("was assessed a wealth tax levy"));
         assertThrows(UnsupportedOperationException.class, () -> digest.add("extra"));
     }
+
+    @Test
+    @DisplayName("Identifies Server Quests as the town quest board across orders and escrows")
+    void testServerQuestIdentification() {
+        TransactionEntry escrowHold = new TransactionEntry(
+                Instant.now(),
+                BalanceMutationType.REMOVE,
+                TransactionAnonymizer.BOT_UUID,
+                "Server Quests",
+                null,
+                null,
+                -1413,
+                3715,
+                2302,
+                EconomySources.ORDER_ESCROW_HOLD.asString(),
+                "3x Respawn Anchor"
+        );
+        String holdFormatted = TransactionAnonymizer.formatTransaction(escrowHold, true, null);
+        assertTrue(holdFormatted.contains("The town quest board funded a community bounty"));
+        assertTrue(holdFormatted.contains("3x Respawn Anchor"));
+
+        TransactionEntry escrowRefund = new TransactionEntry(
+                Instant.now(),
+                BalanceMutationType.ADD,
+                TransactionAnonymizer.BOT_UUID,
+                "Server Quests",
+                null,
+                null,
+                1437,
+                2278,
+                3715,
+                EconomySources.ORDER_ESCROW_REFUND.asString(),
+                "3x Respawn Anchor"
+        );
+        String refundFormatted = TransactionAnonymizer.formatTransaction(escrowRefund, true, null);
+        assertTrue(refundFormatted.contains("The town quest board recycled"));
+        assertTrue(refundFormatted.contains("3x Respawn Anchor"));
+
+        TransactionEntry fulfillment = new TransactionEntry(
+                Instant.now(),
+                BalanceMutationType.PAYMENT_RECEIVED,
+                UUID.randomUUID(),
+                "Alice",
+                TransactionAnonymizer.BOT_UUID,
+                "Server Quests",
+                500,
+                1000,
+                1500,
+                EconomySources.ORDER_FULFILLMENT.asString(),
+                "64x Wheat"
+        );
+        String fulfillFormatted = TransactionAnonymizer.formatTransaction(fulfillment, true, null);
+        assertTrue(fulfillFormatted.contains("fulfilled a town bounty of 64x Wheat for the quest board"));
+    }
 }
