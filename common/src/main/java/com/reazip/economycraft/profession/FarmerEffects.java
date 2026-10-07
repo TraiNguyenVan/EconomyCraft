@@ -13,11 +13,18 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.BambooSaplingBlock;
+import net.minecraft.world.level.block.BambooStalkBlock;
 import net.minecraft.world.level.block.BonemealableBlock;
 import net.minecraft.world.level.block.BonemealSource;
+import net.minecraft.world.level.block.CactusBlock;
 import net.minecraft.world.level.block.CocoaBlock;
 import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.NetherWartBlock;
+import net.minecraft.world.level.block.SaplingBlock;
 import net.minecraft.world.level.block.StemBlock;
+import net.minecraft.world.level.block.SugarCaneBlock;
+import net.minecraft.world.level.block.SweetBerryBushBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -46,14 +53,84 @@ public final class FarmerEffects {
     }
 
     /**
-     * Checks if a block state represents an agricultural crop eligible for {@code Tươi tốt}.
+     * Checks if a block state represents an agricultural crop, sapling, or boostable plant eligible for {@code Tươi tốt}.
      */
     public static boolean isCrop(BlockState state) {
         if (state == null) return false;
         return state.is(BlockTags.CROPS)
+                || state.is(BlockTags.SAPLINGS)
                 || state.getBlock() instanceof CropBlock
                 || state.getBlock() instanceof StemBlock
-                || state.getBlock() instanceof CocoaBlock;
+                || state.getBlock() instanceof CocoaBlock
+                || state.getBlock() instanceof SaplingBlock
+                || state.getBlock() instanceof SugarCaneBlock
+                || state.getBlock() instanceof CactusBlock
+                || state.getBlock() instanceof NetherWartBlock
+                || state.getBlock() instanceof SweetBerryBushBlock
+                || state.getBlock() instanceof BambooStalkBlock
+                || state.getBlock() instanceof BambooSaplingBlock;
+    }
+
+    /**
+     * Checks if a crop/plant is eligible to be boosted.
+     */
+    public static boolean canBoostCrop(ServerLevel world, BlockPos pos, BlockState state) {
+        if (state == null || world == null || pos == null) return false;
+        if (state.getBlock() instanceof BonemealableBlock bonemealable) {
+            return bonemealable.isValidBonemealTarget(world, pos, state, BonemealSource.INTERACTION);
+        }
+        if (state.getBlock() instanceof SugarCaneBlock) {
+            if (!world.isEmptyBlock(pos.above())) return false;
+            int height = 1;
+            while (world.getBlockState(pos.below(height)).is(state.getBlock())) {
+                height++;
+            }
+            return height < 3;
+        }
+        if (state.getBlock() instanceof CactusBlock) {
+            if (!world.isEmptyBlock(pos.above())) return false;
+            int height = 1;
+            while (world.getBlockState(pos.below(height)).is(state.getBlock())) {
+                height++;
+            }
+            return height < 3 && state.getBlock().defaultBlockState().canSurvive(world, pos.above());
+        }
+        if (state.getBlock() instanceof NetherWartBlock) {
+            return state.hasProperty(NetherWartBlock.AGE)
+                    && state.getValue(NetherWartBlock.AGE) < NetherWartBlock.MAX_AGE;
+        }
+        return false;
+    }
+
+    /**
+     * Applies growth to the crop/plant.
+     */
+    public static void performCropBoost(ServerLevel world, BlockPos pos, BlockState state) {
+        if (world == null || pos == null || state == null) return;
+        if (state.getBlock() instanceof BonemealableBlock bonemealable) {
+            bonemealable.performBonemeal(world, world.getRandom(), pos, state, BonemealSource.INTERACTION);
+            world.levelEvent(1505, pos, 15);
+            return;
+        }
+        if (state.getBlock() instanceof SugarCaneBlock) {
+            BlockPos targetPos = pos.above();
+            world.setBlockAndUpdate(targetPos, state.getBlock().defaultBlockState());
+            world.setBlock(pos, state.setValue(SugarCaneBlock.AGE, 0), 4);
+            world.levelEvent(1505, targetPos, 15);
+            return;
+        }
+        if (state.getBlock() instanceof CactusBlock) {
+            BlockPos targetPos = pos.above();
+            world.setBlockAndUpdate(targetPos, state.getBlock().defaultBlockState());
+            world.setBlock(pos, state.setValue(CactusBlock.AGE, 0), 4);
+            world.levelEvent(1505, targetPos, 15);
+            return;
+        }
+        if (state.getBlock() instanceof NetherWartBlock) {
+            int age = state.getValue(NetherWartBlock.AGE);
+            world.setBlock(pos, state.setValue(NetherWartBlock.AGE, age + 1), 2);
+            world.levelEvent(1505, pos, 15);
+        }
     }
 
     /**
@@ -88,14 +165,9 @@ public final class FarmerEffects {
                     for (int dy = -6; dy <= 6; dy++) {
                         mpos.set(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
                         BlockState state = world.getBlockState(mpos);
-                        if (isCrop(state) && state.getBlock() instanceof BonemealableBlock bonemealable) {
-                            if (bonemealable.isValidBonemealTarget(world, mpos, state, BonemealSource.INTERACTION)) {
-                                if (world.getRandom().nextDouble() < chance) {
-                                    BlockPos targetPos = mpos.immutable();
-                                    bonemealable.performBonemeal(world, world.getRandom(), targetPos, state,
-                                            BonemealSource.INTERACTION);
-                                    world.levelEvent(1505, targetPos, 15);
-                                }
+                        if (isCrop(state) && canBoostCrop(world, mpos, state)) {
+                            if (world.getRandom().nextDouble() < chance) {
+                                performCropBoost(world, mpos.immutable(), state);
                             }
                         }
                     }

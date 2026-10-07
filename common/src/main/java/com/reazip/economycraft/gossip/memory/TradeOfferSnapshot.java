@@ -61,13 +61,13 @@ public record TradeOfferSnapshot(
                 net.minecraft.world.item.ItemStack costB = offer.getCostB();
                 net.minecraft.world.item.ItemStack res = offer.getResult();
 
-                String inputAName = costA.getHoverName().getString();
+                String inputAName = formatItemStack(costA);
                 int countA = costA.getCount();
 
-                String inputBName = !costB.isEmpty() ? costB.getHoverName().getString() : null;
+                String inputBName = !costB.isEmpty() ? formatItemStack(costB) : null;
                 int countB = !costB.isEmpty() ? costB.getCount() : 0;
 
-                String outputName = res.getHoverName().getString();
+                String outputName = formatItemStack(res);
                 int countOutput = res.getCount();
 
                 boolean outOfStock = offer.isOutOfStock();
@@ -87,5 +87,62 @@ public record TradeOfferSnapshot(
             }
         }
         return java.util.Collections.unmodifiableList(result);
+    }
+
+    /**
+     * Formats an ItemStack into a human-readable name, appending enchantment names
+     * (e.g. "Enchanted Book (Fortune III)", "Diamond Pickaxe (Efficiency V)").
+     */
+    public static String formatItemStack(@Nullable net.minecraft.world.item.ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return "Unknown item";
+        String baseName = stack.getHoverName().getString();
+        try {
+            net.minecraft.core.component.DataComponentType<net.minecraft.world.item.enchantment.ItemEnchantments> enchComp =
+                    stack.is(net.minecraft.world.item.Items.ENCHANTED_BOOK)
+                            ? net.minecraft.core.component.DataComponents.STORED_ENCHANTMENTS
+                            : net.minecraft.core.component.DataComponents.ENCHANTMENTS;
+
+            net.minecraft.world.item.enchantment.ItemEnchantments enchs = stack.getOrDefault(enchComp, net.minecraft.world.item.enchantment.ItemEnchantments.EMPTY);
+            if (!enchs.isEmpty()) {
+                java.util.List<String> list = new java.util.ArrayList<>();
+                for (it.unimi.dsi.fastutil.objects.Object2IntMap.Entry<net.minecraft.core.Holder<net.minecraft.world.item.enchantment.Enchantment>> entry : enchs.entrySet()) {
+                    var holder = entry.getKey();
+                    int level = entry.getIntValue();
+                    com.reazip.economycraft.util.IdentifierCompat.Id enchId = holder.unwrapKey()
+                            .map(com.reazip.economycraft.util.IdentifierCompat::fromResourceKey)
+                            .orElse(null);
+                    String enchName = enchId != null ? enchId.path().replace('_', ' ') : "enchantment";
+                    // Capitalize words
+                    enchName = capitalizeWords(enchName);
+                    String levelStr = switch (level) {
+                        case 1 -> "I";
+                        case 2 -> "II";
+                        case 3 -> "III";
+                        case 4 -> "IV";
+                        case 5 -> "V";
+                        default -> String.valueOf(level);
+                    };
+                    list.add(enchName + " " + levelStr);
+                }
+                if (!list.isEmpty()) {
+                    return baseName + " (" + String.join(", ", list) + ")";
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return baseName;
+    }
+
+    private static String capitalizeWords(String str) {
+        if (str == null || str.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (String word : str.split("\\s+")) {
+            if (!word.isEmpty()) {
+                sb.append(Character.toUpperCase(word.charAt(0)))
+                  .append(word.substring(1).toLowerCase(java.util.Locale.ROOT))
+                  .append(" ");
+            }
+        }
+        return sb.toString().trim();
     }
 }

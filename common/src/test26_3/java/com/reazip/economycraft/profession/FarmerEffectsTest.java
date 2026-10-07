@@ -159,6 +159,13 @@ class FarmerEffectsTest {
         assertTrue(FarmerEffects.isCrop(Blocks.PUMPKIN_STEM.defaultBlockState()));
         assertTrue(FarmerEffects.isCrop(Blocks.MELON_STEM.defaultBlockState()));
         assertTrue(FarmerEffects.isCrop(Blocks.COCOA.defaultBlockState()));
+        assertTrue(FarmerEffects.isCrop(Blocks.OAK_SAPLING.defaultBlockState()));
+        assertTrue(FarmerEffects.isCrop(Blocks.BIRCH_SAPLING.defaultBlockState()));
+        assertTrue(FarmerEffects.isCrop(Blocks.SUGAR_CANE.defaultBlockState()));
+        assertTrue(FarmerEffects.isCrop(Blocks.CACTUS.defaultBlockState()));
+        assertTrue(FarmerEffects.isCrop(Blocks.NETHER_WART.defaultBlockState()));
+        assertTrue(FarmerEffects.isCrop(Blocks.BAMBOO.defaultBlockState()));
+        assertTrue(FarmerEffects.isCrop(Blocks.SWEET_BERRY_BUSH.defaultBlockState()));
 
         assertFalse(FarmerEffects.isCrop(Blocks.STONE.defaultBlockState()));
         assertFalse(FarmerEffects.isCrop(Blocks.DIRT.defaultBlockState()));

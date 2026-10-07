@@ -209,7 +209,7 @@ public final class ProfessionHooks {
         try {
             var memoryService = com.reazip.economycraft.gossip.VillagerGossipListener.getMemoryService();
             if (memoryService != null) {
-                String itemName = offer.getResult().getHoverName().getString();
+                String itemName = com.reazip.economycraft.gossip.memory.TradeOfferSnapshot.formatItemStack(offer.getResult());
                 int count = offer.getResult().getCount();
                 String desc = (count > 1 ? count + "x " : "") + itemName;
                 int costCount = offer.getCostA().getCount();

@@ -211,14 +211,14 @@ public final class TagUi {
                 list.add(debuffPerk("Đảng phí", "Trừ $10 nộp vào quỹ Đảng Cộng sản"));
                 list.add(addition("(Thu định kỳ mỗi 45 phút tích lũy online)"));
                 list.add(debuffPerk("Thuế thu nhập", "Đánh thuế tài khoản chống đầu cơ"));
-                list.add(addition("(Thu từ 0.5% đến 1.25% mỗi 45p khi số dư trên $10,000)"));
+                list.add(addition("(Thu từ 0.25% đến 0.625% mỗi 45p khi số dư trên $10,000)"));
             }
             case CAPITALISM -> {
                 list.add(perk("Thị trường", "Người mua đồ của bạn trên /ah được miễn thuế"));
                 list.add(addition("(Giúp bạn có lợi thế giá bán cạnh tranh hơn)"));
                 list.add(Component.empty());
                 list.add(Component.literal("[Trách nhiệm - Debuff]").withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.RED)));
-                list.add(debuffPerk("Thuế tư bản", "Đóng thuế tài sản hàng ngày 5%"));
+                list.add(debuffPerk("Thuế tư bản", "Đóng thuế tài sản hàng ngày 2.5%"));
                 list.add(addition("(Tỉ lệ nhân theo thị phần tài sản của phe & lạm phát)"));
                 list.add(debuffPerk("Cầu đường", "Thuế giao dịch khi qua trạm Toll tăng thêm 25%"));
             }
@@ -229,7 +229,7 @@ public final class TagUi {
                 list.add(addition("(Chỉ áp dụng khi đứng trong vùng đất của chính mình)"));
                 list.add(Component.empty());
                 list.add(Component.literal("[Trách nhiệm - Debuff]").withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.RED)));
-                list.add(debuffPerk("Cống nạp", "Nộp thêm thuế cống nạp 1.7% hàng ngày cho triều đình"));
+                list.add(debuffPerk("Cống nạp", "Nộp thêm thuế cống nạp 1% hàng ngày cho triều đình"));
                 list.add(debuffPerk("Nhập khẩu", "Có 50% tỉ lệ phải trả thêm 50% thuế khi mua đồ"));
             }
             case ANARCHISM -> {
