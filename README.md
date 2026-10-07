@@ -3,6 +3,8 @@
 A server-side economy for Fabric and NeoForge.
 Requires Architectury API.
 
+> **Note:** This repository is an enhanced fork of [PhilipB06/EconomyCraft](https://github.com/PhilipB06/EconomyCraft), adding dynamic pricing, LLM-powered villager economic gossip, tolls, player order books, and faction economic integrations.
+
 ---
 
 ## The `/eco` menu
@@ -466,3 +468,8 @@ The normal EconomyCraft jar includes API v1 for other server-side mods, no separ
 See the [Developer API wiki](https://github.com/PhilipB06/EconomyCraft/wiki) for setup, examples and the complete reference.
 
 ---
+
+## Upstream & License
+
+EconomyCraft is licensed under GNU General Public License v3.0 (GPL-3.0).
+This repository is an enhanced fork of the original [EconomyCraft by PhilipB06 (ReaZip)](https://github.com/PhilipB06/EconomyCraft).
