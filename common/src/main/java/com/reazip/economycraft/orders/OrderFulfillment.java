@@ -52,6 +52,34 @@ public final class OrderFulfillment {
         OK, ORDER_GONE, NOT_OWNER, INVALID_PRICE, CANT_AFFORD_RAISE, REFUND_FAILED
     }
 
+    public enum SetDescriptionStatus {
+        OK, ORDER_GONE, NOT_OWNER
+    }
+
+    /**
+     * Updates the description/note of a request in place. Ownership is checked;
+     * listeners fire and disk is persisted on change.
+     */
+    public static SetDescriptionStatus setDescription(EconomyManager eco, UUID requester, int orderId, @org.jetbrains.annotations.Nullable String description) {
+        OrderManager orders = eco.getOrders();
+        OrderRequest peek = orders.getRequest(orderId);
+        if (peek == null) return SetDescriptionStatus.ORDER_GONE;
+        if (!peek.requester.equals(requester)) return SetDescriptionStatus.NOT_OWNER;
+
+        String desc = description;
+        if (desc != null) {
+            desc = desc.replace("\r", "").replace("\n", "").trim();
+            if (desc.isEmpty()) {
+                desc = null;
+            } else if (desc.length() > 100) {
+                desc = desc.substring(0, 100);
+            }
+        }
+        peek.description = desc;
+        orders.markChanged();
+        return SetDescriptionStatus.OK;
+    }
+
     /**
      * Reprices a request in place, adjusting the escrow to match. Raising the reward holds the
      * difference up front (fails cleanly when the requester cannot afford it); lowering it
@@ -90,9 +118,23 @@ public final class OrderFulfillment {
     private record PaymentOutcome(boolean success, long payout, Status failureStatus) {}
 
     public static OrderRequest createEscrowedRequest(EconomyManager eco, UUID requester, ItemStack item, int amount, long price) {
+        return createEscrowedRequest(eco, requester, item, amount, price, null);
+    }
+
+    public static OrderRequest createEscrowedRequest(EconomyManager eco, UUID requester, ItemStack item, int amount, long price, @org.jetbrains.annotations.Nullable String description) {
         String detail = EconomyCraft.describeItem(amount, item.getHoverName().getString());
         if (!eco.removeMoney(requester, price, EconomySources.ORDER_ESCROW_HOLD, detail).successful()) {
             return null;
+        }
+
+        String desc = description;
+        if (desc != null) {
+            desc = desc.replace("\r", "").replace("\n", "").trim();
+            if (desc.isEmpty()) {
+                desc = null;
+            } else if (desc.length() > 100) {
+                desc = desc.substring(0, 100);
+            }
         }
 
         OrderRequest request = new OrderRequest();
@@ -103,6 +145,7 @@ public final class OrderFulfillment {
         request.escrow = price;
         request.createdAt = System.currentTimeMillis();
         request.expiresAt = ExpirationUtil.expiresAt(request.createdAt, EconomyConfig.get().orderExpirationHours);
+        request.description = desc;
         eco.getOrders().addRequest(request);
         broadcastNewOrder(eco.getServer(), requester, item, amount, price);
         return request;

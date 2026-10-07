@@ -90,7 +90,9 @@ public final class EconomyCommands {
         registerStandalone(dispatcher, buildOffers(), Nodes.COMMAND_OFFERS);
         registerStandalone(dispatcher, buildShop(), Nodes.COMMAND_SHOP);
         dispatcher.register(withCommandPermission(
-                buildOrders(buildContext).requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_ORDERS));
+                buildOrders("orders", buildContext).requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_ORDERS));
+        dispatcher.register(withCommandPermission(
+                buildOrders("order", buildContext).requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_ORDERS));
         dispatcher.register(withCommandPermission(
                 buildDeliveries().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_DELIVERIES));
         dispatcher.register(withCommandPermission(
@@ -184,7 +186,8 @@ public final class EconomyCommands {
         root.then(withCommandPermission(buildAuction("auction"), Nodes.COMMAND_AUCTION));
         root.then(withCommandPermission(buildOffers(), Nodes.COMMAND_OFFERS));
         root.then(withCommandPermission(buildShop(), Nodes.COMMAND_SHOP));
-        root.then(withCommandPermission(buildOrders(buildContext), Nodes.COMMAND_ORDERS));
+        root.then(withCommandPermission(buildOrders("orders", buildContext), Nodes.COMMAND_ORDERS));
+        root.then(withCommandPermission(buildOrders("order", buildContext), Nodes.COMMAND_ORDERS));
         root.then(withCommandPermission(buildDeliveries(), Nodes.COMMAND_DELIVERIES));
         root.then(withCommandPermission(buildDaily(), Nodes.COMMAND_DAILY));
         root.then(withCommandPermission(buildTransactions(), Nodes.COMMAND_TRANSACTIONS));
@@ -980,9 +983,9 @@ public final class EconomyCommands {
         }
     }
 
-    private static LiteralArgumentBuilder<CommandSourceStack> buildOrders(CommandBuildContext buildContext) {
-        String requestUsage = "/orders request <item> <amount> <price>";
-        return literal("orders")
+    private static LiteralArgumentBuilder<CommandSourceStack> buildOrders(String command, CommandBuildContext buildContext) {
+        String requestUsage = "/" + command + " request <item> <amount> <price> [<description>]";
+        return literal(command)
                 .executes(ctx -> openOrders(ctx.getSource().getPlayerOrException(), ctx.getSource()))
                 .then(literal("request")
                         .requires(src -> EconomyConfig.get().ordersEnabled)
@@ -995,11 +998,18 @@ public final class EconomyCommands {
                                                 .executes(ctx -> requestItem(ctx.getSource().getPlayerOrException(),
                                                         ItemArgument.getItem(ctx, "item"),
                                                         (int) Math.min(LongArgumentType.getLong(ctx, "amount"), EconomyManager.MAX),
-                                                        LongArgumentType.getLong(ctx, "price"),
-                                                        ctx.getSource()))))))
+                                                        LongArgumentType.getLong(ctx, "price"), null,
+                                                        ctx.getSource()))
+                                                .then(argument("description", StringArgumentType.greedyString())
+                                                        .executes(ctx -> requestItem(ctx.getSource().getPlayerOrException(),
+                                                                ItemArgument.getItem(ctx, "item"),
+                                                                (int) Math.min(LongArgumentType.getLong(ctx, "amount"), EconomyManager.MAX),
+                                                                LongArgumentType.getLong(ctx, "price"),
+                                                                StringArgumentType.getString(ctx, "description"),
+                                                                ctx.getSource())))))))
                 .then(literal("search")
                         .requires(src -> EconomyConfig.get().ordersEnabled)
-                        .executes(ctx -> usage(ctx.getSource(), "/orders search <query>"))
+                        .executes(ctx -> usage(ctx.getSource(), "/" + command + " search <query>"))
                         .then(argument("query", StringArgumentType.greedyString())
                                 .executes(ctx -> searchOrders(ctx.getSource().getPlayerOrException(),
                                         StringArgumentType.getString(ctx, "query"),
@@ -1021,7 +1031,7 @@ public final class EconomyCommands {
         }
     }
 
-    private static int requestItem(ServerPlayer player, ItemInput input, int amount, long price, CommandSourceStack source) {
+    private static int requestItem(ServerPlayer player, ItemInput input, int amount, long price, @Nullable String description, CommandSourceStack source) {
         ItemStack item;
         try {
             item = ItemArgumentCompat.createItemStack(input, 1);
@@ -1045,7 +1055,17 @@ public final class EconomyCommands {
             return 0;
         }
 
-        OrderRequest r = OrderFulfillment.createEscrowedRequest(eco, player.getUUID(), item, amount, price);
+        String desc = description;
+        if (desc != null) {
+            desc = desc.replace("\r", "").replace("\n", "").trim();
+            if (desc.isEmpty()) {
+                desc = null;
+            } else if (desc.length() > 100) {
+                desc = desc.substring(0, 100);
+            }
+        }
+
+        OrderRequest r = OrderFulfillment.createEscrowedRequest(eco, player.getUUID(), item, amount, price, desc);
         if (r == null) {
             EconomySounds.failure(player);
             source.sendFailure(Component.literal("You can't afford to reserve " + EconomyCraft.formatMoney(price)).withStyle(ChatFormatting.RED));
@@ -1053,7 +1073,7 @@ public final class EconomyCommands {
         }
         long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, price);
 
-        Component msg = Component.literal("Created request" +
+        Component msg = Component.literal("Created request for " + amount + "x " + item.getHoverName().getString() +
                 (tax > 0 ? " (fulfiller receives " + EconomyCraft.formatMoney(price - tax) + ")" : ""))
                 .withStyle(ChatFormatting.GREEN);
         EconomySounds.success(player);

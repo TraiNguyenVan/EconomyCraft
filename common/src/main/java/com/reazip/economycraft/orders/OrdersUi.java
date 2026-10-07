@@ -49,6 +49,7 @@ public final class OrdersUi {
     private static final int OFFER_SLOT = 0;
     /** Requester-side buttons in the remove-confirm row. */
     private static final int EDIT_PRICE_SLOT = 0;
+    private static final int EDIT_DESC_SLOT = 1;
     private static final int OFFERS_SLOT = 8;
 
     public static void open(ServerPlayer player, EconomyManager eco) {
@@ -105,6 +106,15 @@ public final class OrdersUi {
         }
     }
 
+    private static void addDescriptionLore(List<Component> lore, OrderRequest request) {
+        if (request != null && request.description != null && !request.description.isBlank()) {
+            net.minecraft.network.chat.MutableComponent line = Component.literal("Note: ")
+                    .withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GOLD));
+            line.append(com.reazip.economycraft.motd.MotdFormatter.formatLine(request.description));
+            lore.add(line);
+        }
+    }
+
     public static void startRequest(ServerPlayer player, EconomyManager eco) {
         if (eco.getOrders().hasReachedLimit(player.getUUID())) {
             EconomySounds.failure(player);
@@ -130,9 +140,22 @@ public final class OrdersUi {
         NumberInputUi.openMoney(player, "What will you pay?",
                 prototype.copyWithCount(Math.min(amount, prototype.getMaxStackSize())),
                 "Total reward", 100L * amount, 1, EconomyManager.MAX,
-                "Confirm and post", price -> requestLore(player, eco, amount, price),
-                (p, price) -> createRequest(p, eco, prototype, amount, price),
+                "Next: Description", price -> requestLore(player, eco, amount, price),
+                (p, price) -> chooseDescription(p, eco, prototype, amount, price),
                 p -> chooseAmount(p, eco, prototype));
+    }
+
+    private static void chooseDescription(ServerPlayer player, EconomyManager eco, ItemStack prototype, int amount, long price) {
+        TextInputUi.open(player, "Add a note/description", "", Items.NAME_TAG,
+                "Note: ", "Optional note (blank to skip)", true,
+                (p, text) -> {
+                    String desc = text.isBlank() ? null : text.trim();
+                    if (desc != null && desc.length() > 100) {
+                        desc = desc.substring(0, 100);
+                    }
+                    createRequest(p, eco, prototype, amount, price, desc);
+                },
+                p -> choosePrice(p, eco, prototype, amount));
     }
 
     private static List<Component> requestLore(ServerPlayer player, EconomyManager eco, int amount, long price) {
@@ -152,6 +175,10 @@ public final class OrdersUi {
     }
 
     private static void createRequest(ServerPlayer player, EconomyManager eco, ItemStack prototype, int amount, long price) {
+        createRequest(player, eco, prototype, amount, price, null);
+    }
+
+    private static void createRequest(ServerPlayer player, EconomyManager eco, ItemStack prototype, int amount, long price, @Nullable String description) {
         if (eco.getOrders().hasReachedLimit(player.getUUID())) {
             EconomySounds.failure(player);
             player.sendSystemMessage(Component.literal("You have reached your limit of "
@@ -160,7 +187,7 @@ public final class OrdersUi {
             open(player, eco);
             return;
         }
-        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, player.getUUID(), prototype.copyWithCount(1), amount, price);
+        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, player.getUUID(), prototype.copyWithCount(1), amount, price, description);
         if (request == null) {
             EconomySounds.failure(player);
             player.sendSystemMessage(Component.literal("You can't afford to reserve " + EconomyCraft.formatMoney(price))
@@ -290,6 +317,7 @@ public final class OrdersUi {
                 List<Component> lore = new ArrayList<>();
                 addRewardLore(lore, r.price, tax, r.amount);
                 addBountyLore(lore, r);
+                addDescriptionLore(lore, r);
                 lore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(r.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.labeledValue("Requester", mine ? "you" : reqName, MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(r.expiresAt)));
@@ -491,6 +519,7 @@ public final class OrdersUi {
             List<Component> itemLore = new ArrayList<>();
             addRewardLore(itemLore, req.price, tax, req.amount);
             addBountyLore(itemLore, req);
+            addDescriptionLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.labeledValue("Requester", requesterName, MenuUiSupport.LABEL_PRIMARY_COLOR));
             int heldByViewer = OrderFulfillment.countHeld(parent.viewer(), req.item);
@@ -658,6 +687,7 @@ public final class OrdersUi {
             long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, req.price);
             List<Component> itemLore = new ArrayList<>();
             addRewardLore(itemLore, req.price, tax, req.amount);
+            addDescriptionLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(req.expiresAt)));
             itemLore.add(MenuUiSupport.line("This will remove the request", ChatFormatting.RED));
@@ -668,6 +698,8 @@ public final class OrdersUi {
             if (NegotiationEvents.canNegotiateOrder(request)) {
                 container.setItem(EDIT_PRICE_SLOT, MenuUiSupport.button(Items.NAME_TAG, "Edit reward",
                         ChatFormatting.AQUA, MenuUiSupport.hint("Reprice without reposting")));
+                container.setItem(EDIT_DESC_SLOT, MenuUiSupport.button(Items.WRITABLE_BOOK, "Edit note",
+                        ChatFormatting.AQUA, MenuUiSupport.hint("Update or clear note")));
                 int offerCount = parent.eco().getNegotiations()
                         .countFor(NegotiationStore.Kind.ORDER, request.id);
                 if (offerCount > 0) {
@@ -736,6 +768,22 @@ public final class OrdersUi {
                         p -> parent.openRemove(p, current));
                 return true;
             }
+            if (slot == EDIT_DESC_SLOT && NegotiationEvents.canNegotiateOrder(request)) {
+                ServerPlayer serverPlayer = (ServerPlayer) player;
+                OrderRequest current = parent.orders().getRequest(request.id);
+                if (current == null || !current.requester.equals(serverPlayer.getUUID())) {
+                    failStatic(serverPlayer, "Request no longer available");
+                    player.closeContainer();
+                    OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                    return true;
+                }
+                EconomySounds.click(serverPlayer);
+                TextInputUi.open(serverPlayer, "Edit note/description", current.description == null ? "" : current.description,
+                        Items.NAME_TAG, "Note: ", "Optional note (blank to clear)", true,
+                        (p, newDesc) -> applyDescriptionEdit(parent, p, current.id, newDesc),
+                        p -> parent.openRemove(p, current));
+                return true;
+            }
             if (slot == OFFERS_SLOT && NegotiationEvents.canNegotiateOrder(request)) {
                 EconomySounds.click((ServerPlayer) player);
                 openOffers(parent, (ServerPlayer) player, request.id);
@@ -748,6 +796,32 @@ public final class OrdersUi {
             EconomySounds.failure(player);
             player.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.RED));
         }
+    }
+
+    private static void applyDescriptionEdit(RequestContext parent, ServerPlayer player, int requestId, String newDesc) {
+        String desc = (newDesc == null || newDesc.isBlank()) ? null : newDesc.trim();
+        if (desc != null && desc.length() > 100) {
+            desc = desc.substring(0, 100);
+        }
+        OrderFulfillment.SetDescriptionStatus status =
+                OrderFulfillment.setDescription(parent.eco(), player.getUUID(), requestId, desc);
+        switch (status) {
+            case OK -> {
+                EconomySounds.success(player);
+                if (desc == null) {
+                    player.sendSystemMessage(Component.literal("Cleared request note.")
+                            .withStyle(ChatFormatting.GREEN));
+                } else {
+                    Component msg = Component.literal("Updated request note: ")
+                            .withStyle(ChatFormatting.GREEN)
+                            .append(com.reazip.economycraft.motd.MotdFormatter.formatLine(desc));
+                    player.sendSystemMessage(msg);
+                }
+            }
+            default -> failStatic(player, "Request no longer available");
+        }
+        player.closeContainer();
+        OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
     }
 
     private static void applyRewardEdit(RequestContext parent, ServerPlayer player, int requestId, long newPrice) {
