@@ -235,6 +235,11 @@ public class GossipApiClient {
         String systemInstruction = VillagerDialoguePromptBuilder.buildSystemInstruction(
                 profile, memory, playerArchetype, grapevineRumors, inflation, config.dialogueSystemInstruction(), recentSpokenTopics, currentOffers, tradeHistory);
 
+        LOGGER.info("[EconomyCraft-AI] Generating dialogue for villager {} ({}) with {} offer(s), {} trade history record(s).",
+                profile.name(), profile.profession(),
+                currentOffers != null ? currentOffers.size() : 0,
+                tradeHistory != null ? tradeHistory.size() : 0);
+
         boolean isOpenAi = isOpenAiCompatible();
         String url;
         String requestJson;
@@ -576,7 +581,7 @@ public class GossipApiClient {
 
         JsonObject userMsg = new JsonObject();
         userMsg.addProperty("role", "user");
-        userMsg.addProperty("content", "Customer approaches your stall. Speak to them in 1 sentence matching your persona and memories. Respond strictly in JSON: {\"dialogue\": \"...\", \"sentiment_delta\": <int>}");
+        userMsg.addProperty("content", "A customer approaches your stall. Greet them and pitch one of your specialty trade offers (mentioning the specific item or enchantment by name) matching your personality. Respond strictly in JSON: {\"dialogue\": \"...\", \"sentiment_delta\": <int>}");
         messages.add(userMsg);
 
         root.add("messages", messages);
@@ -598,7 +603,7 @@ public class GossipApiClient {
         JsonObject contentObj = new JsonObject();
         JsonArray contentParts = new JsonArray();
         JsonObject textPart = new JsonObject();
-        textPart.addProperty("text", "Customer approaches your stall. Speak to them in 1 sentence matching your persona and memories.");
+        textPart.addProperty("text", "A customer approaches your stall. Greet them and pitch one of your specialty trade offers (mentioning the specific item or enchantment by name) matching your personality.");
         contentParts.add(textPart);
         contentObj.add("parts", contentParts);
         contents.add(contentObj);

@@ -151,14 +151,20 @@ public class VillagerMemoryService {
 
         // Fetch recent trade history asynchronously before requesting dialogue
         return database.getRecentTrades(villagerUuid, playerUuid, 5)
-                .thenCompose(trades -> apiClient.generateIndividualDialogue(
-                        profile, memory, archetype, grapevine, inflation, recentSpoken, offers, trades))
+                .thenCompose(trades -> {
+                    LOGGER.info("[EconomyCraft-AI] Villager {} ({}) interacting with player {}. Extracted {} offer(s), {} past trade(s).",
+                            profile.name(), profile.profession(), playerName, offers.size(), trades.size());
+                    return apiClient.generateIndividualDialogue(
+                            profile, memory, archetype, grapevine, inflation, recentSpoken, offers, trades);
+                })
                 .thenApply(optResult -> {
                     if (optResult.isEmpty() || optResult.get().isEmpty()) {
                         return Optional.<String>empty();
                     }
 
                     IndividualDialogueResult result = optResult.get();
+                    LOGGER.info("[EconomyCraft-AI] Villager {} ({}) replied to {}: \"{}\"",
+                            profile.name(), profile.profession(), playerName, result.dialogue());
 
                     if (recentSpokenTracker != null) {
                         recentSpokenTracker.recordSpoken(result.dialogue());

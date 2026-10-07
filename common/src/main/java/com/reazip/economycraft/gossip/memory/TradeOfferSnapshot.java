@@ -1,6 +1,8 @@
 package com.reazip.economycraft.gossip.memory;
 
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import com.mojang.logging.LogUtils;
 
 /**
  * Immutable snapshot of an active villager trade offer, captured safely on the main game thread.
@@ -15,6 +17,7 @@ public record TradeOfferSnapshot(
         boolean outOfStock,
         int remainingUses
 ) {
+    private static final Logger LOGGER = LogUtils.getLogger();
     public String toPromptDescription() {
         StringBuilder sb = new StringBuilder();
         if (countOutput > 1) {
@@ -83,7 +86,8 @@ public record TradeOfferSnapshot(
                         outOfStock,
                         remainingUses
                 ));
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                LOGGER.warn("[EconomyCraft-AI] Error extracting offer snapshot: {}", t.getMessage());
             }
         }
         return java.util.Collections.unmodifiableList(result);

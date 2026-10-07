@@ -121,25 +121,22 @@ public final class VillagerDialoguePromptBuilder {
             }
         }
 
-        sb.append("\n");
+        sb.append("""
+            Dialogue Instructions:
+            1. Keep it concise (12 to 25 words). Avoid overly verbose prose, but don't be so brief that you omit item details.
+            2. Speak in exactly 1 natural, conversational sentence matching your personality, quirk, and relationship with this player.
+            3. MANDATORY SALES PITCH & ITEM AWARENESS: Greet the customer and pitch, mention, or offer a specific item or deal from your stall's current trade inventory (for example: an enchanted book by its exact enchantment name like 'Fortune III' or 'Efficiency V', tools, weapons, armor, or goods you sell). If they have traded with you before, you may also reference their past purchase.
+            4. Item Specificity: Always refer to your actual stock items by name. Do not speak in vague generalities like 'my stock' or 'something'—name a real item you have for sale!
+            5. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.
+            6. Respond strictly with valid JSON with fields:
+               {
+                 "dialogue": "<your concise line>",
+                 "sentiment_delta": <-2 to 5 integer>
+               }
+            """);
 
         if (customInstructions != null && !customInstructions.isBlank()) {
-            sb.append(customInstructions.trim()).append("\n");
-        } else {
-            sb.append("""
-                Dialogue Instructions:
-                1. Keep it short and easy to understand: most lines should be under 15 words. Avoid overly complex prose or purple vocabulary.
-                2. Speak in exactly 1 concise, conversational sentence matching your personality, quirk, and relationship with this player.
-                3. Topic Rotation & Sales Pitch: When greeting the customer, frequently pitch, offer, or mention the specific wares you have in stock (especially enchanted books, weapons, armor, or specialty goods), comment on their past purchases, or complain about shortages.
-                4. Context Awareness: Name the actual items you are selling or that they previously bought (e.g. 'Looking for Fortune III?', 'Need another diamond blade?'). DO NOT read your entire inventory like a menu list; highlight one notable deal or item naturally.
-                5. Address the player or your past memories directly when appropriate.
-                6. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.
-                7. Respond strictly with valid JSON with fields:
-                   {
-                     "dialogue": "<your concise line>",
-                     "sentiment_delta": <-2 to 5 integer>
-                   }
-                """);
+            sb.append("\nAdditional Custom Instructions:\n").append(customInstructions.trim()).append("\n");
         }
 
         return sb.toString();

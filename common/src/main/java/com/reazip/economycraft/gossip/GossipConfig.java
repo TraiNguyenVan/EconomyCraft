@@ -58,11 +58,12 @@ public record GossipConfig(
 
     public static final String DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION =
             "Dialogue Instructions:\n" +
-            "1. Keep it short and easy to understand: most lines should be under 15 words. Avoid overly complex prose or purple vocabulary.\n" +
-            "2. Speak in exactly 1 concise, conversational sentence matching your personality, quirk, and relationship with this player.\n" +
-            "3. Address the player or your past memories directly when appropriate.\n" +
-            "4. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.\n" +
-            "5. Respond strictly with valid JSON with fields:\n" +
+            "1. Keep it concise (12 to 25 words). Avoid overly verbose prose, but don't be so brief that you omit item details.\n" +
+            "2. Speak in exactly 1 natural, conversational sentence matching your personality, quirk, and relationship with this player.\n" +
+            "3. MANDATORY SALES PITCH & ITEM AWARENESS: Greet the customer and pitch, mention, or offer a specific item or deal from your stall's current trade inventory (for example: an enchanted book by its exact enchantment name like 'Fortune III' or 'Efficiency V', tools, weapons, armor, or goods you sell). If they have traded with you before, you may also reference their past purchase.\n" +
+            "4. Item Specificity: Always refer to your actual stock items by name. Do not speak in vague generalities like 'my stock' or 'something'—name a real item you have for sale!\n" +
+            "5. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.\n" +
+            "6. Respond strictly with valid JSON with fields:\n" +
             "   {\n" +
             "     \"dialogue\": \"<your concise line>\",\n" +
             "     \"sentiment_delta\": <-2 to 5 integer>\n" +
