@@ -38,8 +38,13 @@ public final class VillagerGossipListener {
         return cfg != null ? cfg.geminiGossip : GossipConfig.createDefault();
     };
     private static volatile @Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService memoryService = null;
+    private static volatile java.util.function.DoubleSupplier chanceRollSupplier = () -> java.util.concurrent.ThreadLocalRandom.current().nextDouble();
 
     private VillagerGossipListener() {}
+
+    public static void setChanceRollSupplier(@Nullable java.util.function.DoubleSupplier supplier) {
+        chanceRollSupplier = supplier != null ? supplier : () -> java.util.concurrent.ThreadLocalRandom.current().nextDouble();
+    }
 
     public static void setMemoryService(@Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService service) {
         memoryService = service;
@@ -145,13 +150,28 @@ public final class VillagerGossipListener {
             long cooldownMillis = (long) config.cooldownMinutes() * 60_000L;
             cooldownTracker.setCooldown(playerUuid, villagerUuid, cooldownMillis);
 
-            // 1. If individual memory service is active, dispatch async personalized dialogue (delivered privately to player)
-            if (memoryService != null) {
-                memoryService.handleInteraction(serverPlayer, villager);
+            // 1. Private dialogue / rumor (delivered privately to player if privateChatChance permits)
+            if (passesChance(chanceRollSupplier.getAsDouble(), config.privateChatChance())) {
+                if (memoryService != null) {
+                    memoryService.handleInteraction(serverPlayer, villager);
+                } else if (!config.publicChat()) {
+                    // Fallback: if memory service is inactive and publicChat is disabled, send generic rumor privately
+                    GossipPool pool = poolSupplier.get();
+                    if (pool != null && !pool.isEmpty()) {
+                        GossipCategory category = ProfessionMapper.fromEntity(villager);
+                        String rumor = pool.getNextRoundRobinRumor(category);
+                        if (rumor != null && !rumor.isBlank()) {
+                            Component message = formatRumor(villager, rumor);
+                            serverPlayer.sendSystemMessage(message);
+                        }
+                    }
+                }
             }
 
-            // 2. Deliver public economic rumor (broadcast to all players if public_chat is enabled AND global server throttle permits)
-            if (config.publicChat() && cooldownTracker.tryAcquirePublicBroadcast(cooldownMillis)) {
+            // 2. Deliver public economic rumor (broadcast to all players if public_chat is enabled, publicChatChance permits, AND global server throttle permits)
+            if (config.publicChat()
+                    && passesChance(chanceRollSupplier.getAsDouble(), config.publicChatChance())
+                    && cooldownTracker.tryAcquirePublicBroadcast(cooldownMillis)) {
                 GossipPool pool = poolSupplier.get();
                 if (pool != null && !pool.isEmpty()) {
                     GossipCategory category = ProfessionMapper.fromEntity(villager);
@@ -164,17 +184,6 @@ public final class VillagerGossipListener {
                         } else {
                             serverPlayer.sendSystemMessage(message);
                         }
-                    }
-                }
-            } else if (memoryService == null) {
-                // Fallback: if memory service is inactive and publicChat is disabled, send generic rumor privately
-                GossipPool pool = poolSupplier.get();
-                if (pool != null && !pool.isEmpty()) {
-                    GossipCategory category = ProfessionMapper.fromEntity(villager);
-                    String rumor = pool.getNextRoundRobinRumor(category);
-                    if (rumor != null && !rumor.isBlank()) {
-                        Component message = formatRumor(villager, rumor);
-                        serverPlayer.sendSystemMessage(message);
                     }
                 }
             }
@@ -196,6 +205,12 @@ public final class VillagerGossipListener {
                 .append(villagerName.copy().withStyle(ChatFormatting.GREEN))
                 .append(Component.literal("> ").withStyle(ChatFormatting.DARK_GREEN))
                 .append(Component.literal(rumor).withStyle(ChatFormatting.YELLOW, ChatFormatting.ITALIC));
+    }
+
+    public static boolean passesChance(double roll, double chance) {
+        if (chance <= 0.0) return false;
+        if (chance >= 1.0) return true;
+        return roll < chance;
     }
 
     public static CooldownTracker getCooldownTracker() {

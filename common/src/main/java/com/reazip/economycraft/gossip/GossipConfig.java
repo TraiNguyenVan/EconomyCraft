@@ -26,6 +26,8 @@ public record GossipConfig(
         @SerializedName("anonymize_players") boolean anonymizePlayers,
         @SerializedName("temperature") double temperature,
         @SerializedName("public_chat") boolean publicChat,
+        @SerializedName("public_chat_chance") double publicChatChance,
+        @SerializedName("private_chat_chance") double privateChatChance,
         @SerializedName("system_instruction") String systemInstruction,
         @SerializedName("dialogue_system_instruction") String dialogueSystemInstruction,
         @SerializedName("pool_size_per_category") int poolSizePerCategory,
@@ -42,6 +44,10 @@ public record GossipConfig(
     public static final boolean DEFAULT_ANONYMIZE_PLAYERS = true;
     public static final double DEFAULT_TEMPERATURE = 0.85;
     public static final boolean DEFAULT_PUBLIC_CHAT = false;
+    public static final double DEFAULT_PUBLIC_CHAT_CHANCE = 0.25;
+    public static final double DEFAULT_PRIVATE_CHAT_CHANCE = 0.5;
+    public static final double MIN_CHANCE = 0.0;
+    public static final double MAX_CHANCE = 1.0;
     public static final int DEFAULT_POOL_SIZE_PER_CATEGORY = 3;
     public static final String DEFAULT_SYSTEM_INSTRUCTION =
             "You are a witty, satirical economic gossip for Minecraft villagers on an economy server. " +
@@ -92,6 +98,10 @@ public record GossipConfig(
                 MIN_COOLDOWN_MINUTES, MAX_COOLDOWN_MINUTES);
         temperature = clampDouble("gemini_gossip.temperature", temperature,
                 MIN_TEMPERATURE, MAX_TEMPERATURE);
+        publicChatChance = clampDouble("gemini_gossip.public_chat_chance", publicChatChance,
+                MIN_CHANCE, MAX_CHANCE);
+        privateChatChance = clampDouble("gemini_gossip.private_chat_chance", privateChatChance,
+                MIN_CHANCE, MAX_CHANCE);
         if (systemInstruction == null || systemInstruction.isBlank()) {
             systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
         } else {
@@ -116,7 +126,7 @@ public record GossipConfig(
             double temperature,
             boolean publicChat
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_SYSTEM_INSTRUCTION, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_PUBLIC_CHAT_CHANCE, DEFAULT_PRIVATE_CHAT_CHANCE, DEFAULT_SYSTEM_INSTRUCTION, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
     }
 
     public GossipConfig(
@@ -130,7 +140,7 @@ public record GossipConfig(
             boolean publicChat,
             String systemInstruction
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_PUBLIC_CHAT_CHANCE, DEFAULT_PRIVATE_CHAT_CHANCE, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
     }
 
     public GossipConfig(
@@ -145,7 +155,7 @@ public record GossipConfig(
             String systemInstruction,
             int poolSizePerCategory
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, poolSizePerCategory, DEFAULT_BASE_URL);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_PUBLIC_CHAT_CHANCE, DEFAULT_PRIVATE_CHAT_CHANCE, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, poolSizePerCategory, DEFAULT_BASE_URL);
     }
 
     public GossipConfig(
@@ -161,7 +171,7 @@ public record GossipConfig(
             int poolSizePerCategory,
             String baseUrl
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, poolSizePerCategory, baseUrl);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_PUBLIC_CHAT_CHANCE, DEFAULT_PRIVATE_CHAT_CHANCE, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, poolSizePerCategory, baseUrl);
     }
 
     public static GossipConfig createDefault() {
@@ -174,6 +184,8 @@ public record GossipConfig(
                 DEFAULT_ANONYMIZE_PLAYERS,
                 DEFAULT_TEMPERATURE,
                 DEFAULT_PUBLIC_CHAT,
+                DEFAULT_PUBLIC_CHAT_CHANCE,
+                DEFAULT_PRIVATE_CHAT_CHANCE,
                 DEFAULT_SYSTEM_INSTRUCTION,
                 DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION,
                 DEFAULT_POOL_SIZE_PER_CATEGORY,
@@ -251,6 +263,8 @@ public record GossipConfig(
                 anonymizePlayers,
                 temperature,
                 publicChat,
+                publicChatChance,
+                privateChatChance,
                 systemInstruction,
                 dialogueSystemInstruction,
                 poolSizePerCategory,
@@ -296,6 +310,8 @@ public record GossipConfig(
             out.name("anonymize_players").value(value.anonymizePlayers());
             out.name("temperature").value(value.temperature());
             out.name("public_chat").value(value.publicChat());
+            out.name("public_chat_chance").value(value.publicChatChance());
+            out.name("private_chat_chance").value(value.privateChatChance());
             out.name("system_instruction").value(value.systemInstruction());
             out.name("dialogue_system_instruction").value(value.dialogueSystemInstruction());
             out.name("pool_size_per_category").value(value.poolSizePerCategory());
@@ -318,6 +334,8 @@ public record GossipConfig(
             boolean anonymizePlayers = DEFAULT_ANONYMIZE_PLAYERS;
             double temperature = DEFAULT_TEMPERATURE;
             boolean publicChat = DEFAULT_PUBLIC_CHAT;
+            double publicChatChance = DEFAULT_PUBLIC_CHAT_CHANCE;
+            double privateChatChance = DEFAULT_PRIVATE_CHAT_CHANCE;
             String systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
             String dialogueSystemInstruction = DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION;
             int poolSizePerCategory = DEFAULT_POOL_SIZE_PER_CATEGORY;
@@ -339,6 +357,8 @@ public record GossipConfig(
                     case "anonymize_players" -> anonymizePlayers = in.nextBoolean();
                     case "temperature" -> temperature = in.nextDouble();
                     case "public_chat" -> publicChat = in.nextBoolean();
+                    case "public_chat_chance" -> publicChatChance = in.nextDouble();
+                    case "private_chat_chance" -> privateChatChance = in.nextDouble();
                     case "system_instruction" -> systemInstruction = in.nextString();
                     case "dialogue_system_instruction" -> dialogueSystemInstruction = in.nextString();
                     case "pool_size_per_category" -> poolSizePerCategory = in.nextInt();
@@ -357,6 +377,8 @@ public record GossipConfig(
                     anonymizePlayers,
                     temperature,
                     publicChat,
+                    publicChatChance,
+                    privateChatChance,
                     systemInstruction,
                     dialogueSystemInstruction,
                     poolSizePerCategory,

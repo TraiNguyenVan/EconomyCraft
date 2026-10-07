@@ -29,6 +29,8 @@ class GossipConfigTest {
         assertTrue(config.anonymizePlayers(), "anonymizePlayers must default to true");
         assertEquals(0.85, config.temperature(), 1e-6, "temperature must default to 0.85");
         assertFalse(config.publicChat(), "publicChat must default to false");
+        assertEquals(0.25, config.publicChatChance(), 1e-6, "publicChatChance must default to 0.25");
+        assertEquals(0.5, config.privateChatChance(), 1e-6, "privateChatChance must default to 0.5");
         assertEquals(GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, config.systemInstruction(),
                 "systemInstruction must default to DEFAULT_SYSTEM_INSTRUCTION");
         assertEquals(GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, config.dialogueSystemInstruction(),
@@ -58,6 +60,8 @@ class GossipConfigTest {
                   "anonymize_players": false,
                   "temperature": 0.4,
                   "public_chat": true,
+                  "public_chat_chance": 0.15,
+                  "private_chat_chance": 0.85,
                   "system_instruction": "Custom prompt instructions here.",
                   "dialogue_system_instruction": "Custom dialogue rules.",
                   "pool_size_per_category": 5
@@ -74,6 +78,8 @@ class GossipConfigTest {
         assertFalse(config.anonymizePlayers());
         assertEquals(0.4, config.temperature(), 1e-6);
         assertTrue(config.publicChat());
+        assertEquals(0.15, config.publicChatChance(), 1e-6);
+        assertEquals(0.85, config.privateChatChance(), 1e-6);
         assertEquals("Custom prompt instructions here.", config.systemInstruction());
         assertEquals("Custom dialogue rules.", config.dialogueSystemInstruction());
         assertEquals(5, config.poolSizePerCategory());
@@ -172,6 +178,22 @@ class GossipConfigTest {
 
         GossipConfig aboveMax = GSON.fromJson("{\"pool_size_per_category\": 25}", GossipConfig.class);
         assertEquals(10, aboveMax.poolSizePerCategory(), "values above 10 must clamp to 10");
+    }
+
+    @Test
+    @DisplayName("public_chat_chance and private_chat_chance clamp to bounds [0.0, 1.0]")
+    void clampingChances() {
+        GossipConfig below = GSON.fromJson("{\"public_chat_chance\": -0.5, \"private_chat_chance\": -0.1}", GossipConfig.class);
+        assertEquals(0.0, below.publicChatChance(), 1e-6);
+        assertEquals(0.0, below.privateChatChance(), 1e-6);
+
+        GossipConfig exact = GSON.fromJson("{\"public_chat_chance\": 0.0, \"private_chat_chance\": 1.0}", GossipConfig.class);
+        assertEquals(0.0, exact.publicChatChance(), 1e-6);
+        assertEquals(1.0, exact.privateChatChance(), 1e-6);
+
+        GossipConfig above = GSON.fromJson("{\"public_chat_chance\": 2.5, \"private_chat_chance\": 1.1}", GossipConfig.class);
+        assertEquals(1.0, above.publicChatChance(), 1e-6);
+        assertEquals(1.0, above.privateChatChance(), 1e-6);
     }
 
     @Test
