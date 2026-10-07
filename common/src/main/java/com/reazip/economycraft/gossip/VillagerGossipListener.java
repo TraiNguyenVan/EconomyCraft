@@ -145,39 +145,38 @@ public final class VillagerGossipListener {
             long cooldownMillis = (long) config.cooldownMinutes() * 60_000L;
             cooldownTracker.setCooldown(playerUuid, villagerUuid, cooldownMillis);
 
-            // If individual memory service is active, dispatch async personalized dialogue
+            // 1. If individual memory service is active, dispatch async personalized dialogue (delivered privately to player)
             if (memoryService != null) {
                 memoryService.handleInteraction(serverPlayer, villager);
-                return InteractionResult.PASS;
             }
 
-            GossipPool pool = poolSupplier.get();
-            if (pool == null || pool.isEmpty()) {
-                return InteractionResult.PASS;
-            }
-
-            // Map profession to dialogue theme
-            GossipCategory category = ProfessionMapper.fromEntity(villager);
-
-            // Select rumor via no-repeat round-robin cycle
-            String rumor = pool.getNextRoundRobinRumor(category);
-            if (rumor == null || rumor.isBlank()) {
-                return InteractionResult.PASS;
-            }
-
-            // Format colored rumor message
-            Component message = formatRumor(villager, rumor);
-
-            // Deliver either to public chat or privately to interacting player
+            // 2. Deliver public economic rumor (broadcast to all players if public_chat is enabled)
             if (config.publicChat()) {
-                MinecraftServer server = serverPlayer.level().getServer();
-                if (server != null) {
-                    server.getPlayerList().broadcastSystemMessage(message, false);
-                } else {
-                    serverPlayer.sendSystemMessage(message);
+                GossipPool pool = poolSupplier.get();
+                if (pool != null && !pool.isEmpty()) {
+                    GossipCategory category = ProfessionMapper.fromEntity(villager);
+                    String rumor = pool.getNextRoundRobinRumor(category);
+                    if (rumor != null && !rumor.isBlank()) {
+                        Component message = formatRumor(villager, "[" + category.name() + "] " + rumor);
+                        MinecraftServer server = serverPlayer.level().getServer();
+                        if (server != null) {
+                            server.getPlayerList().broadcastSystemMessage(message, false);
+                        } else {
+                            serverPlayer.sendSystemMessage(message);
+                        }
+                    }
                 }
-            } else {
-                serverPlayer.sendSystemMessage(message);
+            } else if (memoryService == null) {
+                // Fallback: if memory service is inactive and publicChat is disabled, send generic rumor privately
+                GossipPool pool = poolSupplier.get();
+                if (pool != null && !pool.isEmpty()) {
+                    GossipCategory category = ProfessionMapper.fromEntity(villager);
+                    String rumor = pool.getNextRoundRobinRumor(category);
+                    if (rumor != null && !rumor.isBlank()) {
+                        Component message = formatRumor(villager, rumor);
+                        serverPlayer.sendSystemMessage(message);
+                    }
+                }
             }
         } catch (Throwable t) {
             // Absolute silent isolation: never disrupt trade menu or server tick
