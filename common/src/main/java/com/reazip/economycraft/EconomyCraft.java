@@ -46,6 +46,12 @@ public final class EconomyCraft {
     public static final CooldownTracker GOSSIP_COOLDOWN_TRACKER =
             new CooldownTracker();
     private static volatile GossipDigestWorker gossipWorker;
+    private static volatile com.reazip.economycraft.gossip.storage.VillagerDatabase villagerDatabase;
+    private static volatile com.reazip.economycraft.gossip.memory.VillagerMemoryService villagerMemoryService;
+
+    public static @Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService getVillagerMemoryService() {
+        return villagerMemoryService;
+    }
 
     public static void registerEvents() {
         if (EconomyCraftApiBootstrap.INITIALIZED == null) {
@@ -83,6 +89,30 @@ public final class EconomyCraft {
                             GOSSIP_COOLDOWN_TRACKER
                     );
                     gossipWorker.start();
+
+                    java.nio.file.Path dbPath = com.reazip.economycraft.util.EconomyPaths.dataDir(server).resolve("villagers.db");
+                    villagerDatabase = new com.reazip.economycraft.gossip.storage.VillagerDatabase(dbPath);
+                    villagerDatabase.initialize();
+
+                    villagerMemoryService = new com.reazip.economycraft.gossip.memory.VillagerMemoryService(
+                            villagerDatabase,
+                            client,
+                            () -> EconomyConfig.get().geminiGossip,
+                            GOSSIP_POOL::get,
+                            () -> {
+                                var mgr = EconomyCraft.getManager(server);
+                                return mgr != null ? mgr.getDynamicPriceMultiplier() : 1.0;
+                            },
+                            uuid -> {
+                                var mgr = EconomyCraft.getManager(server);
+                                if (mgr == null) return null;
+                                var fac = mgr.getFactions().factionOf(uuid);
+                                return fac != null ? fac.key() : null;
+                            }
+                    );
+                    VillagerGossipListener.setMemoryService(villagerMemoryService);
+
+                    LOGGER.info("[EconomyCraft] Villager Personality & Memory Service initialized (DB: {})", dbPath);
                     LOGGER.info("[EconomyCraft] Villager Gossip AI initialized (model: {}, interval: {}m)",
                             config.model(), config.refreshIntervalMinutes());
                 }
@@ -92,6 +122,17 @@ public final class EconomyCraft {
         });
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
+            VillagerGossipListener.setMemoryService(null);
+            if (villagerDatabase != null) {
+                try {
+                    villagerDatabase.close();
+                } catch (Exception e) {
+                    LOGGER.warn("[EconomyCraft] Error closing villager database", e);
+                } finally {
+                    villagerDatabase = null;
+                    villagerMemoryService = null;
+                }
+            }
             if (gossipWorker != null) {
                 try {
                     gossipWorker.stop();

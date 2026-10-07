@@ -207,6 +207,17 @@ public final class ProfessionHooks {
     public static void onVillagerTrade(ServerPlayer player, AbstractVillager villager, MerchantOffer offer) {
         if (player == null || villager == null || offer == null) return;
         try {
+            var memoryService = com.reazip.economycraft.gossip.VillagerGossipListener.getMemoryService();
+            if (memoryService != null) {
+                String itemName = offer.getResult().getHoverName().getString();
+                int count = offer.getResult().getCount();
+                String desc = (count > 1 ? count + "x " : "") + itemName;
+                int costCount = offer.getCostA().getCount();
+                memoryService.recordTrade(villager.getUUID(), player.getUUID(), costCount * 10L, desc);
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
             EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
             if (!EconomyConfig.get().professions.enabled) return;
 

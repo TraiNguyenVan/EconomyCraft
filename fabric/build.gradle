@@ -70,6 +70,8 @@ dependencies {
         // Link common module
         common(project(path: ":common")) { transitive = false }
         apiModule(project(path: ":api")) { transitive = false }
+        implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
+        shadowBundle 'org.xerial:sqlite-jdbc:3.49.1.0'
         shadowBundle project(path: ":common", configuration: "transformProductionFabric")
         shadowBundle project(path: ":api", configuration: "transformProductionFabric")
 

@@ -37,8 +37,17 @@ public final class VillagerGossipListener {
         var cfg = EconomyConfig.get();
         return cfg != null ? cfg.geminiGossip : GossipConfig.createDefault();
     };
+    private static volatile @Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService memoryService = null;
 
     private VillagerGossipListener() {}
+
+    public static void setMemoryService(@Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService service) {
+        memoryService = service;
+    }
+
+    public static @Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService getMemoryService() {
+        return memoryService;
+    }
 
     /**
      * Initializes the listener with the authoritative GossipPool reference, cooldown tracker, and config supplier.
@@ -124,16 +133,26 @@ public final class VillagerGossipListener {
                 return InteractionResult.PASS;
             }
 
-            GossipPool pool = poolSupplier.get();
-            if (pool == null || pool.isEmpty()) {
-                return InteractionResult.PASS;
-            }
-
             UUID playerUuid = serverPlayer.getUUID();
             UUID villagerUuid = villager.getUUID();
 
             // Check per-player, per-villager cooldown
             if (cooldownTracker.isOnCooldown(playerUuid, villagerUuid)) {
+                return InteractionResult.PASS;
+            }
+
+            // Record cooldown
+            long cooldownMillis = (long) config.cooldownMinutes() * 60_000L;
+            cooldownTracker.setCooldown(playerUuid, villagerUuid, cooldownMillis);
+
+            // If individual memory service is active, dispatch async personalized dialogue
+            if (memoryService != null) {
+                memoryService.handleInteraction(serverPlayer, villager);
+                return InteractionResult.PASS;
+            }
+
+            GossipPool pool = poolSupplier.get();
+            if (pool == null || pool.isEmpty()) {
                 return InteractionResult.PASS;
             }
 
@@ -145,10 +164,6 @@ public final class VillagerGossipListener {
             if (rumor == null || rumor.isBlank()) {
                 return InteractionResult.PASS;
             }
-
-            // Record cooldown
-            long cooldownMillis = (long) config.cooldownMinutes() * 60_000L;
-            cooldownTracker.setCooldown(playerUuid, villagerUuid, cooldownMillis);
 
             // Format colored rumor message
             Component message = formatRumor(villager, rumor);

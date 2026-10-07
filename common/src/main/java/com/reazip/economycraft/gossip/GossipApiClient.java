@@ -6,6 +6,12 @@ import com.reazip.economycraft.time.WallClock;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
+import com.reazip.economycraft.gossip.identity.VillagerSeeder;
+import com.reazip.economycraft.gossip.memory.IndividualDialogueResult;
+import com.reazip.economycraft.gossip.memory.VillagerDialoguePromptBuilder;
+import com.reazip.economycraft.gossip.storage.PlayerMemory;
+import com.reazip.economycraft.gossip.storage.VillagerProfile;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -174,6 +180,202 @@ public class GossipApiClient {
 
     public boolean isOpenAiCompatible() {
         return config.isOpenAiCompatible();
+    }
+
+    /**
+     * Asynchronously generates personalized, in-character dialogue for an individual villager
+     * based on their persistent persona, memory with the visiting player, and profession grapevine news.
+     */
+    public CompletableFuture<Optional<IndividualDialogueResult>> generateIndividualDialogue(
+            VillagerProfile profile,
+            PlayerMemory memory,
+            String playerArchetype,
+            @Nullable List<String> grapevineRumors,
+            double inflation
+    ) {
+        String apiKey = config.apiKey();
+        if (!config.enabled() || apiKey == null || apiKey.isBlank() || isCircuitOpen()) {
+            return CompletableFuture.completedFuture(Optional.empty());
+        }
+
+        String systemInstruction = VillagerDialoguePromptBuilder.buildSystemInstruction(
+                profile, memory, playerArchetype, grapevineRumors, inflation);
+
+        boolean isOpenAi = isOpenAiCompatible();
+        String url;
+        String requestJson;
+
+        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+                .timeout(Duration.ofSeconds(15))
+                .header("Content-Type", "application/json");
+
+        if (isOpenAi) {
+            url = baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions";
+            requestJson = buildOpenAiIndividualDialogueRequestBody(systemInstruction);
+            reqBuilder.header("Authorization", "Bearer " + apiKey);
+        } else {
+            url = String.format("%s/v1beta/models/%s:generateContent", baseUrl, config.model());
+            requestJson = buildGeminiIndividualDialogueRequestBody(systemInstruction);
+            reqBuilder.header("x-goog-api-key", apiKey);
+        }
+
+        HttpRequest request = reqBuilder
+                .uri(URI.create(url))
+                .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                .build();
+
+        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .<Optional<IndividualDialogueResult>>thenApply(response -> {
+                    if (response.statusCode() == 200) {
+                        Optional<IndividualDialogueResult> result = isOpenAi
+                                ? parseOpenAiIndividualResponse(response.body())
+                                : parseGeminiIndividualResponse(response.body());
+                        if (result.isPresent()) {
+                            recordSuccess();
+                            return result;
+                        } else {
+                            recordFailure(200, "Empty individual dialogue response");
+                            return Optional.empty();
+                        }
+                    } else {
+                        recordFailure(response.statusCode(), "HTTP error in individual dialogue");
+                        return Optional.empty();
+                    }
+                })
+                .exceptionally(ex -> {
+                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
+                    LOGGER.warn("[EconomyCraft-AI] Individual dialogue request failed: {}", cause.toString());
+                    recordFailure(-1, cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName());
+                    return Optional.empty();
+                });
+    }
+
+    private String buildOpenAiIndividualDialogueRequestBody(String systemPrompt) {
+        JsonObject root = new JsonObject();
+        root.addProperty("model", config.model());
+        root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 1.5));
+        root.addProperty("max_tokens", 512);
+
+        JsonObject reasoning = new JsonObject();
+        reasoning.addProperty("effort", "none");
+        root.add("reasoning", reasoning);
+
+        JsonObject responseFormat = new JsonObject();
+        responseFormat.addProperty("type", "json_object");
+        root.add("response_format", responseFormat);
+
+        JsonArray messages = new JsonArray();
+        JsonObject sysMsg = new JsonObject();
+        sysMsg.addProperty("role", "system");
+        sysMsg.addProperty("content", systemPrompt);
+        messages.add(sysMsg);
+
+        JsonObject userMsg = new JsonObject();
+        userMsg.addProperty("role", "user");
+        userMsg.addProperty("content", "Customer approaches your stall. Speak to them in 1 sentence matching your persona and memories. Respond strictly in JSON: {\"dialogue\": \"...\", \"sentiment_delta\": <int>}");
+        messages.add(userMsg);
+
+        root.add("messages", messages);
+        return GSON.toJson(root);
+    }
+
+    private String buildGeminiIndividualDialogueRequestBody(String systemPrompt) {
+        JsonObject root = new JsonObject();
+
+        JsonObject sysObj = new JsonObject();
+        JsonArray sysParts = new JsonArray();
+        JsonObject sysPart = new JsonObject();
+        sysPart.addProperty("text", systemPrompt);
+        sysParts.add(sysPart);
+        sysObj.add("parts", sysParts);
+        root.add("system_instruction", sysObj);
+
+        JsonArray contents = new JsonArray();
+        JsonObject contentObj = new JsonObject();
+        JsonArray contentParts = new JsonArray();
+        JsonObject textPart = new JsonObject();
+        textPart.addProperty("text", "Customer approaches your stall. Speak to them in 1 sentence matching your persona and memories.");
+        contentParts.add(textPart);
+        contentObj.add("parts", contentParts);
+        contents.add(contentObj);
+        root.add("contents", contents);
+
+        JsonObject genConfig = new JsonObject();
+        genConfig.addProperty("response_mime_type", "application/json");
+        genConfig.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 1.5));
+        genConfig.addProperty("maxOutputTokens", 512);
+
+        JsonObject thinkingConfig = new JsonObject();
+        thinkingConfig.addProperty("thinkingBudget", 0);
+        genConfig.add("thinkingConfig", thinkingConfig);
+
+        JsonObject schema = new JsonObject();
+        schema.addProperty("type", "OBJECT");
+        JsonObject properties = new JsonObject();
+
+        JsonObject dialogueProp = new JsonObject();
+        dialogueProp.addProperty("type", "STRING");
+        properties.add("dialogue", dialogueProp);
+
+        JsonObject deltaProp = new JsonObject();
+        deltaProp.addProperty("type", "INTEGER");
+        properties.add("sentiment_delta", deltaProp);
+
+        JsonArray required = new JsonArray();
+        required.add("dialogue");
+        required.add("sentiment_delta");
+
+        schema.add("properties", properties);
+        schema.add("required", required);
+        genConfig.add("response_schema", schema);
+
+        root.add("generationConfig", genConfig);
+        return GSON.toJson(root);
+    }
+
+    private Optional<IndividualDialogueResult> parseOpenAiIndividualResponse(String responseBody) {
+        try {
+            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
+            if (json == null || !json.has("choices")) return Optional.empty();
+            JsonArray choices = json.getAsJsonArray("choices");
+            if (choices.isEmpty()) return Optional.empty();
+            JsonObject message = choices.get(0).getAsJsonObject().getAsJsonObject("message");
+            if (message == null || !message.has("content")) return Optional.empty();
+            return parseIndividualDialogueJson(message.get("content").getAsString());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<IndividualDialogueResult> parseGeminiIndividualResponse(String responseBody) {
+        try {
+            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
+            if (json == null || !json.has("candidates")) return Optional.empty();
+            JsonArray candidates = json.getAsJsonArray("candidates");
+            if (candidates.isEmpty()) return Optional.empty();
+            JsonObject first = candidates.get(0).getAsJsonObject();
+            if (!first.has("content")) return Optional.empty();
+            JsonArray parts = first.getAsJsonObject("content").getAsJsonArray("parts");
+            if (parts == null || parts.isEmpty()) return Optional.empty();
+            return parseIndividualDialogueJson(parts.get(0).getAsJsonObject().get("text").getAsString());
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    public Optional<IndividualDialogueResult> parseIndividualDialogueJson(String rawText) {
+        try {
+            String cleanText = extractJsonObject(rawText);
+            JsonObject obj = GSON.fromJson(cleanText, JsonObject.class);
+            if (obj == null || !obj.has("dialogue")) return Optional.empty();
+            String dialogue = obj.get("dialogue").getAsString().trim();
+            int delta = obj.has("sentiment_delta") ? obj.get("sentiment_delta").getAsInt() : 0;
+            if (dialogue.isEmpty()) return Optional.empty();
+            return Optional.of(new IndividualDialogueResult(dialogue, delta));
+        } catch (Exception e) {
+            LOGGER.warn("[EconomyCraft-AI] Failed to parse individual dialogue JSON: {}", e.getMessage());
+            return Optional.empty();
+        }
     }
 
     // --- Gemini Request / Response ---
