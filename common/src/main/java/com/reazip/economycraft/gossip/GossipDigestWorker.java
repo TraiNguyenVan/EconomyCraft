@@ -15,7 +15,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -141,16 +143,16 @@ public class GossipDigestWorker {
     /**
      * Executes a single digest cycle.
      */
-    public void runDigestCycle() {
+    public CompletableFuture<Optional<GossipPool>> runDigestCycle() {
         try {
             if (!config.enabled() || config.getEffectiveApiKey().isBlank()) {
                 LOGGER.debug("[EconomyCraft-AI] Worker skipped: disabled or API key unset");
-                return;
+                return CompletableFuture.completedFuture(Optional.empty());
             }
 
             if (apiClient.isCircuitOpen()) {
                 LOGGER.debug("[EconomyCraft-AI] Worker skipped: circuit breaker is open");
-                return;
+                return CompletableFuture.completedFuture(Optional.empty());
             }
 
             // Prune expired interaction cooldowns
@@ -173,22 +175,52 @@ public class GossipDigestWorker {
                     factionResolver
             );
 
-            apiClient.generateRumors(digest)
-                    .thenAccept(optionalPool -> {
+            return apiClient.generateRumors(digest)
+                    .thenApply(optionalPool -> {
                         if (optionalPool.isPresent()) {
                             GossipPool newPool = optionalPool.get();
                             poolRef.set(newPool);
                             LOGGER.info("[EconomyCraft-AI] Gossip pool updated atomically with {} categories",
                                     newPool.rumorsByCategory().size());
+                        } else {
+                            if (poolRef.get().isEmpty()) {
+                                LOGGER.info("[EconomyCraft-AI] Pool is currently empty after cycle; scheduling retry in 30s...");
+                                executor.schedule(this::runDigestCycle, 30, TimeUnit.SECONDS);
+                            }
                         }
+                        return optionalPool;
                     })
                     .exceptionally(t -> {
                         LOGGER.warn("[EconomyCraft-AI] Generation request failed: {}", t.getMessage());
-                        return null;
+                        if (poolRef.get().isEmpty()) {
+                            LOGGER.info("[EconomyCraft-AI] Pool is currently empty after exception; scheduling retry in 30s...");
+                            executor.schedule(this::runDigestCycle, 30, TimeUnit.SECONDS);
+                        }
+                        return Optional.empty();
                     });
         } catch (Throwable t) {
             LOGGER.warn("[EconomyCraft-AI] Error during digest cycle: {}", t.getMessage());
+            return CompletableFuture.completedFuture(Optional.empty());
         }
+    }
+
+    /**
+     * Triggers an immediate manual refresh asynchronously.
+     */
+    public CompletableFuture<Boolean> triggerManualRefresh() {
+        return runDigestCycle().thenApply(opt -> opt.isPresent() && !opt.get().isEmpty());
+    }
+
+    public GossipApiClient getApiClient() {
+        return apiClient;
+    }
+
+    public GossipConfig getConfig() {
+        return config;
+    }
+
+    public AtomicReference<GossipPool> getPoolRef() {
+        return poolRef;
     }
 
     /**

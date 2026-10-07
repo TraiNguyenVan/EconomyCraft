@@ -36,6 +36,14 @@ public class GossipApiClient {
     private static final long QUIET_PERIOD_MILLIS = 30 * 60 * 1000L; // 30 minutes
     private static final int FAILURE_THRESHOLD = 3;
 
+    static {
+        // Docker networks and certain hosting environments may lack IPv6 global routing;
+        // ensure dual-stack hostnames prefer IPv4 to prevent ConnectException timeouts.
+        try {
+            System.setProperty("java.net.preferIPv6Addresses", "false");
+        } catch (Throwable ignored) {}
+    }
+
     private final GossipConfig config;
     private final HttpClient httpClient;
     private final String baseUrl;
@@ -47,6 +55,7 @@ public class GossipApiClient {
     public GossipApiClient(GossipConfig config) {
         this(config, HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_2)
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .connectTimeout(Duration.ofSeconds(10))
                 .build(),
                 config.baseUrl(),
@@ -90,6 +99,10 @@ public class GossipApiClient {
 
     public int getConsecutiveFailures() {
         return consecutiveFailures.get();
+    }
+
+    public long getCircuitOpenUntilMillis() {
+        return circuitOpenUntilMillis.get();
     }
 
     public CompletableFuture<Optional<GossipPool>> generateRumors(@Nullable TransactionDigest digest) {
@@ -150,7 +163,9 @@ public class GossipApiClient {
                     }
                 })
                 .exceptionally(ex -> {
-                    recordFailure(-1, ex.getMessage());
+                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
+                    LOGGER.warn("[EconomyCraft-AI] Request failed with exception: {}", cause.toString());
+                    recordFailure(-1, cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName());
                     return Optional.<GossipPool>empty();
                 });
     }

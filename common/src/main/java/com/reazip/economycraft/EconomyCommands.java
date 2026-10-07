@@ -53,7 +53,10 @@ import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxQuote;
 import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.PermissionCompat;
+import com.reazip.economycraft.gossip.GossipCategory;
+import com.reazip.economycraft.gossip.VillagerGossipListener;
 import com.reazip.economycraft.util.TimeFormat;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
 
 import static net.minecraft.commands.Commands.argument;
@@ -135,6 +138,12 @@ public final class EconomyCommands {
                 )
         );
 
+        dispatcher.register(
+                buildGossip().requires(src ->
+                        EconomyConfig.get().standaloneAdminCommands && EconomyPermissions.hasAnyAdmin(src)
+                )
+        );
+
     }
 
     private static void registerStandalone(CommandDispatcher<CommandSourceStack> dispatcher,
@@ -186,6 +195,7 @@ public final class EconomyCommands {
                 buildParty().requires(s -> EconomyConfig.get().factions.enabled), Nodes.COMMAND_TAG));
         root.then(withCommandPermission(
                 WorthCommand.register(buildContext).requires(s -> EconomyConfig.get().worthEnabled), Nodes.COMMAND_WORTH));
+        root.then(buildGossip().requires(EconomyPermissions::hasAnyAdmin));
 
         root.then(addMoney);
         root.then(setMoney);
@@ -1301,5 +1311,115 @@ public final class EconomyCommands {
             builder.suggest(cat);
         }
         return builder.buildFuture();
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> buildGossip() {
+        LiteralArgumentBuilder<CommandSourceStack> root = literal("gossip");
+
+        root.executes(ctx -> showGossipStatus(ctx.getSource()));
+        root.then(literal("status").executes(ctx -> showGossipStatus(ctx.getSource())));
+        root.then(literal("refresh").executes(ctx -> refreshGossip(ctx.getSource())));
+        root.then(literal("test")
+                .executes(ctx -> testGossip(ctx.getSource(), null))
+                .then(argument("category", StringArgumentType.word())
+                        .suggests((ctx, builder) -> {
+                            for (var cat : GossipCategory.values()) {
+                                builder.suggest(cat.name().toLowerCase(Locale.ROOT));
+                            }
+                            return builder.buildFuture();
+                        })
+                        .executes(ctx -> testGossip(ctx.getSource(), StringArgumentType.getString(ctx, "category")))));
+
+        return root;
+    }
+
+    private static int showGossipStatus(CommandSourceStack source) {
+        var cfg = EconomyConfig.get();
+        var gossipCfg = cfg != null ? cfg.geminiGossip : null;
+        if (gossipCfg == null || !gossipCfg.enabled()) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Villager gossip is currently DISABLED in configuration.").withStyle(ChatFormatting.RED), false);
+            return 1;
+        }
+
+        var pool = EconomyCraft.GOSSIP_POOL.get();
+        var worker = EconomyCraft.getGossipWorker();
+        boolean circuitOpen = worker != null && worker.getApiClient().isCircuitOpen();
+
+        reply(source, tryGetPlayer(source), Component.literal("=== EconomyCraft AI Villager Gossip ===").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+        reply(source, tryGetPlayer(source), Component.literal("• Model: ").withStyle(ChatFormatting.GRAY)
+                .append(Component.literal(gossipCfg.model()).withStyle(ChatFormatting.WHITE))
+                .append(Component.literal(" (OpenAI-compat: " + gossipCfg.isOpenAiCompatible() + ")").withStyle(ChatFormatting.DARK_GRAY)), false);
+        reply(source, tryGetPlayer(source), Component.literal("• Base URL: ").withStyle(ChatFormatting.GRAY)
+                .append(Component.literal(gossipCfg.baseUrl()).withStyle(ChatFormatting.WHITE)), false);
+        reply(source, tryGetPlayer(source), Component.literal("• Refresh Interval: ").withStyle(ChatFormatting.GRAY)
+                .append(Component.literal(gossipCfg.refreshIntervalMinutes() + "m").withStyle(ChatFormatting.WHITE))
+                .append(Component.literal(" | Cooldown: " + gossipCfg.cooldownMinutes() + "m").withStyle(ChatFormatting.DARK_GRAY)), false);
+        reply(source, tryGetPlayer(source), Component.literal("• Circuit Breaker: ").withStyle(ChatFormatting.GRAY)
+                .append(circuitOpen ? Component.literal("OPEN (30m pause)").withStyle(ChatFormatting.RED) : Component.literal("CLOSED (operational)").withStyle(ChatFormatting.GREEN)), false);
+
+        int totalRumors = (pool != null) ? pool.totalRumors() : 0;
+        int totalCats = (pool != null) ? pool.rumorsByCategory().size() : 0;
+        reply(source, tryGetPlayer(source), Component.literal("• Active Rumors: ").withStyle(ChatFormatting.GRAY)
+                .append(Component.literal(totalRumors + " rumor(s) across " + totalCats + " category(ies)").withStyle(totalRumors > 0 ? ChatFormatting.GREEN : ChatFormatting.YELLOW)), false);
+
+        if (pool != null && !pool.isEmpty()) {
+            StringBuilder sb = new StringBuilder("• Categories: ");
+            for (var entry : pool.rumorsByCategory().entrySet()) {
+                sb.append(entry.getKey().name().toLowerCase(Locale.ROOT)).append(" (").append(entry.getValue().size()).append(") ");
+            }
+            reply(source, tryGetPlayer(source), Component.literal(sb.toString().trim()).withStyle(ChatFormatting.DARK_AQUA), false);
+        }
+
+        return 1;
+    }
+
+    private static int refreshGossip(CommandSourceStack source) {
+        var worker = EconomyCraft.getGossipWorker();
+        if (worker == null) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Worker not initialized (is gossip enabled in config?)").withStyle(ChatFormatting.RED), false);
+            return 0;
+        }
+
+        reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Requesting fresh gossip digest from AI provider...").withStyle(ChatFormatting.YELLOW), false);
+        worker.triggerManualRefresh().whenComplete((success, ex) -> {
+            var srv = source.getServer();
+            srv.execute(() -> {
+                if (ex != null || !Boolean.TRUE.equals(success)) {
+                    reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Failed to refresh gossip pool. See server console logs.").withStyle(ChatFormatting.RED), false);
+                } else {
+                    var pool = EconomyCraft.GOSSIP_POOL.get();
+                    int count = pool != null ? pool.totalRumors() : 0;
+                    reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Gossip refreshed successfully! " + count + " rumor(s) currently cached.").withStyle(ChatFormatting.GREEN), false);
+                }
+            });
+        });
+        return 1;
+    }
+
+    private static int testGossip(CommandSourceStack source, @Nullable String categoryName) {
+        var pool = EconomyCraft.GOSSIP_POOL.get();
+        if (pool == null || pool.isEmpty()) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Rumor pool is currently empty. Try '/eco gossip refresh' first.").withStyle(ChatFormatting.YELLOW), false);
+            return 0;
+        }
+
+        GossipCategory cat = GossipCategory.GENERAL;
+        if (categoryName != null && !categoryName.isBlank()) {
+            try {
+                cat = GossipCategory.valueOf(categoryName.toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Unknown category: " + categoryName + ". Using GENERAL.").withStyle(ChatFormatting.GRAY), false);
+            }
+        }
+
+        String rumor = pool.getRandomRumor(cat, RandomSource.create());
+        if (rumor != null) {
+            Component formatted = VillagerGossipListener.formatRumor(null, "[" + cat.name() + "] " + rumor);
+            reply(source, tryGetPlayer(source), formatted, false);
+            return 1;
+        } else {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] No rumor available for " + cat.name()).withStyle(ChatFormatting.RED), false);
+            return 0;
+        }
     }
 }

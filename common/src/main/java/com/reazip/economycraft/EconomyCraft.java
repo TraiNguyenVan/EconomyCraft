@@ -41,9 +41,9 @@ public final class EconomyCraft {
     private static volatile MinecraftServer lastServer;
     private static final int EXPIRATION_CHECK_INTERVAL_TICKS = 20 * 60;
 
-    private static final AtomicReference<GossipPool> GOSSIP_POOL =
+    public static final AtomicReference<GossipPool> GOSSIP_POOL =
             new AtomicReference<>(GossipPool.empty());
-    private static final CooldownTracker GOSSIP_COOLDOWN_TRACKER =
+    public static final CooldownTracker GOSSIP_COOLDOWN_TRACKER =
             new CooldownTracker();
     private static volatile GossipDigestWorker gossipWorker;
 
