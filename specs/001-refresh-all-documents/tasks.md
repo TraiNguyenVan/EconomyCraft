@@ -76,25 +76,25 @@ command and node matches the running server.
 All tasks target `README.md`. They are sequential within the file to avoid merge conflicts — do **not**
 mark these `[P]`.
 
-^- [X] T012 [US1] Collapse the two duplicated configuration reference sections in `README.md:206-284` and `README.md:398-428` into one canonical table per contract rule R4, turning the second into a cross-reference
-^- [X] T013 [US1] Correct the 5 wrong defaults in `README.md`: `factions.capitalism.daily_tax_rate` to `0.025`, `factions.monarchy.daily_tax_rate` to `0.01`, and the three `factions.communism.income_tax_tier{1,2,3}_rate` values to `0.0025` / `0.00375` / `0.00625`
-^- [X] T014 [US1] Correct the 4 wrong key names in `README.md` per contract rule R2: `ownClaimDamageMultiplier` → `own_claim_damage_multiplier`, `crop_boost_interval_minutes` → `crop_boost_cooldown_minutes`, `lava_regen_duration_seconds` → `lava_regeneration_seconds`, `discount_master` → `cost_factor_master`
-^- [X] T015 [US1] Add the 130 undocumented configuration keys to `README.md` as tables grouped by section, using exact shipped paths and defaults from `ground-truth-config.md`. Include `max_active_tolls_per_player` = `10`
-^- [X] T016 [US1] Add the supported platform matrix to `README.md` per `research.md` R3: five targets (1.21.1, 1.21.11, 26.1.2, 26.2, 26.3), Java 21 for the 1.21.x line and 25 for 26.x, from `build.gradle:30-36` and `build.gradle:100`
-^- [X] T017 [US1] Complete the command list at `README.md:27` with `/tag`, `/job`, `/party`, `/toll`, and expand the admin command list at `README.md:120` with `/eco admin`, `/eco reload`, `/eco motd`, `/eco import`, `/eco gossip`, `/eco toll`, `/eco tag`, `/eco job`, `/eco party`, `/eco offers` and the standalone admin family
-^- [X] T018 [US1] Add the missing `economycraft.command.tag` node to the permission table at `README.md:141-155`, and state that it gates `/eco tag`, `/eco job`, `/eco party`, the hub Tags button and `/tag`
-^- [X] T019 [US1] Resolve the contradiction between `README.md:97` ("Every option in `config.json`, editable in-game") and `README.md:306` (factions/professions keys "not yet editable from `/eco settings`"). `common/src/main/java/com/reazip/economycraft/admin/AdminSettingsUi.java:71-111` confirms the second is correct, so only one may stand
-^- [X] T020 [US1] Replace the stale "Phase 2 shipped them as data only" text at `README.md:208-211`, which contradicts the shipped faction effects
-^- [X] T021 [US1] Delete the orphan paragraph at `README.md:286-288` describing the removed container-lock feature (`PRIVATE`, `PARTY_ONLY`)
-^- [X] T022 [US1] Fix the two links: `README.md:25` `wiki/Tolls.md` → `https://github.com/TraiNguyenVan/EconomyCraft/wiki/Tolls`, and `README.md:468` upstream wiki → this fork's wiki
-^- [X] T023 [US1] Preserve `README.md:6` and `README.md:475` upstream attribution unchanged — GPL-3.0 obligation
-^- [X] T024 [US1] Fix the `Buttom` typo at `README.md:12` and re-pad the table so the divider row matches the column width
-^- [X] T025 [US1] Remove the internal decision-ID leak at `README.md:230` describing `capitalism.max_rate_change_per_day` as "D14's griefing brake", per contract rule R7
-^- [X] T026 [US1] Add the `/eco` hub buttons missing from the table at `README.md:12-25`: Tags and How It Works, from `common/src/main/java/com/reazip/economycraft/HubUi.java:246-249,277-280`
-^- [X] T027 [US1] Add the missing admin reset tool `Run Faction Daily Tax` to the table at `README.md:106-114`, which currently lists 7 of 8 buttons, from `common/src/main/java/com/reazip/economycraft/admin/AdminResetUi.java:101`
-^- [X] T028 [US1] Add the missing Server Quests admin screen to the admin section, from `common/src/main/java/com/reazip/economycraft/admin/AdminUi.java:87`
-^- [X] T029 [US1] Replace the four named data files at `README.md:163-166` with the full set of ~21 runtime data files, preserving the importable distinction from `common/src/main/java/com/reazip/economycraft/util/EconomyPaths.java:40-51`, and remove the "Phase 2 added" phrasing per FR-011
-^- [X] T030 [US1] Validate: run `scripts/check_config_keys.py` and confirm 0 undocumented keys and 0 value errors, and confirm 0 phantom keys
+- [X] T012 [US1] Collapse the two duplicated configuration reference sections in `README.md:206-284` and `README.md:398-428` into one canonical table per contract rule R4, turning the second into a cross-reference
+- [X] T013 [US1] Correct the 5 wrong defaults in `README.md`: `factions.capitalism.daily_tax_rate` to `0.025`, `factions.monarchy.daily_tax_rate` to `0.01`, and the three `factions.communism.income_tax_tier{1,2,3}_rate` values to `0.0025` / `0.00375` / `0.00625`
+- [X] T014 [US1] Correct the 4 wrong key names in `README.md` per contract rule R2: `ownClaimDamageMultiplier` → `own_claim_damage_multiplier`, `crop_boost_interval_minutes` → `crop_boost_cooldown_minutes`, `lava_regen_duration_seconds` → `lava_regeneration_seconds`, `discount_master` → `cost_factor_master`
+- [X] T015 [US1] Add the 130 undocumented configuration keys to `README.md` as tables grouped by section, using exact shipped paths and defaults from `ground-truth-config.md`. Include `max_active_tolls_per_player` = `10`
+- [X] T016 [US1] Add the supported platform matrix to `README.md` per `research.md` R3: five targets (1.21.1, 1.21.11, 26.1.2, 26.2, 26.3), Java 21 for the 1.21.x line and 25 for 26.x, from `build.gradle:30-36` and `build.gradle:100`
+- [X] T017 [US1] Complete the command list at `README.md:27` with `/tag`, `/job`, `/party`, `/toll`, and expand the admin command list at `README.md:120` with `/eco admin`, `/eco reload`, `/eco motd`, `/eco import`, `/eco gossip`, `/eco toll`, `/eco tag`, `/eco job`, `/eco party`, `/eco offers` and the standalone admin family
+- [X] T018 [US1] Add the missing `economycraft.command.tag` node to the permission table at `README.md:141-155`, and state that it gates `/eco tag`, `/eco job`, `/eco party`, the hub Tags button and `/tag`
+- [X] T019 [US1] Resolve the contradiction between `README.md:97` ("Every option in `config.json`, editable in-game") and `README.md:306` (factions/professions keys "not yet editable from `/eco settings`"). `common/src/main/java/com/reazip/economycraft/admin/AdminSettingsUi.java:71-111` confirms the second is correct, so only one may stand
+- [X] T020 [US1] Replace the stale "Phase 2 shipped them as data only" text at `README.md:208-211`, which contradicts the shipped faction effects
+- [X] T021 [US1] Delete the orphan paragraph at `README.md:286-288` describing the removed container-lock feature (`PRIVATE`, `PARTY_ONLY`)
+- [X] T022 [US1] Fix the two links: `README.md:25` `wiki/Tolls.md` → `https://github.com/TraiNguyenVan/EconomyCraft/wiki/Tolls`, and `README.md:468` upstream wiki → this fork's wiki
+- [X] T023 [US1] Preserve `README.md:6` and `README.md:475` upstream attribution unchanged — GPL-3.0 obligation
+- [X] T024 [US1] Fix the `Buttom` typo at `README.md:12` and re-pad the table so the divider row matches the column width
+- [X] T025 [US1] Remove the internal decision-ID leak at `README.md:230` describing `capitalism.max_rate_change_per_day` as "D14's griefing brake", per contract rule R7
+- [X] T026 [US1] Add the `/eco` hub buttons missing from the table at `README.md:12-25`: Tags and How It Works, from `common/src/main/java/com/reazip/economycraft/HubUi.java:246-249,277-280`
+- [X] T027 [US1] Add the missing admin reset tool `Run Faction Daily Tax` to the table at `README.md:106-114`, which currently lists 7 of 8 buttons, from `common/src/main/java/com/reazip/economycraft/admin/AdminResetUi.java:101`
+- [X] T028 [US1] Add the missing Server Quests admin screen to the admin section, from `common/src/main/java/com/reazip/economycraft/admin/AdminUi.java:87`
+- [X] T029 [US1] Replace the four named data files at `README.md:163-166` with the full set of ~21 runtime data files, preserving the importable distinction from `common/src/main/java/com/reazip/economycraft/util/EconomyPaths.java:40-51`, and remove the "Phase 2 added" phrasing per FR-011
+- [X] T030 [US1] Validate: run `scripts/check_config_keys.py` and confirm 0 undocumented keys and 0 value errors, and confirm 0 phantom keys
 
 **Checkpoint**: A server owner can install, configure and permission the mod from `README.md` alone.
 Verifies SC-001, SC-009.
