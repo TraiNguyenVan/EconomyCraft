@@ -107,7 +107,7 @@ public final class VillagerDialoguePromptBuilder {
             sb.append("\nYour current stall trade inventory & offers:\n");
             int count = 0;
             for (TradeOfferSnapshot offer : currentOffers) {
-                if (count++ >= 6) break; // bounded context cap
+                if (count++ >= 10) break; // bounded context cap (covers all 10 trades of a Master villager)
                 sb.append("- ").append(offer.toPromptDescription()).append("\n");
             }
         }

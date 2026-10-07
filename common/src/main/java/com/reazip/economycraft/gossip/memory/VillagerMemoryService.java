@@ -146,8 +146,8 @@ public class VillagerMemoryService {
         double inflation = inflationSupplier.getAsDouble();
         List<String> recentSpoken = (recentSpokenTracker != null) ? recentSpokenTracker.getRecentSpoken() : List.of();
 
-        // Safely extract main-thread trade snapshot from villager entity
-        List<TradeOfferSnapshot> offers = TradeOfferSnapshot.fromOffers(villager.getOffers(), 8);
+        // Safely extract main-thread trade snapshot from villager entity (up to 10 covers full Master tier)
+        List<TradeOfferSnapshot> offers = TradeOfferSnapshot.fromOffers(villager.getOffers(), 10);
 
         // Fetch recent trade history asynchronously before requesting dialogue
         return database.getRecentTrades(villagerUuid, playerUuid, 5)

@@ -184,10 +184,10 @@ class VillagerDialoguePromptBuilderTest {
                 history
         );
 
-        // Verify only up to 6 offers and 5 history items are injected
+        // Verify only up to 10 offers and 5 history items are injected
         assertTrue(prompt.contains("Item0"));
-        assertTrue(prompt.contains("Item5"));
-        assertFalse(prompt.contains("Item6"));
+        assertTrue(prompt.contains("Item9"));
+        assertFalse(prompt.contains("Item10"));
 
         assertTrue(prompt.contains("OldItem0"));
         assertTrue(prompt.contains("OldItem4"));
