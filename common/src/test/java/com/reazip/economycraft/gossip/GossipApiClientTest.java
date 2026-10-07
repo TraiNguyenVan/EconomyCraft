@@ -347,4 +347,31 @@ class GossipApiClientTest {
         assertEquals(List.of("Wheat is golden!"), pool.get().getRumors(GossipCategory.FARMER));
         assertEquals(List.of("Market is up!"), pool.get().getRumors(GossipCategory.GENERAL));
     }
+
+    @Test
+    void testDiversifyRumorsRemovesExcessiveLeadingGrunts() {
+        List<String> repetitiveLines = List.of(
+                "Hrmm... that $1.305 feather delivery fee is basically rent now.",
+                "Hrmm... that $1.536 escrow deposit is a small fortune.",
+                "Hrmm... librarian whispers that the party levy is huge."
+        );
+
+        List<String> diversified = GossipApiClient.diversifyRumors(repetitiveLines);
+        assertEquals(3, diversified.size());
+        assertEquals("Hrmm... that $1.305 feather delivery fee is basically rent now.", diversified.get(0));
+        assertEquals("That $1.536 escrow deposit is a small fortune.", diversified.get(1));
+        assertEquals("Librarian whispers that the party levy is huge.", diversified.get(2));
+    }
+
+    @Test
+    void testDiversifyRumorsPreservesDiverseLines() {
+        List<String> naturalLines = List.of(
+                "$768 for feathers? My wheat barely sells at this rate.",
+                "Huh? I thought party levy was a dance move.",
+                "Inflation is out of control today."
+        );
+
+        List<String> diversified = GossipApiClient.diversifyRumors(naturalLines);
+        assertEquals(naturalLines, diversified);
+    }
 }

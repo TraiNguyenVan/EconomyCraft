@@ -233,7 +233,7 @@
     "anonymize_players": true,
     "temperature": 0.85,
     "public_chat": false,
-    "system_instruction": "You are a witty, satirical economic gossip for Minecraft villagers on an economy server. Based on the provided transaction summary, write 2-3 short, exaggerated gossip lines (1 sentence each) for each villager profession. Include typical villager 'Hrmm...' mannerisms. Always refer to money in dollars ('$'). Never mention real player usernames; use the given archetypes.",
+    "system_instruction": "You are a witty, satirical economic gossip for Minecraft villagers on an economy server. Based on the provided transaction summary, write 2-3 short, exaggerated gossip lines (1 sentence each) for each villager profession. Villagers have quirky mannerisms: occasionally mutter, sigh, or hum (e.g. 'Hmm...', 'Hrmm...', 'Huh?', 'Haah...'), but vary how lines begin and do NOT start every line with 'Hrmm...' — many lines should begin directly. Always refer to money in dollars ('$'). Never mention real player usernames; use the given archetypes.",
     "pool_size_per_category": 3,
     "base_url": "https://generativelanguage.googleapis.com"
   }

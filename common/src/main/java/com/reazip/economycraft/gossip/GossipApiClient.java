@@ -13,6 +13,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -365,8 +367,9 @@ public class GossipApiClient {
                         for (JsonElement item : elem.getAsJsonArray()) {
                             lines.add(item.getAsString());
                         }
-                        if (!lines.isEmpty()) {
-                            map.put(cat, lines);
+                        List<String> diversified = diversifyRumors(lines);
+                        if (!diversified.isEmpty()) {
+                            map.put(cat, diversified);
                         }
                     }
                 }
@@ -377,6 +380,41 @@ public class GossipApiClient {
             LOGGER.warn("[EconomyCraft-AI] Failed to parse gossip JSON: {}", e.getMessage());
             return Optional.empty();
         }
+    }
+
+    private static final Pattern LEADING_GRUNT_PATTERN =
+            Pattern.compile("^(?:[Hh][Rr]?[Mm]+|[Hh]uh|[Hh]aah?)[.!?,… -]+(.*)$", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Prevents repetitive opening grunts (e.g. 'Hrmm...') from dominating every rumor in a category.
+     * Preserves villager personality on the first grunt match, but strips repetitive opening grunts
+     * from subsequent lines in the category so dialogue feels varied and natural.
+     */
+    static List<String> diversifyRumors(List<String> rawLines) {
+        if (rawLines == null || rawLines.isEmpty()) return List.of();
+        List<String> result = new ArrayList<>(rawLines.size());
+        boolean gruntKept = false;
+        for (String line : rawLines) {
+            if (line == null || line.isBlank()) continue;
+            String trimmed = line.trim();
+            Matcher matcher = LEADING_GRUNT_PATTERN.matcher(trimmed);
+            if (matcher.matches()) {
+                if (!gruntKept) {
+                    gruntKept = true;
+                    result.add(trimmed);
+                } else {
+                    String remainder = matcher.group(1).trim();
+                    if (!remainder.isEmpty()) {
+                        result.add(Character.toUpperCase(remainder.charAt(0)) + remainder.substring(1));
+                    } else {
+                        result.add(trimmed);
+                    }
+                }
+            } else {
+                result.add(trimmed);
+            }
+        }
+        return Collections.unmodifiableList(result);
     }
 
     /**
