@@ -138,15 +138,15 @@ past design decision, using only the project's documents.
 
 ### Implementation for User Story 3
 
-- [ ] T043 [P] [US3] Write `.specify/memory/constitution.md` with the 8 principles from `contracts/constitution-contract.md` §3, each citing the code that enforces it. Replace all 6 placeholder tokens. Record version `1.0.0` and today's date, with no fabricated ratification date
-- [ ] T044 [P] [US3] Add the constraints and governance sections to `.specify/memory/constitution.md` per `contracts/constitution-contract.md` §6, written in terms of mechanisms that exist (`requireServerThread()`, `FISCAL_SOURCES`) rather than aspirational review processes
-- [ ] T045 [P] [US3] Add the architecture baseline to `.specify/memory/constitution.md` §2, referencing `AGENTS.md` §3-4 rather than restating it, per `research.md` R4. Do not copy `TODO.md` §2 — 6 of its rows are known-stale
-- [ ] T046 [US3] Collapse the four `## Unreleased` headings in `CHANGELOG.md` into one section with subsections, preserving every entry, per `research.md` R7. This is functionally load-bearing: `.github/workflows/release.yml:201` consumes this file as the release notes body
-- [ ] T047 [US3] Leave historical test-count claims in `CHANGELOG.md` alone — they are a record of what was true when written. Add no new count, per `research.md` R2
-- [ ] T048 [US3] Verify every `TODO.md` §1 ground rule appears in `.specify/memory/constitution.md` or `AGENTS.md` before deleting, per FR-019
-- [ ] T049 [US3] Verify no `TODO.md` content that is the last record of a design decision is lost: grep `.specify/memory/constitution.md` and `AGENTS.md` for phase numbers, `P<n>-T<n>` task IDs and `D<n>` decision IDs, and confirm the source-set rule, the no-NBT rule, the no-custom-networking rule and the ShopGuard dependency statement are all present
+- [X] T043 [P] [US3] Write `.specify/memory/constitution.md` with the 8 principles from `contracts/constitution-contract.md` §3, each citing the code that enforces it. Replace all 6 placeholder tokens. Record version `1.0.0` and today's date, with no fabricated ratification date
+- [X] T044 [P] [US3] Add the constraints and governance sections to `.specify/memory/constitution.md` per `contracts/constitution-contract.md` §6, written in terms of mechanisms that exist (`requireServerThread()`, `FISCAL_SOURCES`) rather than aspirational review processes
+- [X] T045 [P] [US3] Add the architecture baseline to `.specify/memory/constitution.md` §2, referencing `AGENTS.md` §3-4 rather than restating it, per `research.md` R4. Do not copy `TODO.md` §2 — 6 of its rows are known-stale
+- [X] T046 [US3] Collapse the four `## Unreleased` headings in `CHANGELOG.md` into one section with subsections, preserving every entry, per `research.md` R7. This is functionally load-bearing: `.github/workflows/release.yml:201` consumes this file as the release notes body
+- [X] T047 [US3] Leave historical test-count claims in `CHANGELOG.md` alone — they are a record of what was true when written. Add no new count, per `research.md` R2
+- [X] T048 [US3] Verify every `TODO.md` §1 ground rule appears in `.specify/memory/constitution.md` or `AGENTS.md` before deleting, per FR-019
+- [X] T049 [US3] Verify no `TODO.md` content that is the last record of a design decision is lost: grep `.specify/memory/constitution.md` and `AGENTS.md` for phase numbers, `P<n>-T<n>` task IDs and `D<n>` decision IDs, and confirm the source-set rule, the no-NBT rule, the no-custom-networking rule and the ShopGuard dependency statement are all present
 - [ ] T050 [US3] **Gate**: confirm with the user that the open Vim buffer for `TODO.md` is saved or deliberately discarded. Unsaved buffer content is in no commit and will be lost. Then `git rm TODO.md` and record the recovery command in `specs/001-refresh-all-documents/notes.md`
-- [ ] T051 [US3] Confirm `AGENTS.md` §6 still describes its relationship to the constitution correctly after both files exist
+- [X] T051 [US3] Confirm `AGENTS.md` §6 still describes its relationship to the constitution correctly after both files exist
 
 **Checkpoint**: All three stories independently functional. Verifies SC-006, SC-007, SC-010, SC-012.
 

@@ -206,7 +206,13 @@ Module layout is Architectury multi-project: `api/`, `common/`, `fabric/`, `neof
 ### Public API
 
 18 types under `com.reazip.economycraft.api.v1`, reached via `EconomyCraftApi.get(server)`. Provider installed
-once by `EconomyCraftApiBootstrap`.
+once by `EconomyCraftApiBootstrap`. 17 are public; `EconomyCraftApiAccess` is package-private and is the
+provider `get(server)` resolves, so consumers cannot and should not import it.
+
+`FactionApi` is deliberately read-only — there is no `select()`. Choosing a party is a player-facing action
+with a 30-hour lockout, a tag refresh and a save write, and a writable API would be a second unvalidated path to
+the same state. `FactionIds` exists so a consumer in another repository writes `FactionIds.MONARCHY` and gets a
+compile error on a rename, rather than a silently-never-applying discount from comparing against `"Monarchy"`.
 
 ```java
 EconomyCraftApi api = EconomyCraftApi.get(server);
@@ -265,6 +271,23 @@ rules, so Monarchy's claim cost and claim damage and Anarchism's wilderness spee
 
 Gossip is built on villager dialogue — `gossip/GossipConfig.java`, `/eco gossip dialogue [prof]`. Villager
 *trading* as a feature is separate and minimal.
+
+### Builder reach is a vanilla attribute, not a range check
+
+The `Thành thạo` reach bonus modifies `player.block_interaction_range` (default `4.5`) with one
+`AttributeModifier`. It is not a mixin and it needs no client mod, because *both* the client's block picking and
+the server's own range check already read that attribute.
+
+This corrects an earlier conclusion that a server-side mod cannot extend reach on a vanilla client — that
+looked for the range check in the wrong class.
+
+Two consequences worth knowing before editing it:
+
+- It widens **block interaction** range, not building range. A Master Builder also reaches further to open a
+  chest, read a sign or click an item frame. That is inherent to the single shared attribute and is intended.
+- It cannot be made conditional on the held item, because an attribute modifier is not per-item and the held
+  item at placement time *is* the block just placed — gating on it would kill the reach at the exact moment a
+  block is placed.
 
 ### Verifying toll changes
 
@@ -366,7 +389,7 @@ Things that will waste your time if you trust them.
 | Looking for a `TabStyle` class | It is `TagStyle` (`tag/TagStyle.java`) |
 | Looking for `EconomyManager` in `util/` | It is at the package root |
 | `online_time.json` not being in `DATA_FILES` | It is deliberately excluded — `EconomyPaths.java:32`. The file exists and is used by `OnlineTimeService`, but `/eco import` must not carry it: importing per-player progression would hand every player a fresh party and profession. `player_activity.json` is last-seen millis for dynamic pricing and is **not** online time; the two must never be merged |
-| Assuming tax is computed in one place | There is no central tax policy. Many sites each apply `Math.round(x * taxRate)`. Verify before assuming |
+| Assuming tax is computed in one place | It *is*: `tax/TaxPolicy.java`, reached through `TaxScope`, with ~20 call sites. It was once copy-pasted across 18 of them. `tax/package-info.java` states the invariant — no `taxRate` multiplication outside that package — but **nothing enforces it**, so verify with a grep rather than trusting it. Add a tax site by calling `TaxPolicy`, never by inlining `Math.round(base * taxRate)` |
 
 ---
 
