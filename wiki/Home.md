@@ -18,6 +18,8 @@ com.reazip.economycraft.api.v1
 - Resolve configured buy and sell prices for an item.
 - Read price categories and their entries.
 - Read leaderboard entries by UUID and balance.
+- Read which party a player belongs to, and the claim-cost multiplier that party carries.
+- Read the economy's inflation multiplier and the active-player median behind it.
 - Attach an optional namespaced source to a mutation.
 - Listen for successful balance changes.
 
@@ -27,8 +29,8 @@ The API works with UUIDs, including offline players.
 
 ## Documentation
 
-- [Getting started](https://github.com/PhilipB06/EconomyCraft/wiki/Getting-Started)
-- [Balances and payments](https://github.com/PhilipB06/EconomyCraft/wiki/Balances-and-Payments)
-- [Prices and leaderboard](https://github.com/PhilipB06/EconomyCraft/wiki/Prices-and-Leaderboard)
-- [Balance events](https://github.com/PhilipB06/EconomyCraft/wiki/Balance-Events)
-- [Complete API reference](https://github.com/PhilipB06/EconomyCraft/wiki/API-Reference)
+- [Getting started](Getting-Started)
+- [Balances and payments](Balances-and-Payments)
+- [Prices and leaderboard](Prices-and-Leaderboard)
+- [Balance events](Balance-Events)
+- [Complete API reference](API-Reference)

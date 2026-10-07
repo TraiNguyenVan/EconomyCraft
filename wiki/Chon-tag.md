@@ -4,10 +4,12 @@ Bạn có thể chọn 2 loại Tag đặc trưng cho nhân vật của mình: *
 
 ## Cách chọn Tag
 
-1. Mở menu bằng lệnh `/tag` (hoặc mở menu `/eco` rồi chọn mục Tag / Phe phái / Nghề nghiệp).
+1. Mở menu bằng lệnh `/tag` (hoặc mở menu `/eco` rồi chọn nút **Tags**). Bạn cũng có thể mở riêng từng mục bằng `/eco party` (chọn Phe phái) hoặc `/eco job` (chọn Nghề nghiệp).
 2. Chọn **Phe phái** bạn muốn tham gia: *Communism*, *Capitalism*, *Monarchy*, hoặc giữ mặc định *Anarchism*.
-3. Chọn **Nghề nghiệp** bạn muốn theo đuổi: *Builder*, *Farmer*, *Miner*, *Merchants*, hoặc *Soldier*.
+3. Chọn **Nghề nghiệp** bạn muốn theo đuổi: *Builder*, *Farmer*, *Miner*, *Merchant*, hoặc *Soldier*.
 4. Trước khi chọn, giao diện xác nhận sẽ hiển thị rõ thông tin và cảnh báo thời gian khóa 30 giờ. Bấm **Xác nhận** để kích hoạt tag.
+
+Chi tiết về lợi ích của từng phe, xem [Factions](Factions). Chi tiết về từng nghề, xem [Professions](Professions).
 
 > [!IMPORTANT]
 > **Quy tắc thời gian khóa 30 giờ:**

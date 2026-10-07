@@ -1,57 +1,43 @@
-# Toll management
+# Quản lý Trạm Thu Phí (Tolls)
 
-Look at a block within five blocks, then open `/eco` → **Tolls**. The button requires
-`economycraft.command.toll`. Keep looking at that block while using the menu;
-confirmations reject a changed target, dimension, permission, or owner.
+Nhìn vào một block trong vòng năm block, rồi mở `/eco` → **Tolls**. Nút này yêu cầu quyền
+`economycraft.command.toll`. Hãy tiếp tục nhìn vào block đó trong khi dùng menu; nếu mục tiêu,
+chiều không gian, quyền hạn hoặc chủ sở hữu thay đổi giữa chừng, bước xác nhận sẽ từ chối.
 
-- An unregistered block offers **Create**, using the money editor to set the net fee.
-- Your toll offers **Info**, **Change fee**, **Transfer**, and **Remove**.
-- Another player's toll offers **Info**. Players who pass the same admin check as
-  the hub's Admin button also see **Admin transfer** and **Admin remove**.
+- Với một block chưa được đăng ký, menu hiện **Create** (Tạo), dùng trình chỉnh số tiền để đặt mức phí thuần.
+- Với trạm của chính bạn, menu hiện **Info**, **Change fee**, **Transfer** và **Remove**.
+- Với trạm của người chơi khác, menu chỉ hiện **Info**. Những người chơi đạt cùng điều kiện quản trị với
+  nút **Admin** trong menu chính còn thấy thêm **Admin transfer** và **Admin remove**.
 
-Creation and fee changes use the command's block modification and game-mode checks.
-Creation respects `max_active_tolls_per_player`; transfers check the recipient's
-limit again at confirmation. A limit of zero is unlimited. The player picker lists
-online players and accounts already known to EconomyCraft, including offline
-players with saved accounts. It does not invent a UUID from an unverified name, so
-a typo cannot create a new player identity. Admins may transfer to
-themselves; transferring to the current owner is rejected.
+Việc tạo và đổi phí dùng chung các kiểm tra sửa block và chế độ chơi của lệnh. Việc tạo tuân thủ
+`max_active_tolls_per_player`; khi chuyển nhượng, giới hạn của người nhận được kiểm tra lại ở bước xác nhận.
+Giá trị `0` nghĩa là không giới hạn. Danh sách chọn người chơi liệt kê người đang online và các tài khoản
+EconomyCraft đã biết, bao gồm cả người chơi offline có tài khoản đã lưu. Danh sách không tự tạo UUID từ
+một tên chưa được xác minh, nên không thể vô tình tạo ra một danh tính người chơi mới chỉ vì gõ sai chính tả.
+Quản trị viên có thể chuyển trạm cho chính mình; chuyển cho chủ sở hữu hiện tại sẽ bị từ chối.
 
-Transfers and removals require confirmation. Cancel returns without changing the
-toll. Admin actions notify the former owner if online. Admin access does not grant
-fee editing or creation overrides, and toll commands retain their owner checks.
+Việc chuyển nhượng và gỡ bỏ đều cần xác nhận. Bấm Hủy sẽ trở về mà không thay đổi gì. Các thao tác quản trị sẽ
+thông báo cho chủ sở hữu cũ nếu họ đang online. Quyền quản trị không cho phép sửa phí hay bỏ qua kiểm tra khi
+tạo trạm, và các lệnh trạm thu phí vẫn giữ nguyên kiểm tra chủ sở hữu.
 
-Changes save through the existing `tolls.json` store. The payment, tax, cooldown,
-right-click, and pressure plate handling are unchanged. No client mod or data
-migration is needed. Installing the new jar requires a server restart.
+Thay đổi được lưu qua kho `tolls.json` hiện có. Cách xử lý thanh toán, thuế, thời gian chờ, chuột phải và bản
+thả trọng lực không thay đổi. Không cần mod client và không cần di chuyển dữ liệu.
 
-## Container behavior
+> [!NOTE]
+> Các tính năng liên quan đến claim đất cần **ShopGuard**. ShopGuard chỉ chạy trên Fabric. Nếu server NeoForge
+> hoặc server Fabric không cài ShopGuard, các tính năng sau sẽ không hoạt động: giảm 50% chi phí claim và
+> tăng sát thương trong vùng đất của phe Monarchy, cùng tăng tốc độ trên vùng hoang dã của phe Anarchism.
 
-- Tolls are attached to a single block position. A double chest consists of two
-  blocks, but EconomyCraft resolves both halves to one toll. Interacting with
-  either half uses the same toll fee and counts as one active toll.
-- A hopper directly under a toll chest cannot extract items. This prevents the
-  hopper automation bypass; normal player interaction still charges the toll.
+## Hành vi với rương chứa
 
-## Verification
+- Trạm thu phí được gắn vào một vị trí block duy nhất. Một rương kép gồm hai block, nhưng EconomyCraft gộp
+  cả hai nửa về cùng một trạm. Tương tác với bất kỳ nửa nào cũng dùng chung một mức phí và chỉ tính là một
+  trạm đang hoạt động.
+- Một phễu (hopper) đặt ngay bên dưới rương có trạm thu phí không thể lấy vật phẩm ra. Điều này chặn cách
+  vượt trạm thu phí bằng tự động hóa; người chơi tương tác bình thường vẫn phải trả phí.
 
-With the Java toolchain available:
+## Hiển thị phí
 
-```sh
-./gradlew -Pfilter_platforms=fabric -Pminecraft_version=26.3 :common:test :fabric:build
-```
-
-`TollUiTest` exercises real menu callbacks and the toll store with mocked server and
-player boundaries. It covers visibility, missing targets, cancellation, block and
-game-mode restrictions, revoked permissions, changed ownership, owner/admin flows,
-recipient limits, online notices, reload from disk, and the existing right-click
-and pressure plate payment paths.
-
-For an eventual in-game smoke test, check the menu with an owner, a non-owner, and
-an admin; test a protected block, an out-of-reach block, cancel/back navigation,
-and both toll interaction types. These client checks are separate from the
-automated tests and do not require changing a running server during development.
-
-The current toll fee also appears in the vanilla action bar while the crosshair is
-on the toll block within five blocks; when the player looks away, the message stops
-refreshing and fades naturally.
+Mức phí hiện tại của trạm thu phí cũng xuất hiện trên **action bar** mặc định của Minecraft khi tâm ngắm
+đang nằm trên block trạm thu phí trong vòng năm block. Khi người chơi nhìn đi chỗ khác, thông báo ngừng được
+làm mới và tự mờ dần.

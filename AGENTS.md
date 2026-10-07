@@ -266,6 +266,34 @@ rules, so Monarchy's claim cost and claim damage and Anarchism's wilderness spee
 Gossip is built on villager dialogue — `gossip/GossipConfig.java`, `/eco gossip dialogue [prof]`. Villager
 *trading* as a feature is separate and minimal.
 
+### Verifying toll changes
+
+The toll feature has its own verification notes. They are contributor-facing, so they live here rather than in
+the player wiki page.
+
+`TollUiTest` exercises real menu callbacks and the toll store with mocked server and player boundaries. It
+covers visibility, missing targets, cancellation, block and game-mode restrictions, revoked permissions, changed
+ownership, owner/admin flows, recipient limits, online notices, reload from disk, and the existing right-click
+and pressure plate payment paths.
+
+```sh
+./gradlew -Pfilter_platforms=fabric -Pminecraft_version=26.3 :common:test :fabric:build
+```
+
+For an in-game smoke test, check the menu as an owner, a non-owner and an admin; test a protected block, an
+out-of-reach block, cancel/back navigation, and both toll interaction types (right-click and pressure plate).
+These are manual checks and need no change to a running server.
+
+Behaviour worth knowing before editing this area:
+
+- Tolls attach to one block position. A double chest is two blocks, but both halves resolve to one toll and
+  count as one active toll against `max_active_tolls_per_player` (default `10`).
+- A hopper directly under a toll chest cannot extract items, so automation cannot bypass the fee. Player
+  interaction still pays.
+- Admin access grants admin transfer and admin remove only. It does **not** grant fee editing or a creation
+  override, and the toll commands keep their owner checks.
+- The fee also shows on the vanilla action bar while the crosshair is on the toll block within five blocks.
+
 ---
 
 ## 5. Documentation rules
@@ -291,15 +319,24 @@ The repository's user-facing docs must match the shipped code. This is the rule 
 
 ### Wiki language policy
 
-Per-page language follows audience. **This is deliberate, not drift.**
+Per-page language follows audience. **This is deliberate, not drift.** Read this before adding a wiki page.
 
 | Audience | Language | Pages |
 |---|---|---|
 | Players | **Vietnamese** | `Chon-tag`, `Factions`, `Professions`, `Tolls` |
 | Integrators | **English** | `Home`, `Getting-Started`, `Balances-and-Payments`, `Prices-and-Leaderboard`, `Balance-Events`, `API-Reference` |
 
-Each page is exactly one language. **Player-facing pages carry no code** — no Gradle commands, no test-class
-names, no internal identifiers.
+Each page is exactly one language — do not mix, and do not write an English paragraph inside a Vietnamese
+page or the reverse.
+
+**Player-facing pages carry no code.** No Gradle commands, no test-class names, no internal identifiers. When
+contributor guidance is buried in a player page, it moves *here* rather than being deleted; `wiki/Tolls.md`
+carried a `TollUiTest` verification block until it was relocated to §4 above.
+
+Integrator pages may contain Java and are written in English.
+
+The same policy is restated in `wiki/_Sidebar.md` so a reader of the wiki sees it too. It is stated in exactly
+two places deliberately: this file for contributors, the sidebar for readers. Do not restate it a third time.
 
 ---
 

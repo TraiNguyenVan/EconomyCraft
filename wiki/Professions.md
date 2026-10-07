@@ -2,6 +2,8 @@
 
 Hệ thống nghề nghiệp trong EconomyCraft cho phép người chơi rèn luyện kỹ năng qua các hoạt động sinh tồn thực tế và nhận các đặc quyền tương ứng.
 
+Chọn nghề bằng lệnh `/job` (hoặc `/eco job`), hoặc mở menu `/eco` rồi bấm nút **Tags**. Xem [Hướng dẫn chọn Tag](Chon-tag) để biết thêm về thời gian khóa 30 giờ.
+
 ## Cơ chế Thăng cấp & Lụt nghề
 
 - **Cấp độ cơ bản:** Khi vừa chọn nghề, bạn ở cấp độ **Học nghề**. Hoàn thành đủ chỉ tiêu đề ra sẽ được thăng cấp lên **Thợ thầy**.
@@ -38,12 +40,13 @@ Hệ thống nghề nghiệp trong EconomyCraft cho phép người chơi rèn lu
 
 ---
 
-## 4. Merchants (Thương nhân)
+## 4. Merchant (Thương nhân)
 - **Điều kiện lên Thợ thầy:** Hoàn thành đồng thời hai mục tiêu:
   - Giao dịch với dân làng (Villager) đủ 50 lần (giao dịch que gỗ / stick không được tính; mỗi dân làng chỉ đóng góp tối đa 20 lượt giao dịch).
   - Mua sắm thành công trên chợ `/ah` đủ 5 lần.
 - **Kỹ năng:**
-  - **Lưỡi không xương:** Giảm giá mua bán trực tiếp trong giao diện của dân làng có nghề nghiệp: giảm 5% (Học nghề) và 15% (Thợ thầy) giá vật phẩm.
+  - **Lưỡi không xương:** Giảm **thuế** trên các giao dịch của bạn: giao dịch với dân làng có nghề nghiệp và mua sắm trên chợ `/ah`. Mức giảm là 5% (Học nghề) và 15% (Thợ thầy) trên số thuế phải trả.
+  - Lưu ý: đây là giảm **thuế**, không phải giảm giá vật phẩm. Bạn vẫn trả đầy đủ giá hàng; số thuế bị giảm mới là phần được giảm.
 
 ---
 
