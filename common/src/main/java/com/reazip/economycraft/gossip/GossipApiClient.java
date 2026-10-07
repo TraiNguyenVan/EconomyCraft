@@ -254,7 +254,7 @@ public class GossipApiClient {
         JsonObject root = new JsonObject();
         root.addProperty("model", config.model());
         root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 1.5));
-        root.addProperty("max_tokens", 512);
+        root.addProperty("max_tokens", 1536);
 
         JsonObject reasoning = new JsonObject();
         reasoning.addProperty("effort", "none");
@@ -493,7 +493,7 @@ public class GossipApiClient {
         root.addProperty("model", config.model());
         root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 2.0));
         // Increased token budget to comfortably accommodate reasoning models (e.g. DeepSeek-R1, Nemotron, etc.)
-        root.addProperty("max_tokens", Math.max(2048, config.poolSizePerCategory() * 350));
+        root.addProperty("max_tokens", Math.max(3072, config.poolSizePerCategory() * 500));
 
         // Suppress extraneous chain-of-thought preambles so reasoning models output JSON immediately
         JsonObject reasoning = new JsonObject();
