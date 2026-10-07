@@ -1339,6 +1339,7 @@ public final class EconomyCommands {
                             return builder.buildFuture();
                         })
                         .executes(ctx -> testIndividualDialogue(ctx.getSource(), StringArgumentType.getString(ctx, "profession")))));
+        root.then(literal("reload").executes(ctx -> reloadGossip(ctx.getSource())));
 
         return root;
     }
@@ -1482,6 +1483,20 @@ public final class EconomyCommands {
                     });
                 });
 
+        return 1;
+    }
+
+    private static int reloadGossip(CommandSourceStack source) {
+        source.getServer().execute(() -> {
+            EconomyCraft.reloadGossipService(source.getServer());
+            var cfg = EconomyConfig.get();
+            var gossipCfg = cfg != null ? cfg.geminiGossip : null;
+            if (gossipCfg != null && gossipCfg.enabled()) {
+                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Live reloaded! Model: " + gossipCfg.model() + " (" + gossipCfg.baseUrl() + ")").withStyle(ChatFormatting.GREEN), false);
+            } else {
+                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Live reloaded: Gossip is disabled.").withStyle(ChatFormatting.YELLOW), false);
+            }
+        });
         return 1;
     }
 }

@@ -77,48 +77,7 @@ public final class EconomyCraft {
 
         LifecycleEvent.SERVER_STARTED.register(server -> {
             EconomyCraft.getManager(server);
-            try {
-                var config = EconomyConfig.get().geminiGossip;
-                if (config != null && config.enabled()) {
-                    var client = new GossipApiClient(config);
-                    gossipWorker = new GossipDigestWorker(
-                            server,
-                            config,
-                            client,
-                            GOSSIP_POOL,
-                            GOSSIP_COOLDOWN_TRACKER
-                    );
-                    gossipWorker.start();
-
-                    java.nio.file.Path dbPath = com.reazip.economycraft.util.EconomyPaths.dataDir(server).resolve("villagers.db");
-                    villagerDatabase = new com.reazip.economycraft.gossip.storage.VillagerDatabase(dbPath);
-                    villagerDatabase.initialize();
-
-                    villagerMemoryService = new com.reazip.economycraft.gossip.memory.VillagerMemoryService(
-                            villagerDatabase,
-                            client,
-                            () -> EconomyConfig.get().geminiGossip,
-                            GOSSIP_POOL::get,
-                            () -> {
-                                var mgr = EconomyCraft.getManager(server);
-                                return mgr != null ? mgr.getDynamicPriceMultiplier() : 1.0;
-                            },
-                            uuid -> {
-                                var mgr = EconomyCraft.getManager(server);
-                                if (mgr == null) return null;
-                                var fac = mgr.getFactions().factionOf(uuid);
-                                return fac != null ? fac.key() : null;
-                            }
-                    );
-                    VillagerGossipListener.setMemoryService(villagerMemoryService);
-
-                    LOGGER.info("[EconomyCraft] Villager Personality & Memory Service initialized (DB: {})", dbPath);
-                    LOGGER.info("[EconomyCraft] Villager Gossip AI initialized (model: {}, interval: {}m)",
-                            config.model(), config.refreshIntervalMinutes());
-                }
-            } catch (Exception e) {
-                LOGGER.warn("[EconomyCraft] Failed to start Villager Gossip AI worker", e);
-            }
+            reloadGossipService(server);
         });
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
@@ -164,6 +123,71 @@ public final class EconomyCraft {
 
     public static @Nullable GossipDigestWorker getGossipWorker() {
         return gossipWorker;
+    }
+
+    /**
+     * Hot-reloads the AI gossip worker, client, and memory service from disk without restarting the server.
+     */
+    public static synchronized void reloadGossipService(MinecraftServer server) {
+        try {
+            EconomyConfig.load(server);
+            var cfg = EconomyConfig.get();
+            var config = cfg != null ? cfg.geminiGossip : null;
+
+            if (gossipWorker != null) {
+                try {
+                    gossipWorker.stop();
+                } catch (Exception e) {
+                    LOGGER.warn("[EconomyCraft] Error stopping old gossip worker", e);
+                } finally {
+                    gossipWorker = null;
+                }
+            }
+
+            if (config != null && config.enabled()) {
+                var client = new com.reazip.economycraft.gossip.GossipApiClient(config);
+                gossipWorker = new com.reazip.economycraft.gossip.GossipDigestWorker(
+                        server,
+                        config,
+                        client,
+                        GOSSIP_POOL,
+                        GOSSIP_COOLDOWN_TRACKER
+                );
+                gossipWorker.start();
+
+                if (villagerDatabase == null) {
+                    java.nio.file.Path dbPath = com.reazip.economycraft.util.EconomyPaths.dataDir(server).resolve("villagers.db");
+                    villagerDatabase = new com.reazip.economycraft.gossip.storage.VillagerDatabase(dbPath);
+                    villagerDatabase.initialize();
+                }
+
+                villagerMemoryService = new com.reazip.economycraft.gossip.memory.VillagerMemoryService(
+                        villagerDatabase,
+                        client,
+                        () -> EconomyConfig.get().geminiGossip,
+                        GOSSIP_POOL::get,
+                        () -> {
+                            var mgr = EconomyCraft.getManager(server);
+                            return mgr != null ? mgr.getDynamicPriceMultiplier() : 1.0;
+                        },
+                        uuid -> {
+                            var mgr = EconomyCraft.getManager(server);
+                            if (mgr == null) return null;
+                            var fac = mgr.getFactions().factionOf(uuid);
+                            return fac != null ? fac.key() : null;
+                        }
+                );
+                com.reazip.economycraft.gossip.VillagerGossipListener.setMemoryService(villagerMemoryService);
+
+                LOGGER.info("[EconomyCraft-AI] Gossip service live reloaded! Model: {}, BaseUrl: {}", config.model(), config.baseUrl());
+            } else {
+                com.reazip.economycraft.gossip.VillagerGossipListener.setMemoryService(null);
+                villagerMemoryService = null;
+                LOGGER.info("[EconomyCraft-AI] Gossip service disabled.");
+            }
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft-AI] Failed to reload gossip service", e);
+        }
     }
 
     private static void onServerTick(MinecraftServer server) {
