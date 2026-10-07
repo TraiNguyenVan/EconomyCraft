@@ -259,7 +259,7 @@ missing command and permission entries, and both broken links.
 FR-014/FR-016/FR-019 require and what was actually done. This phase closes them. Every task here is
 documentation-only, consistent with FR-001.
 
-- [ ] T060 **CRITICAL** Review the 10 assistant command definitions in `.opencode/commands/*.md` and the 5
+- [X] T060 **CRITICAL** Review the 10 assistant command definitions in `.opencode/commands/*.md` and the 5
   specification-kit templates in `.specify/templates/*.md`, per FR-016 and `plan.md:197-198`, and correct any that
   are internally inconsistent, incomplete, or contradicted by this project's workflow — leaving their structure and
   section order intact. Begin with a concrete hazard already confirmed: `.opencode/commands/speckit.constitution.md:123`

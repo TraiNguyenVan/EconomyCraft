@@ -84,10 +84,22 @@ Follow this execution flow:
    - If `.specify/memory/constitution.md` exists, load it as the source of current project-specific
      values and amendments. Preserve information that is still applicable when applying the newly
      resolved scaffold.
-   - If it does not exist, use the resolved template as the initial document.
+   - **The template's principle count is a floor, not a target.** The resolved scaffold defines only
+     `[PRINCIPLE_1_NAME]`..`[PRINCIPLE_5_NAME]` and two generic sections, but the existing constitution may
+     legitimately hold more. Never renumber down to fit the template and never drop the overflow: enumerate
+     the principles actually present in the existing constitution, and carry every one of them into the
+     output, adding principle slots as needed.
+   - **Preserve any section the existing constitution has that the template lacks** (for example an
+     `Architecture baseline` or a `Constraints` section, where the template has only `[SECTION_2_NAME]` and
+     `[SECTION_3_NAME]`). Keep the template's section *order*, and append the extra sections in the same
+     relative position they occupy in the existing document.
+   - If a principle or section in the existing constitution is genuinely obsolete, it may be removed — but
+     only as an explicit, reported decision (see the Sync Impact Report's Removed sections), never as a
+     side effect of fitting the document to the template.
+   - If the constitution does not exist, use the resolved template as the initial document.
    - Do not write back to any versioned template layer.
    - Identify every placeholder token of the form `[ALL_CAPS_IDENTIFIER]`.
-   **IMPORTANT**: The user might require less or more principles than the ones used in the template. If a number is specified, respect that - follow the general template. You will update the doc accordingly.
+   **IMPORTANT**: The user might require a different number of principles than the template defines. If a number is specified, respect it - follow the general template. You will update the doc accordingly. Note the asymmetry: *adding* principles to match a request is safe, but *reducing below* the count the existing constitution holds removes governance content. If a reduction is requested, confirm which principles to remove and report each one; never infer it from the template's count.
 
 2. Collect/derive values for placeholders:
    - If user input (conversation) supplies a value, use it.
@@ -119,8 +131,13 @@ Follow this execution flow:
    - Version line matches report.
    - Dates ISO format YYYY-MM-DD.
    - Principles are declarative, testable, and free of vague language ("should" → replace with MUST/SHOULD rationale where appropriate).
+   - **Count check**: the number of principles in the new content is greater than or equal to the number in the previous constitution, unless the Sync Impact Report names each removed principle. A count below the previous value with an unexplained removal is a failure — do not proceed.
 
 6. Write the completed constitution back to `.specify/memory/constitution.md` (overwrite).
+   - **Before overwriting, diff the new content against the previous version and confirm that every
+     principle and every section in the previous file is either present in the new content or listed as
+     explicitly removed in the Sync Impact Report.** If any is silently absent, stop and report it rather
+     than writing — a template-driven truncation is a data-loss bug, not a successful amendment.
 
 7. Output a final summary to the user with:
    - New version and bump rationale.
