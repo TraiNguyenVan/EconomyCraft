@@ -276,6 +276,11 @@ public class GossipApiClient {
         // Increased token budget to comfortably accommodate reasoning models (e.g. DeepSeek-R1, Nemotron, etc.)
         root.addProperty("max_tokens", Math.max(2048, config.poolSizePerCategory() * 350));
 
+        // Suppress extraneous chain-of-thought preambles so reasoning models output JSON immediately
+        JsonObject reasoning = new JsonObject();
+        reasoning.addProperty("effort", "none");
+        root.add("reasoning", reasoning);
+
         JsonObject responseFormat = new JsonObject();
         responseFormat.addProperty("type", "json_object");
         root.add("response_format", responseFormat);
