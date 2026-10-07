@@ -172,14 +172,27 @@ def coerce(value):
     return ("str", text)
 
 
+# A long list is documented by its size rather than in full, e.g. `33 entries`
+# for the 33-item builder.building_blocks. This is still checked, not waved
+# through: the count must equal the shipped length.
+COUNT = re.compile(r"^(\d+)\s+(?:entries?|ids?|items?|lines?)$")
+
+
 def same(a, b) -> bool:
     """Compare a documented default against the shipped value.
 
-    Both sides are compared as JSON first, so a list documents as
-    `["#minecraft:ores"]` and ships as the list itself still match. Comparing
-    them as text reported a false mismatch on `professions.miner.ore_tags`,
-    because str(list) renders single quotes.
+    Both sides are compared as JSON first, so a list documented as
+    `["#minecraft:ores"]` and a shipped list still match. Comparing them as
+    text reported a false mismatch on `professions.miner.ore_tags`, because
+    str(list) renders single quotes.
+
+    A list documented by its size is checked against the shipped length.
     """
+    if isinstance(b, (list, dict)) and isinstance(a, str):
+        m = COUNT.match(a.strip().strip("`"))
+        if m:
+            return len(b) == int(m.group(1))
+
     ka, kb = coerce(a), coerce(b)
 
     if ka[0] == "num" and kb[0] == "num":
