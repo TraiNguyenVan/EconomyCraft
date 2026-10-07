@@ -799,15 +799,36 @@ public final class EconomyCommands {
                 .requires(src -> EconomyConfig.get().auctionEnabled)
                 .executes(ctx -> openAuction(ctx.getSource().getPlayerOrException(), ctx.getSource()))
                 .then(literal("list")
-                        .executes(ctx -> usage(ctx.getSource(), "/" + command + " list <price> [<amount>]"))
+                        .executes(ctx -> usage(ctx.getSource(), "/" + command + " [list] <price> [<amount>] [<description>]"))
                         .then(argument("price", LongArgumentType.longArg(1, EconomyManager.MAX))
                                 .executes(ctx -> listAuctionItem(ctx.getSource().getPlayerOrException(),
-                                         LongArgumentType.getLong(ctx, "price"), -1,
+                                         LongArgumentType.getLong(ctx, "price"), -1, null,
                                          ctx.getSource()))
                                 .then(argument("amount", IntegerArgumentType.integer(1))
                                         .executes(ctx -> listAuctionItem(ctx.getSource().getPlayerOrException(),
                                                  LongArgumentType.getLong(ctx, "price"),
+                                                 IntegerArgumentType.getInteger(ctx, "amount"), null,
+                                                 ctx.getSource()))
+                                        .then(argument("description", StringArgumentType.greedyString())
+                                                .executes(ctx -> listAuctionItem(ctx.getSource().getPlayerOrException(),
+                                                         LongArgumentType.getLong(ctx, "price"),
+                                                         IntegerArgumentType.getInteger(ctx, "amount"),
+                                                         StringArgumentType.getString(ctx, "description"),
+                                                         ctx.getSource()))))))
+                .then(argument("price", LongArgumentType.longArg(1, EconomyManager.MAX))
+                        .executes(ctx -> listAuctionItem(ctx.getSource().getPlayerOrException(),
+                                 LongArgumentType.getLong(ctx, "price"), -1, null,
+                                 ctx.getSource()))
+                        .then(argument("amount", IntegerArgumentType.integer(1))
+                                .executes(ctx -> listAuctionItem(ctx.getSource().getPlayerOrException(),
+                                         LongArgumentType.getLong(ctx, "price"),
+                                         IntegerArgumentType.getInteger(ctx, "amount"), null,
+                                         ctx.getSource()))
+                                .then(argument("description", StringArgumentType.greedyString())
+                                        .executes(ctx -> listAuctionItem(ctx.getSource().getPlayerOrException(),
+                                                 LongArgumentType.getLong(ctx, "price"),
                                                  IntegerArgumentType.getInteger(ctx, "amount"),
+                                                 StringArgumentType.getString(ctx, "description"),
                                                  ctx.getSource())))))
                 .then(literal("search")
                         .executes(ctx -> usage(ctx.getSource(), "/" + command + " search <query>"))
@@ -847,7 +868,7 @@ public final class EconomyCommands {
         }
     }
 
-    private static int listAuctionItem(ServerPlayer player, long price, int amount, CommandSourceStack source) {
+    private static int listAuctionItem(ServerPlayer player, long price, int amount, @Nullable String description, CommandSourceStack source) {
         if (!EconomyConfig.get().auctionEnabled) {
             EconomySounds.failure(player);
             source.sendFailure(Component.literal("The auction house is disabled.").withStyle(ChatFormatting.RED));
@@ -874,20 +895,32 @@ public final class EconomyCommands {
                     + auctions.getEffectiveLimit(player.getUUID()) + " active listing(s).").withStyle(ChatFormatting.RED));
             return 0;
         }
+
+        String desc = description;
+        if (desc != null) {
+            desc = desc.replace("\r", "").replace("\n", "").trim();
+            if (desc.isEmpty()) {
+                desc = null;
+            } else if (desc.length() > 100) {
+                desc = desc.substring(0, 100);
+            }
+        }
+
         AuctionListing listing = new AuctionListing();
         listing.seller = player.getUUID();
         listing.price = price;
         listing.item = hand.copyWithCount(count);
         listing.createdAt = System.currentTimeMillis();
         listing.expiresAt = ExpirationUtil.expiresAt(listing.createdAt, EconomyConfig.get().auctionExpirationHours);
+        listing.description = desc;
         hand.shrink(count);
         auctions.addListing(listing);
 
         TaxQuote quote = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, price, player.getUUID(),
                 EconomyCraft.getManager(source.getServer()));
 
-        Component msg = Component.literal("Listed item for " + EconomyCraft.formatMoney(price) +
-                        AuctionUi.buyerTaxSuffix(quote))
+        Component msg = Component.literal("Listed " + count + "x " + listing.item.getHoverName().getString() + " for "
+                        + EconomyCraft.formatMoney(price) + AuctionUi.buyerTaxSuffix(quote))
                 .withStyle(ChatFormatting.GREEN);
 
         EconomySounds.success(player);

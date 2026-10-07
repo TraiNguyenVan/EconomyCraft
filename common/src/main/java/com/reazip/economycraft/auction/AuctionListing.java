@@ -16,6 +16,8 @@ public class AuctionListing {
     public long price;
     public long createdAt;
     public long expiresAt;
+    @org.jetbrains.annotations.Nullable
+    public String description;
 
     public JsonObject save(HolderLookup.Provider provider) {
         JsonObject obj = new JsonObject();
@@ -24,6 +26,9 @@ public class AuctionListing {
         obj.addProperty("price", price);
         obj.addProperty("createdAt", createdAt);
         obj.addProperty("expiresAt", expiresAt);
+        if (description != null && !description.isBlank()) {
+            obj.addProperty("description", description);
+        }
         JsonElement stackEl = ItemStack.CODEC.encodeStart(RegistryOps.create(JsonOps.INSTANCE, provider), item).result().orElse(new JsonObject());
         obj.add("stack", stackEl);
         return obj;
@@ -36,6 +41,9 @@ public class AuctionListing {
         l.price = obj.get("price").getAsLong();
         if (obj.has("createdAt")) l.createdAt = obj.get("createdAt").getAsLong();
         if (obj.has("expiresAt")) l.expiresAt = obj.get("expiresAt").getAsLong();
+        if (obj.has("description") && !obj.get("description").isJsonNull()) {
+            l.description = obj.get("description").getAsString();
+        }
         l.item = ItemStack.CODEC
                 .parse(RegistryOps.create(JsonOps.INSTANCE, provider), obj.get("stack"))
                 .result()

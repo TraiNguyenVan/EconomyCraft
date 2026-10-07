@@ -107,6 +107,15 @@ public final class AuctionUi {
         }
     }
 
+    private static void addDescriptionLore(List<Component> lore, AuctionListing listing) {
+        if (listing.description != null && !listing.description.isBlank()) {
+            net.minecraft.network.chat.MutableComponent line = Component.literal("Note: ")
+                    .withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GOLD));
+            line.append(com.reazip.economycraft.motd.MotdFormatter.formatLine(listing.description));
+            lore.add(line);
+        }
+    }
+
     private static Component createPriceLore(long price, long tax) {
         String value = EconomyCraft.formatMoney(price) +
                 (tax > 0 ? " (+" + EconomyCraft.formatMoney(tax) + " tax)" : "");
@@ -171,9 +180,22 @@ public final class AuctionUi {
 
     private static void choosePrice(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount) {
         NumberInputUi.openMoney(player, "Set your price", prototype.copyWithCount(amount), "Price",
-                100, 1, EconomyManager.MAX, "Confirm and list", price -> listingLore(player, amount, price),
-                (p, price) -> createListing(p, auctions, prototype, amount, price),
+                100, 1, EconomyManager.MAX, "Next: Description", price -> listingLore(player, amount, price),
+                (p, price) -> chooseDescription(p, auctions, prototype, amount, price),
                 p -> backFromPrice(player, auctions, prototype));
+    }
+
+    private static void chooseDescription(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount, long price) {
+        TextInputUi.open(player, "Add a note/description", "", Items.NAME_TAG,
+                "Note: ", "Optional note (blank to skip)", true,
+                (p, text) -> {
+                    String desc = text.isBlank() ? null : text.trim();
+                    if (desc != null && desc.length() > 100) {
+                        desc = desc.substring(0, 100);
+                    }
+                    createListing(p, auctions, prototype, amount, price, desc);
+                },
+                p -> choosePrice(p, auctions, prototype, amount));
     }
 
     private static void backFromPrice(ServerPlayer player, AuctionManager auctions, ItemStack prototype) {
@@ -201,6 +223,10 @@ public final class AuctionUi {
     }
 
     private static void createListing(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount, long price) {
+        createListing(player, auctions, prototype, amount, price, null);
+    }
+
+    private static void createListing(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount, long price, @org.jetbrains.annotations.Nullable String description) {
         if (auctions.hasReachedLimit(player.getUUID())) {
             EconomySounds.failure(player);
             player.sendSystemMessage(MenuUiSupport.line("You have reached your limit of "
@@ -222,6 +248,7 @@ public final class AuctionUi {
         listing.item = prototype.copyWithCount(amount);
         listing.createdAt = System.currentTimeMillis();
         listing.expiresAt = ExpirationUtil.expiresAt(listing.createdAt, EconomyConfig.get().auctionExpirationHours);
+        listing.description = description;
         auctions.addListing(listing);
 
         EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
@@ -378,6 +405,7 @@ public final class AuctionUi {
                 lore.add(createPriceLore(l.price, quote));
                 lore.add(MenuUiSupport.labeledValue("Seller", mine ? "you" : sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
                 addBuybackLore(lore, l);
+                addDescriptionLore(lore, l);
                 lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(l.expiresAt)));
                 lore.add(MenuUiSupport.labeledValue("Click", mine ? "Remove listing" : "Buy it", MenuUiSupport.LABEL_SECONDARY_COLOR));
                 if (MenuUiSupport.hasContainerContents(l.item)) {
@@ -531,6 +559,7 @@ public final class AuctionUi {
             lore.add(createPriceLore(listing.price, quote));
             lore.add(MenuUiSupport.labeledValue("Seller", sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
             addBuybackLore(lore, listing);
+            addDescriptionLore(lore, listing);
             lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)));
             if (!canAfford(viewer, listing)) {
                 lore.add(MenuUiSupport.line("You can't afford this — but you can offer a price.",
@@ -697,11 +726,13 @@ public final class AuctionUi {
             EconomyManager eco = EconomyCraft.getManager(viewer.level().getServer());
             TaxQuote quote = TaxPolicy.quoteForSale(TaxScope.TRANSACTION_AUCTION_BUY, listing.price,
                     listing.seller, eco);
-            item.set(DataComponents.LORE, new ItemLore(List.of(
-                    createPriceLore(listing.price, quote),
-                    MenuUiSupport.labeledValue("Seller", "you", MenuUiSupport.LABEL_PRIMARY_COLOR),
-                    MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)),
-                    MenuUiSupport.line("This will remove the listing", ChatFormatting.RED))));
+            List<Component> lore = new ArrayList<>();
+            lore.add(createPriceLore(listing.price, quote));
+            lore.add(MenuUiSupport.labeledValue("Seller", "you", MenuUiSupport.LABEL_PRIMARY_COLOR));
+            addDescriptionLore(lore, listing);
+            lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)));
+            lore.add(MenuUiSupport.line("This will remove the listing", ChatFormatting.RED));
+            item.set(DataComponents.LORE, new ItemLore(lore));
             container.setItem(MenuUiSupport.ROW_SUBJECT, item);
 
             container.setItem(MenuUiSupport.ROW_CANCEL, MenuUiSupport.cancelButton());

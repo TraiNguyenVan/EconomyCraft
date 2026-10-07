@@ -27,24 +27,34 @@ public final class TextInputUi {
 
     public static void open(ServerPlayer player, String title, String initial, Item icon,
                             String confirmPrefix, String placeholder, BiConsumer<ServerPlayer, String> onConfirm) {
+        open(player, title, initial, icon, confirmPrefix, placeholder, false, onConfirm, null);
+    }
+
+    public static void open(ServerPlayer player, String title, String initial, Item icon,
+                            String confirmPrefix, String placeholder, boolean allowEmpty,
+                            BiConsumer<ServerPlayer, String> onConfirm, java.util.function.Consumer<ServerPlayer> onCancel) {
         MenuUiSupport.openMenu(player, title, (id, inv) ->
-                new InputMenu(id, inv, initial, icon, confirmPrefix, placeholder, onConfirm));
+                new InputMenu(id, inv, initial, icon, confirmPrefix, placeholder, allowEmpty, onConfirm, onCancel));
     }
 
     private static class InputMenu extends AnvilMenu {
         private final Item icon;
         private final String confirmPrefix;
         private final String placeholder;
+        private final boolean allowEmpty;
         private final BiConsumer<ServerPlayer, String> onConfirm;
+        private final java.util.function.Consumer<ServerPlayer> onCancel;
         private String text;
 
         InputMenu(int id, Inventory inv, String initial, Item icon, String confirmPrefix, String placeholder,
-                  BiConsumer<ServerPlayer, String> onConfirm) {
+                  boolean allowEmpty, BiConsumer<ServerPlayer, String> onConfirm, java.util.function.Consumer<ServerPlayer> onCancel) {
             super(id, inv, ContainerLevelAccess.NULL);
             this.icon = icon;
             this.confirmPrefix = confirmPrefix;
             this.placeholder = placeholder;
+            this.allowEmpty = allowEmpty;
             this.onConfirm = onConfirm;
+            this.onCancel = onCancel;
             this.text = initial == null ? "" : initial;
 
             ItemStack input = new ItemStack(Items.PAPER);
@@ -70,32 +80,46 @@ public final class TextInputUi {
         private void renderResult() {
             String value = text == null ? "" : text;
             ItemStack result = new ItemStack(icon);
-            Component name = value.isBlank()
-                    ? Component.literal(placeholder).withStyle(s -> s.withItalic(false))
-                    : Component.literal(confirmPrefix + value)
-                            .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.GREEN));
+            Component name;
+            String hintText;
+            if (value.isBlank()) {
+                name = Component.literal(placeholder).withStyle(s -> s.withItalic(false));
+                hintText = allowEmpty ? "Click here to skip (leave empty)" : "Type in the field above";
+            } else {
+                name = Component.literal(confirmPrefix + value)
+                        .withStyle(s -> s.withItalic(false).withBold(true).withColor(ChatFormatting.GREEN));
+                hintText = "Click here to confirm";
+            }
             result.set(DataComponents.CUSTOM_NAME, name);
-            result.set(DataComponents.LORE, new ItemLore(List.of(
-                    MenuUiSupport.hint(value.isBlank() ? "Type in the field above" : "Click here to confirm"))));
+            result.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint(hintText))));
             this.resultSlots.setItem(0, result);
         }
 
+        private boolean tookResult = false;
+
         @Override
         protected boolean mayPickup(Player player, boolean hasItem) {
-            return hasItem && text != null && !text.isBlank();
+            return hasItem && (allowEmpty || (text != null && !text.isBlank()));
         }
 
         @Override
         protected void onTake(Player player, ItemStack stack) {
+            this.tookResult = true;
             String value = text;
             this.setCarried(ItemStack.EMPTY);
             player.closeContainer();
             ServerPlayer serverPlayer = (ServerPlayer) player;
             serverPlayer.connection.send(new ClientboundSetExperiencePacket(
                     serverPlayer.experienceProgress, serverPlayer.totalExperience, serverPlayer.experienceLevel));
-            if (value != null && !value.isBlank()) {
-                EconomySounds.click(serverPlayer);
-                onConfirm.accept(serverPlayer, value.trim());
+            EconomySounds.click(serverPlayer);
+            onConfirm.accept(serverPlayer, (value != null && !value.isBlank()) ? value.trim() : "");
+        }
+
+        @Override
+        public void removed(Player player) {
+            super.removed(player);
+            if (!tookResult && onCancel != null && player instanceof ServerPlayer serverPlayer) {
+                onCancel.accept(serverPlayer);
             }
         }
 
