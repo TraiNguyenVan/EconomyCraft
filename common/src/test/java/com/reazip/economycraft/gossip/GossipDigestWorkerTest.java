@@ -71,6 +71,25 @@ class GossipDigestWorkerTest {
     }
 
     @Test
+    @DisplayName("filterSignificant prioritizes distinct items/topics before repeating duplicates")
+    void testTopicDeduplicationInFilterSignificant() {
+        TransactionEntry bounty1 = createEntry(5000, EconomySources.ORDER_FULFILLMENT.asString(), "wooden_spear");
+        TransactionEntry bounty2 = createEntry(4500, EconomySources.ORDER_FULFILLMENT.asString(), "wooden_spear");
+        TransactionEntry bounty3 = createEntry(4000, EconomySources.ORDER_FULFILLMENT.asString(), "wooden_spear");
+        TransactionEntry diamondAuction = createEntry(3000, EconomySources.AUCTION_PURCHASE.asString(), "diamond");
+        TransactionEntry toll = createEntry(100, EconomySources.TOLL_PAYMENT.asString(), "bridge_toll");
+
+        List<TransactionEntry> list = List.of(bounty1, bounty2, bounty3, diamondAuction, toll);
+
+        // Limit = 3: should take 1 wooden_spear bounty, 1 diamond auction, 1 toll (diverse set)
+        List<TransactionEntry> filtered = GossipDigestWorker.filterSignificant(list, 3);
+        assertEquals(3, filtered.size());
+        assertEquals(bounty1, filtered.get(0), "Highest score wooden_spear taken");
+        assertEquals(diamondAuction, filtered.get(1), "Different topic taken next instead of second wooden_spear");
+        assertEquals(toll, filtered.get(2), "Third distinct topic taken");
+    }
+
+    @Test
     @DisplayName("Time decay reduces significance with 30m half-life and drops entries older than 2 hours")
     void testTimeDecayedSignificance() {
         Instant now = Instant.now();

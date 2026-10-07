@@ -14,8 +14,12 @@ import org.slf4j.Logger;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -38,6 +42,7 @@ public class GossipDigestWorker {
     private static final int DEFAULT_MAX_EVENTS = 30;
     public static final Duration DEFAULT_MAX_LOOKBACK = Duration.ofHours(2);
     public static final double HALF_LIFE_MINUTES = 30.0;
+    public static final int MAX_SAME_TOPIC_ENTRIES = 1;
 
     private final GossipConfig config;
     private final GossipApiClient apiClient;
@@ -46,6 +51,7 @@ public class GossipDigestWorker {
     private final Supplier<Path> logsDirSupplier;
     private final DoubleSupplier inflationSupplier;
     private final @Nullable Function<UUID, String> factionResolver;
+    private final @Nullable Supplier<List<String>> recentSpokenSupplier;
 
     private final ScheduledExecutorService executor;
     private final boolean ownsExecutor;
@@ -58,6 +64,17 @@ public class GossipDigestWorker {
             GossipApiClient apiClient,
             AtomicReference<GossipPool> poolRef,
             @Nullable CooldownTracker cooldownTracker
+    ) {
+        this(server, config, apiClient, poolRef, cooldownTracker, null);
+    }
+
+    public GossipDigestWorker(
+            MinecraftServer server,
+            GossipConfig config,
+            GossipApiClient apiClient,
+            AtomicReference<GossipPool> poolRef,
+            @Nullable CooldownTracker cooldownTracker,
+            @Nullable Supplier<List<String>> recentSpokenSupplier
     ) {
         this(
                 config,
@@ -75,6 +92,7 @@ public class GossipDigestWorker {
                     var fac = mgr.getFactions().factionOf(uuid);
                     return fac != null ? fac.key() : null;
                 },
+                recentSpokenSupplier,
                 EconomyExecutors.newSingleThreadScheduledExecutor("EconomyCraft-AI-Worker"),
                 true
         );
@@ -91,6 +109,21 @@ public class GossipDigestWorker {
             ScheduledExecutorService executor,
             boolean ownsExecutor
     ) {
+        this(config, apiClient, poolRef, cooldownTracker, logsDirSupplier, inflationSupplier, factionResolver, null, executor, ownsExecutor);
+    }
+
+    public GossipDigestWorker(
+            GossipConfig config,
+            GossipApiClient apiClient,
+            AtomicReference<GossipPool> poolRef,
+            @Nullable CooldownTracker cooldownTracker,
+            Supplier<Path> logsDirSupplier,
+            DoubleSupplier inflationSupplier,
+            @Nullable Function<UUID, String> factionResolver,
+            @Nullable Supplier<List<String>> recentSpokenSupplier,
+            ScheduledExecutorService executor,
+            boolean ownsExecutor
+    ) {
         this.config = config;
         this.apiClient = apiClient;
         this.poolRef = poolRef;
@@ -98,6 +131,7 @@ public class GossipDigestWorker {
         this.logsDirSupplier = logsDirSupplier;
         this.inflationSupplier = inflationSupplier;
         this.factionResolver = factionResolver;
+        this.recentSpokenSupplier = recentSpokenSupplier;
         this.executor = executor;
         this.ownsExecutor = ownsExecutor;
     }
@@ -251,7 +285,8 @@ public class GossipDigestWorker {
                 factionResolver
         );
 
-        return apiClient.generateSingleRumor(category, digest.toPromptContext());
+        List<String> recentSpoken = (recentSpokenSupplier != null) ? recentSpokenSupplier.get() : List.of();
+        return apiClient.generateSingleRumor(category, digest.toPromptContext(), recentSpoken);
     }
 
     /**
@@ -306,6 +341,16 @@ public class GossipDigestWorker {
         return base * decayFactor;
     }
 
+    private static String getTopicDeduplicationKey(@Nullable TransactionEntry entry) {
+        if (entry == null) return "";
+        String source = entry.source() != null ? entry.source().toLowerCase(Locale.ROOT).trim() : "unknown";
+        String detail = entry.detail() != null ? entry.detail().toLowerCase(Locale.ROOT).trim() : "";
+        if (detail.isEmpty()) {
+            return source;
+        }
+        return source + "#" + detail;
+    }
+
     /**
      * Filters and orders transactions by descending economic significance using current time decay.
      */
@@ -314,21 +359,51 @@ public class GossipDigestWorker {
     }
 
     /**
-     * Filters and orders transactions by descending economic significance relative to a reference time.
+     * Filters, deduplicates repetitive topics, and orders transactions by descending economic significance
+     * relative to a reference time.
      */
     public static List<TransactionEntry> filterSignificant(List<TransactionEntry> entries, int limit, Instant now) {
         if (entries == null || entries.isEmpty() || limit <= 0) {
             return List.of();
         }
 
-        return entries.stream()
+        List<Map.Entry<TransactionEntry, Double>> scored = entries.stream()
                 .filter(e -> e != null && e.amount() != 0)
                 .map(e -> Map.entry(e, calculateDecayedSignificance(e, now)))
                 .filter(e -> e.getValue() > 0.0)
                 .sorted(Comparator.<Map.Entry<TransactionEntry, Double>>comparingDouble(Map.Entry::getValue).reversed())
-                .limit(limit)
-                .map(Map.Entry::getKey)
                 .toList();
+
+        List<TransactionEntry> result = new ArrayList<>();
+        Map<String, Integer> topicCounts = new HashMap<>();
+        List<TransactionEntry> deferred = new ArrayList<>();
+
+        for (var pair : scored) {
+            TransactionEntry te = pair.getKey();
+            String key = getTopicDeduplicationKey(te);
+            int count = topicCounts.getOrDefault(key, 0);
+            if (count < MAX_SAME_TOPIC_ENTRIES) {
+                result.add(te);
+                topicCounts.put(key, count + 1);
+                if (result.size() >= limit) {
+                    break;
+                }
+            } else {
+                deferred.add(te);
+            }
+        }
+
+        // Backfill from deferred entries if we haven't reached limit with distinct topics
+        if (result.size() < limit && !deferred.isEmpty()) {
+            for (TransactionEntry te : deferred) {
+                result.add(te);
+                if (result.size() >= limit) {
+                    break;
+                }
+            }
+        }
+
+        return Collections.unmodifiableList(result);
     }
 
     /**

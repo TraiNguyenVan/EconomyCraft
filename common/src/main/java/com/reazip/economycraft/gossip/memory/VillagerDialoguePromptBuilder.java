@@ -20,7 +20,7 @@ public final class VillagerDialoguePromptBuilder {
             @Nullable List<String> grapevineRumors,
             double inflation
     ) {
-        return buildSystemInstruction(profile, memory, playerArchetype, grapevineRumors, inflation, null);
+        return buildSystemInstruction(profile, memory, playerArchetype, grapevineRumors, inflation, null, null);
     }
 
     public static String buildSystemInstruction(
@@ -30,6 +30,18 @@ public final class VillagerDialoguePromptBuilder {
             @Nullable List<String> grapevineRumors,
             double inflation,
             @Nullable String customInstructions
+    ) {
+        return buildSystemInstruction(profile, memory, playerArchetype, grapevineRumors, inflation, customInstructions, null);
+    }
+
+    public static String buildSystemInstruction(
+            VillagerProfile profile,
+            PlayerMemory memory,
+            String playerArchetype,
+            @Nullable List<String> grapevineRumors,
+            double inflation,
+            @Nullable String customInstructions,
+            @Nullable List<String> recentSpokenTopics
     ) {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(Locale.ROOT,
@@ -70,6 +82,13 @@ public final class VillagerDialoguePromptBuilder {
             }
         }
 
+        if (recentSpokenTopics != null && !recentSpokenTopics.isEmpty()) {
+            sb.append("\nRecently spoken village lines (DO NOT repeat these topics or focus on these exact items):\n");
+            for (String line : recentSpokenTopics) {
+                sb.append("- \"").append(line).append("\"\n");
+            }
+        }
+
         sb.append(String.format(Locale.ROOT, "\nCurrent server inflation: %.2fx.\n\n", inflation));
 
         if (customInstructions != null && !customInstructions.isBlank()) {
@@ -79,9 +98,10 @@ public final class VillagerDialoguePromptBuilder {
                 Dialogue Instructions:
                 1. Keep it short and easy to understand: most lines should be under 15 words. Avoid overly complex prose or purple vocabulary.
                 2. Speak in exactly 1 concise, conversational sentence matching your personality, quirk, and relationship with this player.
-                3. Address the player or your past memories directly when appropriate.
-                4. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.
-                5. Respond strictly with valid JSON with fields:
+                3. Topic Rotation: Rotate your angle — comment on your backstory/quirk, trade prices, inflation, stall inventory shortages, or relationship with this customer. Do not fixate on the same trade item every time.
+                4. Address the player or your past memories directly when appropriate.
+                5. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.
+                6. Respond strictly with valid JSON with fields:
                    {
                      "dialogue": "<your concise line>",
                      "sentiment_delta": <-2 to 5 integer>

@@ -193,13 +193,29 @@ public class GossipApiClient {
             @Nullable List<String> grapevineRumors,
             double inflation
     ) {
+        return generateIndividualDialogue(profile, memory, playerArchetype, grapevineRumors, inflation, null);
+    }
+
+    /**
+     * Asynchronously generates personalized, in-character dialogue for an individual villager
+     * based on their persistent persona, memory with the visiting player, and profession grapevine news,
+     * with negative prompting against recently spoken topics to prevent repetition.
+     */
+    public CompletableFuture<Optional<IndividualDialogueResult>> generateIndividualDialogue(
+            VillagerProfile profile,
+            PlayerMemory memory,
+            String playerArchetype,
+            @Nullable List<String> grapevineRumors,
+            double inflation,
+            @Nullable List<String> recentSpokenTopics
+    ) {
         String apiKey = config.apiKey();
         if (!config.enabled() || apiKey == null || apiKey.isBlank() || isCircuitOpen()) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
         String systemInstruction = VillagerDialoguePromptBuilder.buildSystemInstruction(
-                profile, memory, playerArchetype, grapevineRumors, inflation, config.dialogueSystemInstruction());
+                profile, memory, playerArchetype, grapevineRumors, inflation, config.dialogueSystemInstruction(), recentSpokenTopics);
 
         boolean isOpenAi = isOpenAiCompatible();
         String url;
@@ -254,6 +270,18 @@ public class GossipApiClient {
      * Asynchronously generates a single in-character economic rumor on demand for a specific profession.
      */
     public CompletableFuture<Optional<String>> generateSingleRumor(GossipCategory category, String economicContext) {
+        return generateSingleRumor(category, economicContext, null);
+    }
+
+    /**
+     * Asynchronously generates a single in-character economic rumor on demand for a specific profession,
+     * avoiding recently spoken topics.
+     */
+    public CompletableFuture<Optional<String>> generateSingleRumor(
+            GossipCategory category,
+            String economicContext,
+            @Nullable List<String> recentSpoken
+    ) {
         String apiKey = config.getEffectiveApiKey();
         if (!config.enabled() || apiKey == null || apiKey.isBlank() || isCircuitOpen()) {
             return CompletableFuture.completedFuture(Optional.empty());
@@ -268,11 +296,11 @@ public class GossipApiClient {
 
         if (isOpenAi) {
             url = baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions";
-            requestJson = buildOpenAiSingleRumorRequestBody(category, economicContext);
+            requestJson = buildOpenAiSingleRumorRequestBody(category, economicContext, recentSpoken);
             reqBuilder.header("Authorization", "Bearer " + apiKey);
         } else {
             url = String.format("%s/v1beta/models/%s:generateContent", baseUrl, config.model());
-            requestJson = buildGeminiSingleRumorRequestBody(category, economicContext);
+            requestJson = buildGeminiSingleRumorRequestBody(category, economicContext, recentSpoken);
             reqBuilder.header("x-goog-api-key", apiKey);
         }
 
@@ -307,7 +335,15 @@ public class GossipApiClient {
                 });
     }
 
-    private String buildOpenAiSingleRumorRequestBody(GossipCategory category, String economicContext) {
+    public String buildOpenAiSingleRumorRequestBody(GossipCategory category, String economicContext) {
+        return buildOpenAiSingleRumorRequestBody(category, economicContext, null);
+    }
+
+    public String buildOpenAiSingleRumorRequestBody(
+            GossipCategory category,
+            String economicContext,
+            @Nullable List<String> recentSpoken
+    ) {
         JsonObject root = new JsonObject();
         root.addProperty("model", config.model());
         root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 1.5));
@@ -325,7 +361,8 @@ public class GossipApiClient {
                 "You are a witty, satirical economic gossip for a %s villager on an economy Minecraft server.\n" +
                 "Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak.\n" +
                 "Always refer to money in dollars ('$'). Never mention real player usernames.\n" +
-                "Based on the recent transactions summary, write exactly ONE short, humorous rumor line (under 25 words) matching your profession.\n" +
+                "CRITICAL: Avoid repeating topics or items that were recently discussed. Vary your perspective and humor.\n" +
+                "Based on the recent transactions summary and guidelines, write exactly ONE short, humorous rumor line (under 25 words) matching your profession.\n" +
                 "If recent market activity is quiet, make a witty remark about stable prices, inflation, or your trade stall.",
                 category.name().toLowerCase(Locale.ROOT));
 
@@ -335,24 +372,55 @@ public class GossipApiClient {
         sysMsg.addProperty("content", systemPrompt);
         messages.add(sysMsg);
 
+        StringBuilder userContent = new StringBuilder();
+        if (economicContext != null && !economicContext.isBlank()) {
+            userContent.append(economicContext).append("\n\n");
+        } else {
+            userContent.append("The village market is quiet.\n\n");
+        }
+
+        if (recentSpoken != null && !recentSpoken.isEmpty()) {
+            userContent.append("RECENTLY SPOKEN VILLAGE TOPICS (DO NOT repeat these topics or focus on these exact items):\n");
+            for (String line : recentSpoken) {
+                userContent.append("- \"").append(line).append("\"\n");
+            }
+            userContent.append("\n");
+        }
+
+        userContent.append("TOPIC ROTATION GUIDELINES:\n")
+                .append("Rotate your focus across diverse angles:\n")
+                .append("- Angle 1: A fresh market transaction, bounty, or auction from the digest (different from recent topics).\n")
+                .append("- Angle 2: Current inflation, treasury taxes, or highway tolls.\n")
+                .append("- Angle 3: Your own stall supplies, material shortages, or inventory gripes.\n")
+                .append("- Angle 4: Quirky villager profession humor, weather for crops, or customer habits.\n\n")
+                .append("Respond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
+
         JsonObject userMsg = new JsonObject();
         userMsg.addProperty("role", "user");
-        userMsg.addProperty("content", (economicContext != null ? economicContext : "The village market is quiet.")
-                + "\n\nRespond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
+        userMsg.addProperty("content", userContent.toString());
         messages.add(userMsg);
 
         root.add("messages", messages);
         return GSON.toJson(root);
     }
 
-    private String buildGeminiSingleRumorRequestBody(GossipCategory category, String economicContext) {
+    public String buildGeminiSingleRumorRequestBody(GossipCategory category, String economicContext) {
+        return buildGeminiSingleRumorRequestBody(category, economicContext, null);
+    }
+
+    public String buildGeminiSingleRumorRequestBody(
+            GossipCategory category,
+            String economicContext,
+            @Nullable List<String> recentSpoken
+    ) {
         JsonObject root = new JsonObject();
 
         String systemPrompt = String.format(Locale.ROOT,
                 "You are a witty, satirical economic gossip for a %s villager on an economy Minecraft server.\n" +
                 "Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak.\n" +
                 "Always refer to money in dollars ('$'). Never mention real player usernames.\n" +
-                "Based on the recent transactions summary, write exactly ONE short, humorous rumor line (under 25 words) matching your profession.\n" +
+                "CRITICAL: Avoid repeating topics or items that were recently discussed. Vary your perspective and humor.\n" +
+                "Based on the recent transactions summary and guidelines, write exactly ONE short, humorous rumor line (under 25 words) matching your profession.\n" +
                 "If recent market activity is quiet, make a witty remark about stable prices, inflation, or your trade stall.",
                 category.name().toLowerCase(Locale.ROOT));
 
@@ -368,8 +436,31 @@ public class GossipApiClient {
         JsonObject contentObj = new JsonObject();
         JsonArray contentParts = new JsonArray();
         JsonObject textPart = new JsonObject();
-        textPart.addProperty("text", (economicContext != null ? economicContext : "The village market is quiet.")
-                + "\n\nRespond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
+
+        StringBuilder userContent = new StringBuilder();
+        if (economicContext != null && !economicContext.isBlank()) {
+            userContent.append(economicContext).append("\n\n");
+        } else {
+            userContent.append("The village market is quiet.\n\n");
+        }
+
+        if (recentSpoken != null && !recentSpoken.isEmpty()) {
+            userContent.append("RECENTLY SPOKEN VILLAGE TOPICS (DO NOT repeat these topics or focus on these exact items):\n");
+            for (String line : recentSpoken) {
+                userContent.append("- \"").append(line).append("\"\n");
+            }
+            userContent.append("\n");
+        }
+
+        userContent.append("TOPIC ROTATION GUIDELINES:\n")
+                .append("Rotate your focus across diverse angles:\n")
+                .append("- Angle 1: A fresh market transaction, bounty, or auction from the digest (different from recent topics).\n")
+                .append("- Angle 2: Current inflation, treasury taxes, or highway tolls.\n")
+                .append("- Angle 3: Your own stall supplies, material shortages, or inventory gripes.\n")
+                .append("- Angle 4: Quirky villager profession humor, weather for crops, or customer habits.\n\n")
+                .append("Respond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
+
+        textPart.addProperty("text", userContent.toString());
         contentParts.add(textPart);
         contentObj.add("parts", contentParts);
         contents.add(contentObj);
@@ -593,7 +684,7 @@ public class GossipApiClient {
         JsonArray contentParts = new JsonArray();
         JsonObject textPart = new JsonObject();
         String promptText = (economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>")
-                + String.format("\n\nConstraint: Write exactly %d short, witty gossip lines for each villager profession category.", config.poolSizePerCategory());
+                + String.format("\n\nConstraint: Write exactly %d short, witty, and DIVERSE gossip lines for each villager profession category. Ensure lines in each category rotate across different topics (e.g. trades, taxes/inflation, stall supplies, and profession humor).", config.poolSizePerCategory());
         textPart.addProperty("text", promptText);
         contentParts.add(textPart);
         contentObj.add("parts", contentParts);
@@ -711,7 +802,7 @@ public class GossipApiClient {
         JsonObject userMsg = new JsonObject();
         userMsg.addProperty("role", "user");
         String promptText = (economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>")
-                + String.format("\n\nConstraint: Write exactly %d short, witty gossip lines for each villager profession category.", config.poolSizePerCategory());
+                + String.format("\n\nConstraint: Write exactly %d short, witty, and DIVERSE gossip lines for each villager profession category. Ensure lines in each category rotate across different topics (e.g. trades, taxes/inflation, stall supplies, and profession humor).", config.poolSizePerCategory());
         userMsg.addProperty("content", promptText);
         messages.add(userMsg);
 

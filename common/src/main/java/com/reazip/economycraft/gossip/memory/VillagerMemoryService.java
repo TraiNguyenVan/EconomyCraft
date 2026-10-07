@@ -34,6 +34,7 @@ public class VillagerMemoryService {
     private final Supplier<GossipPool> poolSupplier;
     private final DoubleSupplier inflationSupplier;
     private final @Nullable Function<UUID, String> factionResolver;
+    private final @Nullable com.reazip.economycraft.gossip.RecentSpokenTracker recentSpokenTracker;
 
     private final Map<UUID, VillagerProfile> profileCache = new ConcurrentHashMap<>();
     private final Map<String, PlayerMemory> memoryCache = new ConcurrentHashMap<>();
@@ -46,12 +47,25 @@ public class VillagerMemoryService {
             DoubleSupplier inflationSupplier,
             @Nullable Function<UUID, String> factionResolver
     ) {
+        this(database, apiClient, configSupplier, poolSupplier, inflationSupplier, factionResolver, null);
+    }
+
+    public VillagerMemoryService(
+            VillagerDatabase database,
+            GossipApiClient apiClient,
+            Supplier<GossipConfig> configSupplier,
+            Supplier<GossipPool> poolSupplier,
+            DoubleSupplier inflationSupplier,
+            @Nullable Function<UUID, String> factionResolver,
+            @Nullable com.reazip.economycraft.gossip.RecentSpokenTracker recentSpokenTracker
+    ) {
         this.database = database;
         this.apiClient = apiClient;
         this.configSupplier = configSupplier;
         this.poolSupplier = poolSupplier;
         this.inflationSupplier = inflationSupplier;
         this.factionResolver = factionResolver;
+        this.recentSpokenTracker = recentSpokenTracker;
     }
 
     private String memoryKey(UUID villagerUuid, UUID playerUuid) {
@@ -130,14 +144,19 @@ public class VillagerMemoryService {
         String archetype = TransactionAnonymizer.resolveArchetype(playerUuid, faction, 0, playerName);
 
         double inflation = inflationSupplier.getAsDouble();
+        List<String> recentSpoken = (recentSpokenTracker != null) ? recentSpokenTracker.getRecentSpoken() : List.of();
 
-        return apiClient.generateIndividualDialogue(profile, memory, archetype, grapevine, inflation)
+        return apiClient.generateIndividualDialogue(profile, memory, archetype, grapevine, inflation, recentSpoken)
                 .thenApply(optResult -> {
                     if (optResult.isEmpty() || optResult.get().isEmpty()) {
                         return Optional.<String>empty();
                     }
 
                     IndividualDialogueResult result = optResult.get();
+
+                    if (recentSpokenTracker != null) {
+                        recentSpokenTracker.recordSpoken(result.dialogue());
+                    }
 
                     // Update memory
                     PlayerMemory updatedMemory = memory.withInteraction(

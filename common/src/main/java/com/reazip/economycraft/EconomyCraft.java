@@ -45,12 +45,18 @@ public final class EconomyCraft {
             new AtomicReference<>(GossipPool.empty());
     public static final CooldownTracker GOSSIP_COOLDOWN_TRACKER =
             new CooldownTracker();
+    public static final com.reazip.economycraft.gossip.RecentSpokenTracker GOSSIP_RECENT_SPOKEN =
+            new com.reazip.economycraft.gossip.RecentSpokenTracker(8);
     private static volatile GossipDigestWorker gossipWorker;
     private static volatile com.reazip.economycraft.gossip.storage.VillagerDatabase villagerDatabase;
     private static volatile com.reazip.economycraft.gossip.memory.VillagerMemoryService villagerMemoryService;
 
     public static @Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService getVillagerMemoryService() {
         return villagerMemoryService;
+    }
+
+    public static com.reazip.economycraft.gossip.RecentSpokenTracker getGossipRecentSpoken() {
+        return GOSSIP_RECENT_SPOKEN;
     }
 
     public static void registerEvents() {
@@ -71,7 +77,8 @@ public final class EconomyCraft {
                 () -> {
                     var cfg = EconomyConfig.get();
                     return cfg != null ? cfg.geminiGossip : GossipConfig.createDefault();
-                }
+                },
+                GOSSIP_RECENT_SPOKEN
         );
         VillagerGossipListener.register();
 
@@ -151,7 +158,8 @@ public final class EconomyCraft {
                         config,
                         client,
                         GOSSIP_POOL,
-                        GOSSIP_COOLDOWN_TRACKER
+                        GOSSIP_COOLDOWN_TRACKER,
+                        GOSSIP_RECENT_SPOKEN::getRecentSpoken
                 );
                 gossipWorker.start();
 
@@ -175,9 +183,11 @@ public final class EconomyCraft {
                             if (mgr == null) return null;
                             var fac = mgr.getFactions().factionOf(uuid);
                             return fac != null ? fac.key() : null;
-                        }
+                        },
+                        GOSSIP_RECENT_SPOKEN
                 );
                 com.reazip.economycraft.gossip.VillagerGossipListener.setMemoryService(villagerMemoryService);
+                com.reazip.economycraft.gossip.VillagerGossipListener.setRecentSpokenTracker(GOSSIP_RECENT_SPOKEN);
 
                 LOGGER.info("[EconomyCraft-AI] Gossip service live reloaded! Model: {}, BaseUrl: {}", config.model(), config.baseUrl());
             } else {

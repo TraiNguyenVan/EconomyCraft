@@ -66,4 +66,37 @@ class VillagerDialoguePromptBuilderTest {
         assertTrue(prompt.contains("dialogue"));
         assertTrue(prompt.contains("sentiment_delta"));
     }
+
+    @Test
+    @DisplayName("Prompt builder includes negative prompt block for recently spoken topics")
+    void testPromptBuilderWithRecentSpokenTopics() {
+        UUID villagerUuid = UUID.randomUUID();
+        UUID playerUuid = UUID.randomUUID();
+
+        VillagerProfile profile = new VillagerProfile(
+                villagerUuid, "Barnaby", "armorer", "plains",
+                List.of("grumpy"), "Obsessed with iron.", "Backstory", 0, 0
+        );
+        PlayerMemory memory = PlayerMemory.createDefault(villagerUuid, playerUuid, 0);
+
+        List<String> recentTopics = List.of(
+                "Wooden Spear bounties are everywhere!",
+                "Diamond prices collapsed."
+        );
+
+        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(
+                profile,
+                memory,
+                "a local merchant",
+                null,
+                1.0,
+                null,
+                recentTopics
+        );
+
+        assertTrue(prompt.contains("Recently spoken village lines"));
+        assertTrue(prompt.contains("Wooden Spear bounties are everywhere!"));
+        assertTrue(prompt.contains("Diamond prices collapsed."));
+        assertTrue(prompt.contains("DO NOT repeat"));
+    }
 }

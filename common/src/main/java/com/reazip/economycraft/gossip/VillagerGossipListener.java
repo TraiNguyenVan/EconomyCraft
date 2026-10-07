@@ -39,12 +39,21 @@ public final class VillagerGossipListener {
     };
     private static volatile @Nullable com.reazip.economycraft.gossip.memory.VillagerMemoryService memoryService = null;
     private static volatile @Nullable Supplier<GossipDigestWorker> workerSupplier = null;
+    private static volatile @Nullable RecentSpokenTracker recentSpokenTracker = null;
     private static volatile java.util.function.DoubleSupplier chanceRollSupplier = () -> java.util.concurrent.ThreadLocalRandom.current().nextDouble();
 
     private VillagerGossipListener() {}
 
     public static void setWorkerSupplier(@Nullable Supplier<GossipDigestWorker> supplier) {
         workerSupplier = supplier;
+    }
+
+    public static void setRecentSpokenTracker(@Nullable RecentSpokenTracker tracker) {
+        recentSpokenTracker = tracker;
+    }
+
+    public static @Nullable RecentSpokenTracker getRecentSpokenTracker() {
+        return recentSpokenTracker;
     }
 
     public static void setChanceRollSupplier(@Nullable java.util.function.DoubleSupplier supplier) {
@@ -67,6 +76,19 @@ public final class VillagerGossipListener {
             CooldownTracker tracker,
             Supplier<GossipConfig> cfgSupplier
     ) {
+        init(poolRef, tracker, cfgSupplier, null);
+    }
+
+    /**
+     * Initializes the listener with the authoritative GossipPool reference, cooldown tracker, config supplier,
+     * and recent spoken tracker.
+     */
+    public static void init(
+            AtomicReference<GossipPool> poolRef,
+            CooldownTracker tracker,
+            Supplier<GossipConfig> cfgSupplier,
+            @Nullable RecentSpokenTracker spokenTracker
+    ) {
         if (poolRef != null) {
             poolSupplier = poolRef::get;
         }
@@ -75,6 +97,9 @@ public final class VillagerGossipListener {
         }
         if (cfgSupplier != null) {
             configSupplier = cfgSupplier;
+        }
+        if (spokenTracker != null) {
+            recentSpokenTracker = spokenTracker;
         }
     }
 
@@ -166,6 +191,9 @@ public final class VillagerGossipListener {
                         GossipCategory category = ProfessionMapper.fromEntity(villager);
                         String rumor = pool.getNextRoundRobinRumor(category);
                         if (rumor != null && !rumor.isBlank()) {
+                            if (recentSpokenTracker != null) {
+                                recentSpokenTracker.recordSpoken(rumor);
+                            }
                             Component message = formatRumor(villager, rumor);
                             serverPlayer.sendSystemMessage(message);
                         }
@@ -188,6 +216,9 @@ public final class VillagerGossipListener {
                             return (pool != null && !pool.isEmpty()) ? pool.getNextRoundRobinRumor(category) : null;
                         });
                         if (rumor != null && !rumor.isBlank()) {
+                            if (recentSpokenTracker != null) {
+                                recentSpokenTracker.recordSpoken(rumor);
+                            }
                             Component message = formatRumor(villager, rumor);
                             if (server != null) {
                                 server.execute(() -> server.getPlayerList().broadcastSystemMessage(message, false));
@@ -201,6 +232,9 @@ public final class VillagerGossipListener {
                     if (pool != null && !pool.isEmpty()) {
                         String rumor = pool.getNextRoundRobinRumor(category);
                         if (rumor != null && !rumor.isBlank()) {
+                            if (recentSpokenTracker != null) {
+                                recentSpokenTracker.recordSpoken(rumor);
+                            }
                             Component message = formatRumor(villager, rumor);
                             if (server != null) {
                                 server.getPlayerList().broadcastSystemMessage(message, false);
