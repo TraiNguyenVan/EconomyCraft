@@ -47,19 +47,19 @@ public final class MotdService {
     public static void tick(MinecraftServer server) {
         if (PENDING_TICKS.isEmpty()) return;
 
-        PENDING_TICKS.entrySet().removeIf(entry -> {
-            int remaining = entry.getValue() - 1;
-            if (remaining <= 0) {
-                ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+        for (java.util.Map.Entry<java.util.UUID, Integer> entry : PENDING_TICKS.entrySet()) {
+            java.util.UUID uuid = entry.getKey();
+            int current = entry.getValue();
+            if (current <= 1) {
+                PENDING_TICKS.remove(uuid);
+                ServerPlayer player = server.getPlayerList().getPlayer(uuid);
                 if (player != null && player.connection != null) {
                     sendMotd(player);
                 }
-                return true;
             } else {
-                entry.setValue(remaining);
-                return false;
+                PENDING_TICKS.put(uuid, current - 1);
             }
-        });
+        }
     }
 
     /**
