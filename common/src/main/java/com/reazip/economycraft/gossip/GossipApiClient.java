@@ -273,7 +273,8 @@ public class GossipApiClient {
         JsonObject root = new JsonObject();
         root.addProperty("model", config.model());
         root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 2.0));
-        root.addProperty("max_tokens", Math.max(1024, config.poolSizePerCategory() * 250));
+        // Increased token budget to comfortably accommodate reasoning models (e.g. DeepSeek-R1, Nemotron, etc.)
+        root.addProperty("max_tokens", Math.max(2048, config.poolSizePerCategory() * 350));
 
         JsonObject responseFormat = new JsonObject();
         responseFormat.addProperty("type", "json_object");
@@ -284,7 +285,7 @@ public class GossipApiClient {
         // System message
         JsonObject sysMsg = new JsonObject();
         sysMsg.addProperty("role", "system");
-        sysMsg.addProperty("content", config.systemInstruction() + "\nRespond strictly with valid JSON containing keys for categories: farmer, blacksmith, cleric, librarian, nitwit, general. Each key maps to an array of rumor strings.");
+        sysMsg.addProperty("content", config.systemInstruction() + "\nRespond strictly with valid JSON containing keys for categories: farmer, blacksmith, cleric, librarian, nitwit, general. Each key maps to an array of rumor strings. Do not wrap with extra text.");
         messages.add(sysMsg);
 
         // User message
@@ -329,7 +330,7 @@ public class GossipApiClient {
 
     public Optional<GossipPool> parseGossipJson(String rawText) {
         try {
-            String cleanText = stripMarkdownFences(rawText);
+            String cleanText = extractJsonObject(rawText);
             JsonObject rumorsObj = GSON.fromJson(cleanText, JsonObject.class);
             if (rumorsObj == null) {
                 return Optional.empty();
@@ -358,9 +359,38 @@ public class GossipApiClient {
         }
     }
 
+    /**
+     * Robust extractor that handles pure JSON, markdown fences, and reasoning/thinking model preambles
+     * (e.g. "Here's a thinking process: ... { ... }").
+     */
+    public static String extractJsonObject(String raw) {
+        if (raw == null) return "";
+        String s = stripMarkdownFences(raw.trim());
+
+        // Locate outermost matching JSON object brackets '{' ... '}'
+        int firstBrace = s.indexOf('{');
+        int lastBrace = s.lastIndexOf('}');
+        if (firstBrace != -1 && lastBrace > firstBrace) {
+            return s.substring(firstBrace, lastBrace + 1).trim();
+        }
+        return s;
+    }
+
     public static String stripMarkdownFences(String raw) {
         if (raw == null) return "";
         String s = raw.trim();
+        // Remove ```json / ``` markdown fences anywhere or wrap
+        if (s.contains("```")) {
+            int start = s.indexOf("```");
+            int end = s.lastIndexOf("```");
+            if (end > start) {
+                String inner = s.substring(start + 3, end).trim();
+                if (inner.regionMatches(true, 0, "json", 0, 4)) {
+                    inner = inner.substring(4).trim();
+                }
+                return inner;
+            }
+        }
         if (s.regionMatches(true, 0, "```json", 0, 7)) {
             s = s.substring(7);
         } else if (s.startsWith("```")) {

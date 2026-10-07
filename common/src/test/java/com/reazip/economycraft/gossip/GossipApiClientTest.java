@@ -321,4 +321,30 @@ class GossipApiClientTest {
         assertEquals("{\"a\":1}", GossipApiClient.stripMarkdownFences("```\n{\"a\":1}\n```"));
         assertEquals("{\"a\":1}", GossipApiClient.stripMarkdownFences("{\"a\":1}"));
     }
+
+    @Test
+    void testExtractJsonObjectWithReasoningPreamble() {
+        String reasoningOutput = """
+                Here is a thinking process:
+                1. The user wants villager economic rumors.
+                2. I will generate them for all professions.
+                ```json
+                {
+                  "farmer": ["Wheat is golden!"],
+                  "general": ["Market is up!"]
+                }
+                ```
+                I hope this helps!
+                """;
+        String extracted = GossipApiClient.extractJsonObject(reasoningOutput);
+        assertTrue(extracted.startsWith("{"));
+        assertTrue(extracted.endsWith("}"));
+        assertTrue(extracted.contains("\"farmer\""));
+
+        GossipApiClient client = createGeminiClient("test-key");
+        Optional<GossipPool> pool = client.parseGossipJson(reasoningOutput);
+        assertTrue(pool.isPresent());
+        assertEquals(List.of("Wheat is golden!"), pool.get().getRumors(GossipCategory.FARMER));
+        assertEquals(List.of("Market is up!"), pool.get().getRumors(GossipCategory.GENERAL));
+    }
 }
