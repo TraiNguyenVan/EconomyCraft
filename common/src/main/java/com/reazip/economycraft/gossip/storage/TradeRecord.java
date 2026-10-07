@@ -15,14 +15,18 @@ public record TradeRecord(
         long timestamp
 ) {
     public String toPromptDescription() {
-        StringBuilder sb = new StringBuilder();
-        if (itemCount > 1) {
-            sb.append(itemCount).append("x ");
+        if (itemName == null || itemName.isBlank()) return "";
+
+        String name = itemName.trim();
+        if (name.chars().anyMatch(Character::isISOControl)) return "";
+
+        // Trade capture already stores names such as "3x Emerald" for stacks.
+        // Avoid duplicating that quantity while still supporting older/plain names.
+        if (itemCount > 1 && !name.matches("(?i)^" + itemCount + "x\\s+.*")) {
+            name = itemCount + "x " + name;
         }
-        sb.append(itemName);
-        if (pricePaid > 0) {
-            sb.append(" ($").append(pricePaid).append(")");
-        }
-        return sb.toString();
+
+        // pricePaid has no currency provenance. Do not expose it to dialogue.
+        return name;
     }
 }

@@ -73,8 +73,8 @@ public record PlayerMemory(
         int newSentiment = Math.clamp(sentiment + sentimentBonus, MIN_SENTIMENT, MAX_SENTIMENT);
         List<String> newEvents = new ArrayList<>(recentEvents);
         String event = (itemDescription != null && !itemDescription.isBlank())
-                ? "Bought " + itemDescription.trim() + " for $" + amountSpent
-                : "Completed trade for $" + amountSpent;
+                ? "Completed trade involving " + itemDescription.trim()
+                : "Completed a trade";
         newEvents.add(event);
         while (newEvents.size() > MAX_RECENT_EVENTS) {
             newEvents.remove(0);

@@ -4,6 +4,7 @@ import com.reazip.economycraft.gossip.storage.PlayerMemory;
 import com.reazip.economycraft.gossip.storage.VillagerProfile;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -72,20 +73,23 @@ public final class VillagerDialoguePromptBuilder {
 
         sb.append(String.format(Locale.ROOT,
                 "Customer visiting your stall: %s.\n" +
-                "Your relationship with them: %s (Sentiment: %d/100, Interactions: %d, Total spent: $%d).\n",
+                "Your relationship with them: %s (Sentiment: %d/100, Interactions: %d).\n",
                 playerArchetype,
                 memory.sentimentDescription(),
                 memory.sentiment(),
-                memory.interactionCount(),
-                memory.totalSpent()
+                memory.interactionCount()
         ));
 
-        if (!memory.recentEvents().isEmpty()) {
+        List<String> promptMemories = memory.recentEvents().stream()
+                // Legacy trade events contain the same unverified amount as pricePaid/totalSpent.
+                .filter(event -> event != null && !event.contains("$"))
+                .toList();
+        if (!promptMemories.isEmpty()) {
             sb.append("Your recent memories with this customer:\n");
-            for (String event : memory.recentEvents()) {
+            for (String event : promptMemories) {
                 sb.append("- ").append(event).append("\n");
             }
-        } else {
+        } else if (memory.interactionCount() == 0) {
             sb.append("You have no prior memories with this customer; they are a newcomer to your stall.\n");
         }
 
@@ -112,12 +116,18 @@ public final class VillagerDialoguePromptBuilder {
             }
         }
 
-        if (tradeHistory != null && !tradeHistory.isEmpty()) {
-            sb.append("\nThis customer's past purchases at your stall:\n");
-            int count = 0;
+        List<String> verifiedTradeDetails = new ArrayList<>();
+        if (tradeHistory != null) {
             for (com.reazip.economycraft.gossip.storage.TradeRecord trade : tradeHistory) {
-                if (count++ >= 5) break; // bounded context cap
-                sb.append("- Bought ").append(trade.toPromptDescription()).append("\n");
+                String description = trade.toPromptDescription();
+                if (!description.isBlank()) verifiedTradeDetails.add(description);
+                if (verifiedTradeDetails.size() >= 5) break;
+            }
+        }
+        if (!verifiedTradeDetails.isEmpty()) {
+            sb.append("\nThis customer's past purchases at your stall:\n");
+            for (String detail : verifiedTradeDetails) {
+                sb.append("- Completed trade involving ").append(detail).append("\n");
             }
         }
 
@@ -125,10 +135,11 @@ public final class VillagerDialoguePromptBuilder {
             Dialogue Instructions:
             1. Keep it concise (12 to 25 words). Avoid overly verbose prose, but don't be so brief that you omit item details.
             2. Speak in exactly 1 natural, conversational sentence matching your personality, quirk, and relationship with this player.
-            3. MANDATORY SALES PITCH & ITEM AWARENESS: Greet the customer and pitch, mention, or offer a specific item or deal from your stall's current trade inventory (for example: an enchanted book by its exact enchantment name like 'Fortune III' or 'Efficiency V', tools, weapons, armor, or goods you sell). If they have traded with you before, you may also reference their past purchase.
+            3. MANDATORY SALES PITCH & ITEM AWARENESS: Greet the customer and pitch, mention, or offer a specific item or deal from your stall's current trade inventory (for example: an enchanted book by its exact enchantment name like 'Fortune III' or 'Efficiency V', tools, weapons, armor, or goods you sell). If completed trade details are supplied, you may reference only the listed item and quantity.
             4. Item Specificity: Always refer to your actual stock items by name. Do not speak in vague generalities like 'my stock' or 'something'—name a real item you have for sale!
-            5. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.
-            6. Respond strictly with valid JSON with fields:
+            5. Trade accuracy: The supplied completed trade details do not verify currency paid. Never infer or state spending, prices paid, or other transaction details from trade records or relationship memories.
+            6. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.
+            7. Respond strictly with valid JSON with fields:
                {
                  "dialogue": "<your concise line>",
                  "sentiment_delta": <-2 to 5 integer>
