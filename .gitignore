@@ -17,3 +17,11 @@
 /api/build/
 /fabric/run/
 /neoforge/run/
+
+# Editor swap files. Vim leaves these untracked and visible in git status.
+*.swp
+.*.swp
+
+# Python bytecode, from the spec-kit verification scripts
+__pycache__/
+*.pyc
