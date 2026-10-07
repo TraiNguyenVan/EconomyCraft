@@ -159,7 +159,7 @@ public final class TransactionAnonymizer {
             @Nullable String role
     ) {
         if (isServerQuest(playerId, null)) {
-            return "the town quest board";
+            return "the Quest Board";
         }
 
         String normalizedFaction = factionId != null ? factionId.toLowerCase(Locale.ROOT) : "";
@@ -202,7 +202,7 @@ public final class TransactionAnonymizer {
 
         String rawActor;
         if (isQuestActor) {
-            rawActor = "the town quest board";
+            rawActor = "the Quest Board";
         } else if (anonymizePlayers) {
             String faction = factionResolver != null ? factionResolver.apply(entry.player()) : null;
             rawActor = resolveArchetype(entry.player(), faction, entry.balanceAfter(), null);
@@ -215,7 +215,7 @@ public final class TransactionAnonymizer {
 
         String counterparty;
         if (isQuestCounterparty) {
-            counterparty = "the town quest board";
+            counterparty = "the Quest Board";
         } else if (entry.counterparty() != null) {
             if (anonymizePlayers) {
                 String faction = factionResolver != null ? factionResolver.apply(entry.counterparty()) : null;
@@ -242,30 +242,30 @@ public final class TransactionAnonymizer {
             if (source.equals(EconomySources.AUCTION_PURCHASE.asString())) {
                 return "- " + actor + " purchased " + item + " from " + counterparty + " for " + formattedAmount + " on the auction house.";
             } else if (source.equals(EconomySources.QUEST_BUYBACK.asString())) {
-                return "- " + actor + " purchased " + item + " from the town quest surplus for " + formattedAmount + ".";
+                return "- " + actor + " purchased " + item + " from the Quest Board surplus for " + formattedAmount + ".";
             } else if (source.equals(EconomySources.SHOP_PURCHASE.asString())) {
                 return "- " + actor + " bought " + item + " from the market shop for " + formattedAmount + ".";
             } else if (source.equals(EconomySources.SHOP_SALE.asString())) {
                 return "- " + actor + " sold " + item + " to the market shop for " + formattedAmount + ".";
             } else if (source.equals(EconomySources.ORDER_FULFILLMENT.asString())) {
                 if (isQuestCounterparty) {
-                    return "- " + actor + " fulfilled a town bounty of " + item + " for the quest board earning " + formattedAmount + ".";
+                    return "- " + actor + " fulfilled a bounty of " + item + " for the Quest Board earning " + formattedAmount + ".";
                 }
                 return "- " + actor + " fulfilled a supply order of " + item + " for " + counterparty + " earning " + formattedAmount + ".";
             } else if (source.equals(EconomySources.ORDER_ESCROW_HOLD.asString())) {
                 if (isQuestActor) {
-                    return "- The town quest board funded a community bounty depositing " + formattedAmount + " in escrow for " + item + ".";
+                    return "- The Quest Board posted a bounty depositing " + formattedAmount + " in escrow for " + item + ".";
                 }
                 return "- " + actor + " placed a buy order depositing " + formattedAmount + " in escrow for " + item + ".";
             } else if (source.equals(EconomySources.ORDER_ESCROW_REFUND.asString())) {
                 if (isQuestActor) {
-                    return "- The town quest board recycled " + formattedAmount + " from an expired community bounty for " + item + ".";
+                    return "- The Quest Board recycled " + formattedAmount + " from an expired bounty for " + item + ".";
                 }
                 return "- " + actor + " reclaimed " + formattedAmount + " from an expired buy order for " + item + ".";
             } else if (source.equals(EconomySources.QUEST_FUNDING.asString())) {
-                return "- The guild funded a town bounty of " + formattedAmount + " for commodities.";
+                return "- The Bounty Board funded a bounty of " + formattedAmount + " for commodities.";
             } else if (source.equals(EconomySources.QUEST_FORFEIT.asString())) {
-                return "- An unclaimed town bounty expired, burning " + formattedAmount + ".";
+                return "- An unclaimed Bounty Board request expired, burning " + formattedAmount + ".";
             } else if (source.equals(EconomySources.TOLL_PAYMENT.asString())) {
                 return "- " + actor + " paid a highway toll of " + formattedAmount + " to " + counterparty + ".";
             } else if (source.equals(EconomySources.WEALTH_TAX.asString())) {

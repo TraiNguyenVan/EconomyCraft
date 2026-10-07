@@ -308,7 +308,7 @@ class TransactionAnonymizerTest {
                 "3x Respawn Anchor"
         );
         String holdFormatted = TransactionAnonymizer.formatTransaction(escrowHold, true, null);
-        assertTrue(holdFormatted.contains("The town quest board funded a community bounty"));
+        assertTrue(holdFormatted.contains("The Quest Board posted a bounty"));
         assertTrue(holdFormatted.contains("3x Respawn Anchor"));
 
         TransactionEntry escrowRefund = new TransactionEntry(
@@ -325,7 +325,7 @@ class TransactionAnonymizerTest {
                 "3x Respawn Anchor"
         );
         String refundFormatted = TransactionAnonymizer.formatTransaction(escrowRefund, true, null);
-        assertTrue(refundFormatted.contains("The town quest board recycled"));
+        assertTrue(refundFormatted.contains("The Quest Board recycled"));
         assertTrue(refundFormatted.contains("3x Respawn Anchor"));
 
         TransactionEntry fulfillment = new TransactionEntry(
@@ -342,6 +342,6 @@ class TransactionAnonymizerTest {
                 "64x Wheat"
         );
         String fulfillFormatted = TransactionAnonymizer.formatTransaction(fulfillment, true, null);
-        assertTrue(fulfillFormatted.contains("fulfilled a town bounty of 64x Wheat for the quest board"));
+        assertTrue(fulfillFormatted.contains("fulfilled a bounty of 64x Wheat for the Quest Board"));
     }
 }
