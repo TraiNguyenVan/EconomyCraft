@@ -153,7 +153,7 @@ class GossipDigestWorkerTest {
         assertTrue(line.contains("Diamond Boots Protection IV"));
 
         String promptContext = digest.toPromptContext();
-        assertTrue(promptContext.contains("3.1415x"));
+        assertFalse(promptContext.contains("inflation"));
         assertTrue(promptContext.contains("Diamond Boots"));
     }
 

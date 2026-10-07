@@ -408,7 +408,7 @@ public class GossipApiClient {
         userContent.append("TOPIC ROTATION GUIDELINES:\n")
                 .append("Rotate your focus across diverse angles:\n")
                 .append("- Angle 1: A fresh market transaction, bounty, or auction from the digest (different from recent topics).\n")
-                .append("- Angle 2: Current inflation, treasury taxes, or highway tolls.\n")
+                .append("- Angle 2: Treasury taxes, tolls, or village economy.\n")
                 .append("- Angle 3: Your own stall supplies, material shortages, or inventory gripes.\n")
                 .append("- Angle 4: Quirky villager profession humor, weather for crops, or customer habits.\n\n")
                 .append("Respond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
@@ -473,7 +473,7 @@ public class GossipApiClient {
         userContent.append("TOPIC ROTATION GUIDELINES:\n")
                 .append("Rotate your focus across diverse angles:\n")
                 .append("- Angle 1: A fresh market transaction, bounty, or auction from the digest (different from recent topics).\n")
-                .append("- Angle 2: Current inflation, treasury taxes, or highway tolls.\n")
+                .append("- Angle 2: Treasury taxes, tolls, or village economy.\n")
                 .append("- Angle 3: Your own stall supplies, material shortages, or inventory gripes.\n")
                 .append("- Angle 4: Quirky villager profession humor, weather for crops, or customer habits.\n\n")
                 .append("Respond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
@@ -702,7 +702,7 @@ public class GossipApiClient {
         JsonArray contentParts = new JsonArray();
         JsonObject textPart = new JsonObject();
         String promptText = (economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>")
-                + String.format("\n\nConstraint: Write exactly %d short, witty, and DIVERSE gossip lines for each villager profession category. Ensure lines in each category rotate across different topics (e.g. trades, taxes/inflation, stall supplies, and profession humor).", config.poolSizePerCategory());
+                + String.format("\n\nConstraint: Write exactly %d short, witty, and DIVERSE gossip lines for each villager profession category. Ensure lines in each category rotate across different topics (e.g. trades, taxes/tolls, stall supplies, and profession humor).", config.poolSizePerCategory());
         textPart.addProperty("text", promptText);
         contentParts.add(textPart);
         contentObj.add("parts", contentParts);
@@ -820,7 +820,7 @@ public class GossipApiClient {
         JsonObject userMsg = new JsonObject();
         userMsg.addProperty("role", "user");
         String promptText = (economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>")
-                + String.format("\n\nConstraint: Write exactly %d short, witty, and DIVERSE gossip lines for each villager profession category. Ensure lines in each category rotate across different topics (e.g. trades, taxes/inflation, stall supplies, and profession humor).", config.poolSizePerCategory());
+                + String.format("\n\nConstraint: Write exactly %d short, witty, and DIVERSE gossip lines for each villager profession category. Ensure lines in each category rotate across different topics (e.g. trades, taxes/tolls, stall supplies, and profession humor).", config.poolSizePerCategory());
         userMsg.addProperty("content", promptText);
         messages.add(userMsg);
 

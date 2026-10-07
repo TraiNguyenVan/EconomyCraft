@@ -121,7 +121,7 @@ public final class VillagerDialoguePromptBuilder {
             }
         }
 
-        sb.append(String.format(Locale.ROOT, "\nCurrent server inflation: %.2fx.\n\n", inflation));
+        sb.append("\n");
 
         if (customInstructions != null && !customInstructions.isBlank()) {
             sb.append(customInstructions.trim()).append("\n");
@@ -130,7 +130,7 @@ public final class VillagerDialoguePromptBuilder {
                 Dialogue Instructions:
                 1. Keep it short and easy to understand: most lines should be under 15 words. Avoid overly complex prose or purple vocabulary.
                 2. Speak in exactly 1 concise, conversational sentence matching your personality, quirk, and relationship with this player.
-                3. Topic Rotation: Rotate your angle — comment on your backstory/quirk, trade prices, inflation, stall inventory shortages, or relationship with this customer. Do not fixate on the same trade item every time.
+                3. Topic Rotation: Rotate your angle — comment on your backstory/quirk, trade items/prices, stall inventory shortages, or relationship with this customer. Do not fixate on the same trade item every time.
                 4. Context Awareness: Use your stall trade offers and customer past purchases as natural roleplay context (e.g. comment on their past buys, grumble about low stock, or mention what you are selling). DO NOT read out your inventory like a shop catalog or menu list; weave it organically into character speech.
                 5. Address the player or your past memories directly when appropriate.
                 6. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.

@@ -36,7 +36,6 @@ public record TransactionDigest(
      */
     public String toPromptContext() {
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format(Locale.ROOT, "Current server inflation multiplier: %.4fx.\n", currentInflation));
         sb.append(String.format(Locale.ROOT, "Recent notable economic events (past %d hours, %d events):\n",
                 lookbackWindow.toHours(), eventCount));
 

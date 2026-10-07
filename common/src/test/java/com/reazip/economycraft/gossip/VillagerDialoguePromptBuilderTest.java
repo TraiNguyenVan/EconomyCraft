@@ -62,7 +62,7 @@ class VillagerDialoguePromptBuilderTest {
         assertTrue(prompt.contains("The Feudal Lord"));
         assertTrue(prompt.contains("Purchased diamond helmet"));
         assertTrue(prompt.contains("Iron prices dropped 10%"));
-        assertTrue(prompt.contains("7.50x"));
+        assertFalse(prompt.contains("inflation"));
         assertTrue(prompt.contains("dialogue"));
         assertTrue(prompt.contains("sentiment_delta"));
     }
