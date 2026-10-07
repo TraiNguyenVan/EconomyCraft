@@ -1329,6 +1329,16 @@ public final class EconomyCommands {
                             return builder.buildFuture();
                         })
                         .executes(ctx -> testGossip(ctx.getSource(), StringArgumentType.getString(ctx, "category")))));
+        root.then(literal("dialogue")
+                .executes(ctx -> testIndividualDialogue(ctx.getSource(), "farmer"))
+                .then(argument("profession", StringArgumentType.word())
+                        .suggests((ctx, builder) -> {
+                            for (var cat : GossipCategory.values()) {
+                                builder.suggest(cat.name().toLowerCase(Locale.ROOT));
+                            }
+                            return builder.buildFuture();
+                        })
+                        .executes(ctx -> testIndividualDialogue(ctx.getSource(), StringArgumentType.getString(ctx, "profession")))));
 
         return root;
     }
@@ -1421,5 +1431,57 @@ public final class EconomyCommands {
             reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] No rumor available for " + cat.name()).withStyle(ChatFormatting.RED), false);
             return 0;
         }
+    }
+
+    private static int testIndividualDialogue(CommandSourceStack source, String professionName) {
+        var worker = EconomyCraft.getGossipWorker();
+        if (worker == null) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Gossip worker not active.").withStyle(ChatFormatting.RED), false);
+            return 0;
+        }
+
+        UUID fakeVillagerId = UUID.randomUUID();
+        UUID fakePlayerId = UUID.randomUUID();
+        String prof = (professionName != null && !professionName.isBlank()) ? professionName.toLowerCase(Locale.ROOT) : "farmer";
+
+        var profile = com.reazip.economycraft.gossip.identity.VillagerSeeder.createSeededProfile(fakeVillagerId, prof, "plains", System.currentTimeMillis());
+        var memory = new com.reazip.economycraft.gossip.storage.PlayerMemory(fakeVillagerId, fakePlayerId, 10, 2, 250L, System.currentTimeMillis(), List.of("Traded wheat for emeralds yesterday", "Asked about tool repairs"));
+
+        GossipCategory cat;
+        try {
+            cat = GossipCategory.valueOf(prof.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            cat = GossipCategory.GENERAL;
+        }
+
+        var pool = EconomyCraft.GOSSIP_POOL.get();
+        List<String> grapevine = (pool != null) ? pool.getRumors(cat) : List.of();
+        double inflation = 7.5;
+        try {
+            var manager = EconomyCraft.getManager(source.getServer());
+            if (manager != null) {
+                inflation = manager.getDynamicPriceMultiplier();
+            }
+        } catch (Throwable ignored) {}
+
+        reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Generating dialogue for " + profile.name() + " (" + prof + ")...").withStyle(ChatFormatting.YELLOW), false);
+
+        worker.getApiClient().generateIndividualDialogue(profile, memory, "Wealthy Merchant", grapevine, inflation)
+                .whenComplete((optRes, ex) -> {
+                    source.getServer().execute(() -> {
+                        if (ex != null || optRes == null || optRes.isEmpty()) {
+                            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Dialogue generation failed (check logs or circuit breaker).").withStyle(ChatFormatting.RED), false);
+                        } else {
+                            var res = optRes.get();
+                            Component formatted = Component.literal("<" + profile.name() + " [" + profile.profession().toUpperCase(Locale.ROOT) + "]> ")
+                                    .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD)
+                                    .append(Component.literal(res.dialogue()).withStyle(ChatFormatting.WHITE))
+                                    .append(Component.literal(" (sentiment_delta: " + (res.sentimentDelta() >= 0 ? "+" : "") + res.sentimentDelta() + ")").withStyle(ChatFormatting.DARK_GRAY));
+                            reply(source, tryGetPlayer(source), formatted, false);
+                        }
+                    });
+                });
+
+        return 1;
     }
 }
