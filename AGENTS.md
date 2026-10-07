@@ -69,8 +69,9 @@ Anything reachable from the public `api/v1` surface must call `requireServerThre
 
 Two naming traps here. There is no `EconomyCraftApiImpl` in this codebase — earlier drafts of this file
 cited one. And the bootstrap is **not** in the `api/` module: the 18 public interfaces live in
-`api/src/main/java/.../api/v1/`, while the implementation lives in
-`common/src/main/java/.../api/v1/EconomyCraftApiBootstrap.java`, because it needs Minecraft server types.
+`api/src/main/java/com/reazip/economycraft/api/v1/`, while the implementation lives in
+`common/src/main/java/com/reazip/economycraft/api/v1/EconomyCraftApiBootstrap.java`, because it needs
+Minecraft server types.
 
 ### 2.4 Money moves only through the mutation engine
 
@@ -255,10 +256,10 @@ optional:
 
 | Item | Location |
 |---|---|
-| `ClaimBridge` — the seam, package-private | `common/.../integration/ClaimBridge.java` |
-| `ReflectiveShopGuardBackend` — reflection over ShopGuard's classes | `common/.../integration/ReflectiveShopGuardBackend.java` |
-| Availability gate | `ClaimBridge.java:53` — `Platform.isModLoaded("shopguard")` |
-| Only consumer | `common/.../faction/FactionEffects.java:157,169` |
+| `ClaimBridge` — the seam, package-private | `common/src/main/java/com/reazip/economycraft/integration/ClaimBridge.java` |
+| `ReflectiveShopGuardBackend` — reflection over ShopGuard's classes | `common/src/main/java/com/reazip/economycraft/integration/ReflectiveShopGuardBackend.java` |
+| Availability gate | `common/src/main/java/com/reazip/economycraft/integration/ClaimBridge.java:53` — `Platform.isModLoaded("shopguard")` |
+| Only consumer | `common/src/main/java/com/reazip/economycraft/faction/FactionEffects.java:157,169` |
 
 There is **no** `ClaimEconomy.Backend` in this codebase. That interface is ShopGuard's side of the seam; it
 is named in `integration/package-info.java:6` as the pattern being mirrored, not as a type EconomyCraft
@@ -388,7 +389,7 @@ Things that will waste your time if you trust them.
 | Assuming ShopGuard is in this repo | It is not. External, Fabric-only, one-way dependency |
 | Looking for a `TabStyle` class | It is `TagStyle` (`tag/TagStyle.java`) |
 | Looking for `EconomyManager` in `util/` | It is at the package root |
-| `online_time.json` not being in `DATA_FILES` | It is deliberately excluded — `EconomyPaths.java:32`. The file exists and is used by `OnlineTimeService`, but `/eco import` must not carry it: importing per-player progression would hand every player a fresh party and profession. `player_activity.json` is last-seen millis for dynamic pricing and is **not** online time; the two must never be merged |
+| `online_time.json` not being in `DATA_FILES` | It is deliberately excluded — `common/src/main/java/com/reazip/economycraft/util/EconomyPaths.java:32`. The file exists and is used by `OnlineTimeService`, but `/eco import` must not carry it: importing per-player progression would hand every player a fresh party and profession. `player_activity.json` is last-seen millis for dynamic pricing and is **not** online time; the two must never be merged |
 | Assuming tax is computed in one place | It *is*: `tax/TaxPolicy.java`, reached through `TaxScope`, with ~20 call sites. It was once copy-pasted across 18 of them. `tax/package-info.java` states the invariant — no `taxRate` multiplication outside that package — but **nothing enforces it**, so verify with a grep rather than trusting it. Add a tax site by calling `TaxPolicy`, never by inlining `Math.round(base * taxRate)` |
 
 ---

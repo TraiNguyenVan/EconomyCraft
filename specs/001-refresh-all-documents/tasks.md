@@ -303,7 +303,7 @@ documentation-only, consistent with FR-001.
   ShopGuard routing is not mistaken for EconomyCraft work. Do not change the wiki page — it is already correct.
   (FR-019, `partial`)
 
-- [ ] T063 Replace the five `AGENTS.md` file citations that do not resolve as paths, per FR-009. Lines 73, 258, 259,
+- [X] T063 Replace the five `AGENTS.md` file citations that do not resolve as paths, per FR-009. Lines 73, 258, 259,
   260 and 391 use `...` elision (`common/src/main/java/.../api/v1/EconomyCraftApiBootstrap.java`,
   `common/.../integration/ClaimBridge.java`) or a bare filename (`ClaimBridge.java:53`, `EconomyPaths.java:32`).
   Every referenced file exists and **both cited line numbers are accurate** — `ClaimBridge.java:53` is the
