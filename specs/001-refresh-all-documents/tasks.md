@@ -111,18 +111,18 @@ compile it without reading the source tree.
 
 ### Implementation for User Story 2
 
-^- [X] T031 [P] [US2] Add the 4 missing members to `wiki/API-Reference.md`: `factions()`, `inflationMultiplier()`, `medianActiveBalance()`, plus a `FactionApi` section, per `api/src/main/java/com/reazip/economycraft/api/v1/EconomyCraftApi.java:23,45,52`
-^- [X] T032 [P] [US2] Add `FactionApi` (5 methods) and `FactionIds` (5 constants) to `wiki/API-Reference.md`, per contract rule R6. These appear in zero of the 11 wiki pages today
-^- [X] T033 [P] [US2] Convert the 5 upstream absolute URLs at `wiki/Home.md:30-34` to relative links matching `wiki/_Sidebar.md:10-15`
-^- [X] T034 [US2] Resolve the `wiki/Factions.md:13` `Tài trợ` buff per the answer to T009 — remove it if unimplemented, and do not keep it in the wiki if it is merely planned
-^- [X] T035 [US2] Fix the profession name to singular `Merchant` in `wiki/Professions.md:9,41` and `wiki/Chon-tag.md:9`, matching `ProfessionId.values()`, per contract rule R7
-^- [X] T036 [US2] Add the missing `/eco job` pointer to `wiki/Professions.md` and the missing `/eco party` and `/eco job` to `wiki/Chon-tag.md:7`
-^- [X] T037 [US2] Move the developer verification block out of `wiki/Tolls.md:36-48` to its destination decided in T009, and add the `max_active_tolls_per_player` default of `10` to `wiki/Tolls.md:13`. Do not delete the content — it is real contributor guidance
-^- [X] T038 [US2] Remove the maintainer phrasing at `wiki/Tolls.md:26` ("Installing the new jar requires a server restart") per contract rule R3
-^- [X] T039 [US2] Translate `wiki/Tolls.md` to Vietnamese, or record the decision to leave it English and correct the sidebar accordingly — it is a player page in the Vietnamese Gameplay section, violating FR-017. Use the T009 outcome if covered there, otherwise raise it
-^- [X] T040 [US2] State the wiki language policy in `wiki/_Sidebar.md`: player pages Vietnamese, integrator pages English, one language per page, no code in player pages, per `research.md` R6
-^- [X] T041 [US2] Add the same language policy in a contributor-facing location per `research.md` R6, so a contributor choosing a page's language finds it without reading the wiki sidebar
-^- [X] T042 [US2] Validate: run `scripts/check_links.py` and confirm 0 problems; confirm every `api/v1` public type appears in `wiki/API-Reference.md`
+- [X] T031 [P] [US2] Add the 4 missing members to `wiki/API-Reference.md`: `factions()`, `inflationMultiplier()`, `medianActiveBalance()`, plus a `FactionApi` section, per `api/src/main/java/com/reazip/economycraft/api/v1/EconomyCraftApi.java:23,45,52`
+- [X] T032 [P] [US2] Add `FactionApi` (5 methods) and `FactionIds` (5 constants) to `wiki/API-Reference.md`, per contract rule R6. These appear in zero of the 11 wiki pages today
+- [X] T033 [P] [US2] Convert the 5 upstream absolute URLs at `wiki/Home.md:30-34` to relative links matching `wiki/_Sidebar.md:10-15`
+- [X] T034 [US2] Resolve the `wiki/Factions.md:13` `Tài trợ` buff per the answer to T009 — remove it if unimplemented, and do not keep it in the wiki if it is merely planned
+- [X] T035 [US2] Fix the profession name to singular `Merchant` in `wiki/Professions.md:9,41` and `wiki/Chon-tag.md:9`, matching `ProfessionId.values()`, per contract rule R7
+- [X] T036 [US2] Add the missing `/eco job` pointer to `wiki/Professions.md` and the missing `/eco party` and `/eco job` to `wiki/Chon-tag.md:7`
+- [X] T037 [US2] Move the developer verification block out of `wiki/Tolls.md:36-48` to its destination decided in T009, and add the `max_active_tolls_per_player` default of `10` to `wiki/Tolls.md:13`. Do not delete the content — it is real contributor guidance
+- [X] T038 [US2] Remove the maintainer phrasing at `wiki/Tolls.md:26` ("Installing the new jar requires a server restart") per contract rule R3
+- [X] T039 [US2] Translate `wiki/Tolls.md` to Vietnamese, or record the decision to leave it English and correct the sidebar accordingly — it is a player page in the Vietnamese Gameplay section, violating FR-017. Use the T009 outcome if covered there, otherwise raise it
+- [X] T040 [US2] State the wiki language policy in `wiki/_Sidebar.md`: player pages Vietnamese, integrator pages English, one language per page, no code in player pages, per `research.md` R6
+- [X] T041 [US2] Add the same language policy in a contributor-facing location per `research.md` R6, so a contributor choosing a page's language finds it without reading the wiki sidebar
+- [X] T042 [US2] Validate: run `scripts/check_links.py` and confirm 0 problems; confirm every `api/v1` public type appears in `wiki/API-Reference.md`
 
 **Checkpoint**: US1 and US2 both independently correct. Verifies SC-002, SC-003, SC-011.
 
