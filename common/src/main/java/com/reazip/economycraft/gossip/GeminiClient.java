@@ -152,7 +152,9 @@ public class GeminiClient {
         JsonObject contentObj = new JsonObject();
         JsonArray contentParts = new JsonArray();
         JsonObject textPart = new JsonObject();
-        textPart.addProperty("text", economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>");
+        String promptText = (economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>")
+                + String.format("\n\nConstraint: Write exactly %d short, witty gossip lines for each villager profession category.", config.poolSizePerCategory());
+        textPart.addProperty("text", promptText);
         contentParts.add(textPart);
         contentObj.add("parts", contentParts);
         contents.add(contentObj);
@@ -178,7 +180,7 @@ public class GeminiClient {
         JsonObject genConfig = new JsonObject();
         genConfig.addProperty("response_mime_type", "application/json");
         genConfig.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 2.0));
-        genConfig.addProperty("maxOutputTokens", 1024);
+        genConfig.addProperty("maxOutputTokens", Math.max(1024, config.poolSizePerCategory() * 250));
 
         JsonObject thinkingConfig = new JsonObject();
         thinkingConfig.addProperty("thinkingBudget", 0);

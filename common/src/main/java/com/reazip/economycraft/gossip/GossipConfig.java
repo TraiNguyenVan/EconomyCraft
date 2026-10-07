@@ -26,7 +26,8 @@ public record GossipConfig(
         @SerializedName("anonymize_players") boolean anonymizePlayers,
         @SerializedName("temperature") double temperature,
         @SerializedName("public_chat") boolean publicChat,
-        @SerializedName("system_instruction") String systemInstruction
+        @SerializedName("system_instruction") String systemInstruction,
+        @SerializedName("pool_size_per_category") int poolSizePerCategory
 ) {
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -38,9 +39,10 @@ public record GossipConfig(
     public static final boolean DEFAULT_ANONYMIZE_PLAYERS = true;
     public static final double DEFAULT_TEMPERATURE = 0.85;
     public static final boolean DEFAULT_PUBLIC_CHAT = false;
+    public static final int DEFAULT_POOL_SIZE_PER_CATEGORY = 3;
     public static final String DEFAULT_SYSTEM_INSTRUCTION =
             "You are a witty, satirical economic gossip for Minecraft villagers on an economy server. " +
-            "Based on the provided transaction summary, write 2-3 short, exaggerated gossip lines (1 sentence each) for each villager profession. " +
+            "Based on the provided transaction summary, write short, exaggerated gossip lines (1 sentence each) for each villager profession. " +
             "Include typical villager 'Hrmm...' mannerisms. " +
             "Always refer to money in dollars ('$'). " +
             "Never mention real player usernames; use the given archetypes.";
@@ -51,6 +53,8 @@ public record GossipConfig(
     public static final int MAX_COOLDOWN_MINUTES = 60;
     public static final double MIN_TEMPERATURE = 0.0;
     public static final double MAX_TEMPERATURE = 2.0;
+    public static final int MIN_POOL_SIZE_PER_CATEGORY = 3;
+    public static final int MAX_POOL_SIZE_PER_CATEGORY = 10;
 
     public GossipConfig {
         apiKey = (apiKey == null) ? DEFAULT_API_KEY : apiKey.trim();
@@ -70,6 +74,8 @@ public record GossipConfig(
         } else {
             systemInstruction = systemInstruction.trim();
         }
+        poolSizePerCategory = clampInt("gemini_gossip.pool_size_per_category", poolSizePerCategory,
+                MIN_POOL_SIZE_PER_CATEGORY, MAX_POOL_SIZE_PER_CATEGORY);
     }
 
     public GossipConfig(
@@ -82,7 +88,21 @@ public record GossipConfig(
             double temperature,
             boolean publicChat
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_SYSTEM_INSTRUCTION);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY);
+    }
+
+    public GossipConfig(
+            boolean enabled,
+            String apiKey,
+            String model,
+            int refreshIntervalMinutes,
+            int cooldownMinutes,
+            boolean anonymizePlayers,
+            double temperature,
+            boolean publicChat,
+            String systemInstruction
+    ) {
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_POOL_SIZE_PER_CATEGORY);
     }
 
     public static GossipConfig createDefault() {
@@ -95,7 +115,8 @@ public record GossipConfig(
                 DEFAULT_ANONYMIZE_PLAYERS,
                 DEFAULT_TEMPERATURE,
                 DEFAULT_PUBLIC_CHAT,
-                DEFAULT_SYSTEM_INSTRUCTION
+                DEFAULT_SYSTEM_INSTRUCTION,
+                DEFAULT_POOL_SIZE_PER_CATEGORY
         );
     }
 
@@ -137,7 +158,8 @@ public record GossipConfig(
                 anonymizePlayers,
                 temperature,
                 publicChat,
-                systemInstruction
+                systemInstruction,
+                poolSizePerCategory
         );
     }
 
@@ -180,6 +202,7 @@ public record GossipConfig(
             out.name("temperature").value(value.temperature());
             out.name("public_chat").value(value.publicChat());
             out.name("system_instruction").value(value.systemInstruction());
+            out.name("pool_size_per_category").value(value.poolSizePerCategory());
             out.endObject();
         }
 
@@ -199,6 +222,7 @@ public record GossipConfig(
             double temperature = DEFAULT_TEMPERATURE;
             boolean publicChat = DEFAULT_PUBLIC_CHAT;
             String systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
+            int poolSizePerCategory = DEFAULT_POOL_SIZE_PER_CATEGORY;
 
             in.beginObject();
             while (in.hasNext()) {
@@ -217,6 +241,7 @@ public record GossipConfig(
                     case "temperature" -> temperature = in.nextDouble();
                     case "public_chat" -> publicChat = in.nextBoolean();
                     case "system_instruction" -> systemInstruction = in.nextString();
+                    case "pool_size_per_category" -> poolSizePerCategory = in.nextInt();
                     default -> in.skipValue();
                 }
             }
@@ -231,7 +256,8 @@ public record GossipConfig(
                     anonymizePlayers,
                     temperature,
                     publicChat,
-                    systemInstruction
+                    systemInstruction,
+                    poolSizePerCategory
             );
         }
     }

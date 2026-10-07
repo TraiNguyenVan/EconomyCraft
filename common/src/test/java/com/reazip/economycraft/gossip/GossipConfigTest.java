@@ -31,6 +31,7 @@ class GossipConfigTest {
         assertFalse(config.publicChat(), "publicChat must default to false");
         assertEquals(GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, config.systemInstruction(),
                 "systemInstruction must default to DEFAULT_SYSTEM_INSTRUCTION");
+        assertEquals(3, config.poolSizePerCategory(), "poolSizePerCategory must default to 3");
     }
 
     @Test
@@ -55,7 +56,8 @@ class GossipConfigTest {
                   "anonymize_players": false,
                   "temperature": 0.4,
                   "public_chat": true,
-                  "system_instruction": "Custom prompt instructions here."
+                  "system_instruction": "Custom prompt instructions here.",
+                  "pool_size_per_category": 5
                 }
                 """;
 
@@ -70,6 +72,7 @@ class GossipConfigTest {
         assertEquals(0.4, config.temperature(), 1e-6);
         assertTrue(config.publicChat());
         assertEquals("Custom prompt instructions here.", config.systemInstruction());
+        assertEquals(5, config.poolSizePerCategory());
     }
 
     @Test
@@ -149,6 +152,25 @@ class GossipConfigTest {
     }
 
     @Test
+    @DisplayName("pool_size_per_category clamps to bounds [3, 10]")
+    void clampingPoolSizePerCategory() {
+        GossipConfig belowMin = GSON.fromJson("{\"pool_size_per_category\": 1}", GossipConfig.class);
+        assertEquals(3, belowMin.poolSizePerCategory(), "values below 3 must clamp to 3");
+
+        GossipConfig negative = GSON.fromJson("{\"pool_size_per_category\": -5}", GossipConfig.class);
+        assertEquals(3, negative.poolSizePerCategory(), "negative values must clamp to 3");
+
+        GossipConfig exactMin = GSON.fromJson("{\"pool_size_per_category\": 3}", GossipConfig.class);
+        assertEquals(3, exactMin.poolSizePerCategory());
+
+        GossipConfig exactMax = GSON.fromJson("{\"pool_size_per_category\": 10}", GossipConfig.class);
+        assertEquals(10, exactMax.poolSizePerCategory());
+
+        GossipConfig aboveMax = GSON.fromJson("{\"pool_size_per_category\": 25}", GossipConfig.class);
+        assertEquals(10, aboveMax.poolSizePerCategory(), "values above 10 must clamp to 10");
+    }
+
+    @Test
     @DisplayName("null or blank model falls back to gemini-3.8-flash")
     void nullOrBlankModelFallsBackToDefault() {
         GossipConfig emptyModel = GSON.fromJson("{\"model\": \"\"}", GossipConfig.class);
@@ -222,6 +244,7 @@ class GossipConfigTest {
         assertTrue(json.contains("\"anonymize_players\""));
         assertTrue(json.contains("\"public_chat\""));
         assertTrue(json.contains("\"system_instruction\""));
+        assertTrue(json.contains("\"pool_size_per_category\""));
     }
 
     @Test

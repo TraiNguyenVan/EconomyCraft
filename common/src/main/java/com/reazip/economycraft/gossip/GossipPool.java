@@ -88,4 +88,28 @@ public record GossipPool(
         }
         return null;
     }
+
+    private static final Map<GossipCategory, java.util.concurrent.atomic.AtomicInteger> CATEGORY_ROTATION =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Non-repeating round-robin selection. Cycles through each message in the category
+     * sequentially before repeating, guaranteeing all messages are shown without repetition.
+     */
+    public @Nullable String getNextRoundRobinRumor(@Nullable GossipCategory category) {
+        GossipCategory target = (category != null) ? category : GossipCategory.GENERAL;
+        List<String> specific = rumorsByCategory.getOrDefault(target, List.of());
+        if (!specific.isEmpty()) {
+            var counter = CATEGORY_ROTATION.computeIfAbsent(target, k -> new java.util.concurrent.atomic.AtomicInteger(0));
+            int idx = Math.floorMod(counter.getAndIncrement(), specific.size());
+            return specific.get(idx);
+        }
+        List<String> general = rumorsByCategory.getOrDefault(GossipCategory.GENERAL, List.of());
+        if (!general.isEmpty()) {
+            var counter = CATEGORY_ROTATION.computeIfAbsent(GossipCategory.GENERAL, k -> new java.util.concurrent.atomic.AtomicInteger(0));
+            int idx = Math.floorMod(counter.getAndIncrement(), general.size());
+            return general.get(idx);
+        }
+        return null;
+    }
 }

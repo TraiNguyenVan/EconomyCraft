@@ -140,8 +140,8 @@ public final class VillagerGossipListener {
             // Map profession to dialogue theme
             GossipCategory category = ProfessionMapper.fromEntity(villager);
 
-            // Select random rumor
-            String rumor = pool.getRandomRumor(category, villager.getRandom());
+            // Select rumor via no-repeat round-robin cycle
+            String rumor = pool.getNextRoundRobinRumor(category);
             if (rumor == null || rumor.isBlank()) {
                 return InteractionResult.PASS;
             }
