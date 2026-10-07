@@ -115,6 +115,28 @@ public class AuctionManager {
         return true;
     }
 
+    /**
+     * Updates the description of a listing in place. Ownership is re-checked so a stale menu cannot
+     * move someone else's listing; listeners fire so open menus refresh on the new value.
+     */
+    public boolean setDescription(int id, UUID seller, @org.jetbrains.annotations.Nullable String description) {
+        AuctionListing listing = listings.get(id);
+        if (listing == null || !seller.equals(listing.seller)) return false;
+        String desc = description;
+        if (desc != null) {
+            desc = desc.replace("\r", "").replace("\n", "").trim();
+            if (desc.isEmpty()) {
+                desc = null;
+            } else if (desc.length() > 100) {
+                desc = desc.substring(0, 100);
+            }
+        }
+        listing.description = desc;
+        notifyListeners();
+        save();
+        return true;
+    }
+
     private void putAndPersist(AuctionListing listing) {
         listings.put(listing.id, listing);
         notifyListeners();

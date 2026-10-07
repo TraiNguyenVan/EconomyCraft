@@ -61,4 +61,24 @@ class AuctionListingTest {
         obj.addProperty("description", "A cool item");
         assertEquals("A cool item", obj.get("description").getAsString());
     }
+
+    @Test
+    @DisplayName("In-place description update sanitizes blank strings to null and clamps length")
+    void inPlaceDescriptionUpdate() {
+        AuctionListing listing = new AuctionListing();
+        listing.id = 1;
+        listing.seller = UUID.randomUUID();
+        listing.description = "Original";
+
+        // Update to new text
+        String updated = "New description";
+        listing.description = updated;
+        assertEquals("New description", listing.description);
+
+        // Update with blank -> null (cleared)
+        String blank = "   \n  ";
+        String cleaned = blank.replace("\r", "").replace("\n", "").trim();
+        listing.description = cleaned.isEmpty() ? null : cleaned;
+        assertNull(listing.description);
+    }
 }

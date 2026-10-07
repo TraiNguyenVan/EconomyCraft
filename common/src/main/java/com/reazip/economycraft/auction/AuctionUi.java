@@ -53,6 +53,7 @@ public final class AuctionUi {
     private static final int OFFER_SLOT = 0;
     /** Owner-side buttons in the remove-confirm row. */
     private static final int EDIT_PRICE_SLOT = 0;
+    private static final int EDIT_DESC_SLOT = 1;
     private static final int OFFERS_SLOT = 8;
 
     public static void open(ServerPlayer player, AuctionManager auctions) {
@@ -739,6 +740,8 @@ public final class AuctionUi {
             if (NegotiationEvents.canNegotiateAuction(listing)) {
                 container.setItem(EDIT_PRICE_SLOT, MenuUiSupport.button(Items.NAME_TAG, "Edit price",
                         ChatFormatting.AQUA, MenuUiSupport.hint("Reprice without relisting")));
+                container.setItem(EDIT_DESC_SLOT, MenuUiSupport.button(Items.WRITABLE_BOOK, "Edit note",
+                        ChatFormatting.AQUA, MenuUiSupport.hint("Update or clear note")));
                 int offerCount = eco.getNegotiations().countFor(NegotiationStore.Kind.AH, listing.id);
                 if (offerCount > 0) {
                     container.setItem(OFFERS_SLOT, MenuUiSupport.button(Items.BOOK,
@@ -810,6 +813,24 @@ public final class AuctionUi {
                         p -> openRemove(p, auctions, listing, query, sort, mineOnly));
                 return true;
             }
+            if (slot == EDIT_DESC_SLOT && NegotiationEvents.canNegotiateAuction(listing)) {
+                ServerPlayer sp = (ServerPlayer) player;
+                AuctionListing current = auctions.getListing(listing.id);
+                if (current == null || !current.seller.equals(sp.getUUID())) {
+                    EconomySounds.failure(sp);
+                    sp.sendSystemMessage(Component.literal("Listing no longer available")
+                            .withStyle(ChatFormatting.RED));
+                    sp.closeContainer();
+                    AuctionUi.open(sp, auctions, 0, query, sort, mineOnly);
+                    return true;
+                }
+                EconomySounds.click(sp);
+                TextInputUi.open(sp, "Edit note/description", current.description == null ? "" : current.description,
+                        Items.NAME_TAG, "Note: ", "Optional note (blank to clear)", true,
+                        (p, newDesc) -> applyDescriptionEdit(p, auctions, current.id, newDesc, query, sort, mineOnly),
+                        p -> openRemove(p, auctions, listing, query, sort, mineOnly));
+                return true;
+            }
             if (slot == OFFERS_SLOT && NegotiationEvents.canNegotiateAuction(listing)) {
                 EconomySounds.click((ServerPlayer) player);
                 openOffers((ServerPlayer) player, auctions, listing.id, query, sort, mineOnly);
@@ -817,6 +838,33 @@ public final class AuctionUi {
             }
             return false;
         }
+    }
+
+    private static void applyDescriptionEdit(ServerPlayer player, AuctionManager auctions, int listingId,
+                                             String newDesc, @Nullable String query, SortMode sort, boolean mineOnly) {
+        String desc = (newDesc == null || newDesc.isBlank()) ? null : newDesc.trim();
+        if (desc != null && desc.length() > 100) {
+            desc = desc.substring(0, 100);
+        }
+        if (!auctions.setDescription(listingId, player.getUUID(), desc)) {
+            EconomySounds.failure(player);
+            player.sendSystemMessage(Component.literal("Listing no longer available")
+                    .withStyle(ChatFormatting.RED));
+            player.closeContainer();
+            AuctionUi.open(player, auctions, 0, query, sort, mineOnly);
+            return;
+        }
+        EconomySounds.success(player);
+        if (desc == null) {
+            player.sendSystemMessage(Component.literal("Cleared listing note.")
+                    .withStyle(ChatFormatting.GREEN));
+        } else {
+            Component msg = Component.literal("Updated listing note: ").withStyle(ChatFormatting.GREEN)
+                    .append(com.reazip.economycraft.motd.MotdFormatter.formatLine(desc));
+            player.sendSystemMessage(msg);
+        }
+        player.closeContainer();
+        AuctionUi.open(player, auctions, 0, query, sort, mineOnly);
     }
 
     private static void applyPriceEdit(ServerPlayer player, AuctionManager auctions, int listingId,

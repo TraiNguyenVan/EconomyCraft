@@ -119,7 +119,10 @@ public final class TextInputUi {
         public void removed(Player player) {
             super.removed(player);
             if (!tookResult && onCancel != null && player instanceof ServerPlayer serverPlayer) {
-                onCancel.accept(serverPlayer);
+                var s = serverPlayer.level().getServer();
+                if (s != null) {
+                    s.execute(() -> onCancel.accept(serverPlayer));
+                }
             }
         }
 
