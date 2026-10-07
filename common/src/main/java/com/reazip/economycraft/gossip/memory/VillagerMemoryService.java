@@ -146,7 +146,13 @@ public class VillagerMemoryService {
         double inflation = inflationSupplier.getAsDouble();
         List<String> recentSpoken = (recentSpokenTracker != null) ? recentSpokenTracker.getRecentSpoken() : List.of();
 
-        return apiClient.generateIndividualDialogue(profile, memory, archetype, grapevine, inflation, recentSpoken)
+        // Safely extract main-thread trade snapshot from villager entity
+        List<TradeOfferSnapshot> offers = TradeOfferSnapshot.fromOffers(villager.getOffers(), 8);
+
+        // Fetch recent trade history asynchronously before requesting dialogue
+        return database.getRecentTrades(villagerUuid, playerUuid, 5)
+                .thenCompose(trades -> apiClient.generateIndividualDialogue(
+                        profile, memory, archetype, grapevine, inflation, recentSpoken, offers, trades))
                 .thenApply(optResult -> {
                     if (optResult.isEmpty() || optResult.get().isEmpty()) {
                         return Optional.<String>empty();
@@ -181,16 +187,29 @@ public class VillagerMemoryService {
     }
 
     /**
-     * Records a completed trade transaction into the villager's episodic player memory.
+     * Records a completed trade transaction into the villager's episodic player memory
+     * and persists the detailed record into the SQLite database.
      */
     public void recordTrade(UUID villagerUuid, UUID playerUuid, long amountSpent, @Nullable String itemDescription) {
+        recordTrade(villagerUuid, playerUuid, amountSpent, itemDescription, 1);
+    }
+
+    /**
+     * Records a completed trade transaction into the villager's episodic player memory
+     * and persists the detailed record into the SQLite database.
+     */
+    public void recordTrade(UUID villagerUuid, UUID playerUuid, long amountSpent, @Nullable String itemDescription, int count) {
         String key = memoryKey(villagerUuid, playerUuid);
         PlayerMemory memory = memoryCache.computeIfAbsent(key, k ->
                 PlayerMemory.createDefault(villagerUuid, playerUuid, System.currentTimeMillis()));
 
-        PlayerMemory updated = memory.withTrade(amountSpent, itemDescription, System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        PlayerMemory updated = memory.withTrade(amountSpent, itemDescription, now);
         memoryCache.put(key, updated);
         database.savePlayerMemory(updated);
+
+        String itemName = itemDescription != null && !itemDescription.isBlank() ? itemDescription : "Trade item";
+        database.recordTradeTransaction(villagerUuid, playerUuid, itemName, count, amountSpent, now);
     }
 
     /**

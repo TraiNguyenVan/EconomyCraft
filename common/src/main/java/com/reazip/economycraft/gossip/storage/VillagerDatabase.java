@@ -97,6 +97,23 @@ public class VillagerDatabase implements AutoCloseable {
 
             st.execute("CREATE INDEX IF NOT EXISTS idx_memories_villager ON player_memories(villager_uuid);");
             st.execute("CREATE INDEX IF NOT EXISTS idx_memories_player ON player_memories(player_uuid);");
+
+            // Villager trade history table
+            st.execute("""
+                CREATE TABLE IF NOT EXISTS villager_trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    villager_uuid TEXT NOT NULL,
+                    player_uuid TEXT NOT NULL,
+                    item_name TEXT NOT NULL,
+                    item_count INTEGER NOT NULL,
+                    price_paid INTEGER NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    FOREIGN KEY (villager_uuid) REFERENCES villagers(uuid) ON DELETE CASCADE
+                );
+            """);
+
+            st.execute("CREATE INDEX IF NOT EXISTS idx_trades_villager_player ON villager_trades(villager_uuid, player_uuid);");
+            st.execute("CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON villager_trades(timestamp DESC);");
         }
 
         initialized = true;
@@ -199,6 +216,69 @@ public class VillagerDatabase implements AutoCloseable {
             } catch (SQLException e) {
                 LOGGER.error("[EconomyCraft-DB] Error saving player memory for " + memory.villagerUuid() + "/" + memory.playerUuid(), e);
             }
+        }, dbExecutor);
+    }
+
+    public CompletableFuture<Void> recordTradeTransaction(
+            UUID villagerUuid,
+            UUID playerUuid,
+            String itemName,
+            int itemCount,
+            long pricePaid,
+            long timestamp
+    ) {
+        return CompletableFuture.runAsync(() -> {
+            ensureOpen();
+            String sql = """
+                INSERT INTO villager_trades (villager_uuid, player_uuid, item_name, item_count, price_paid, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?);
+            """;
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setString(1, villagerUuid.toString());
+                ps.setString(2, playerUuid.toString());
+                ps.setString(3, itemName);
+                ps.setInt(4, itemCount);
+                ps.setLong(5, pricePaid);
+                ps.setLong(6, timestamp);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                LOGGER.error("[EconomyCraft-DB] Error recording trade transaction for " + villagerUuid + "/" + playerUuid, e);
+            }
+        }, dbExecutor);
+    }
+
+    public CompletableFuture<List<TradeRecord>> getRecentTrades(UUID villagerUuid, UUID playerUuid, int limit) {
+        return CompletableFuture.supplyAsync(() -> {
+            ensureOpen();
+            String sql = """
+                SELECT id, villager_uuid, player_uuid, item_name, item_count, price_paid, timestamp
+                FROM villager_trades
+                WHERE villager_uuid = ? AND player_uuid = ?
+                ORDER BY timestamp DESC
+                LIMIT ?;
+            """;
+            List<TradeRecord> list = new ArrayList<>();
+            try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                ps.setString(1, villagerUuid.toString());
+                ps.setString(2, playerUuid.toString());
+                ps.setInt(3, Math.max(1, limit));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        list.add(new TradeRecord(
+                                rs.getLong("id"),
+                                UUID.fromString(rs.getString("villager_uuid")),
+                                UUID.fromString(rs.getString("player_uuid")),
+                                rs.getString("item_name"),
+                                rs.getInt("item_count"),
+                                rs.getLong("price_paid"),
+                                rs.getLong("timestamp")
+                        ));
+                    }
+                }
+            } catch (SQLException e) {
+                LOGGER.error("[EconomyCraft-DB] Error querying recent trades for " + villagerUuid + "/" + playerUuid, e);
+            }
+            return list;
         }, dbExecutor);
     }
 

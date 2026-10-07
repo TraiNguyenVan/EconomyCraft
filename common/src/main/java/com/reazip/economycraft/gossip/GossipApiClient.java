@@ -209,13 +209,31 @@ public class GossipApiClient {
             double inflation,
             @Nullable List<String> recentSpokenTopics
     ) {
+        return generateIndividualDialogue(profile, memory, playerArchetype, grapevineRumors, inflation, recentSpokenTopics, null, null);
+    }
+
+    /**
+     * Asynchronously generates personalized, in-character dialogue for an individual villager
+     * based on their persistent persona, memory with the visiting player, profession grapevine news,
+     * recently spoken topics, current stall offers, and per-player trade history.
+     */
+    public CompletableFuture<Optional<IndividualDialogueResult>> generateIndividualDialogue(
+            VillagerProfile profile,
+            PlayerMemory memory,
+            String playerArchetype,
+            @Nullable List<String> grapevineRumors,
+            double inflation,
+            @Nullable List<String> recentSpokenTopics,
+            @Nullable List<com.reazip.economycraft.gossip.memory.TradeOfferSnapshot> currentOffers,
+            @Nullable List<com.reazip.economycraft.gossip.storage.TradeRecord> tradeHistory
+    ) {
         String apiKey = config.apiKey();
         if (!config.enabled() || apiKey == null || apiKey.isBlank() || isCircuitOpen()) {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
         String systemInstruction = VillagerDialoguePromptBuilder.buildSystemInstruction(
-                profile, memory, playerArchetype, grapevineRumors, inflation, config.dialogueSystemInstruction(), recentSpokenTopics);
+                profile, memory, playerArchetype, grapevineRumors, inflation, config.dialogueSystemInstruction(), recentSpokenTopics, currentOffers, tradeHistory);
 
         boolean isOpenAi = isOpenAiCompatible();
         String url;

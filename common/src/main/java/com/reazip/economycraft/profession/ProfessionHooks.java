@@ -213,7 +213,7 @@ public final class ProfessionHooks {
                 int count = offer.getResult().getCount();
                 String desc = (count > 1 ? count + "x " : "") + itemName;
                 int costCount = offer.getCostA().getCount();
-                memoryService.recordTrade(villager.getUUID(), player.getUUID(), costCount * 10L, desc);
+                memoryService.recordTrade(villager.getUUID(), player.getUUID(), costCount * 10L, desc, count);
             }
         } catch (Throwable ignored) {
         }

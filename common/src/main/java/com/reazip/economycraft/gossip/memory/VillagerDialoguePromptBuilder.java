@@ -43,6 +43,20 @@ public final class VillagerDialoguePromptBuilder {
             @Nullable String customInstructions,
             @Nullable List<String> recentSpokenTopics
     ) {
+        return buildSystemInstruction(profile, memory, playerArchetype, grapevineRumors, inflation, customInstructions, recentSpokenTopics, null, null);
+    }
+
+    public static String buildSystemInstruction(
+            VillagerProfile profile,
+            PlayerMemory memory,
+            String playerArchetype,
+            @Nullable List<String> grapevineRumors,
+            double inflation,
+            @Nullable String customInstructions,
+            @Nullable List<String> recentSpokenTopics,
+            @Nullable List<TradeOfferSnapshot> currentOffers,
+            @Nullable List<com.reazip.economycraft.gossip.storage.TradeRecord> tradeHistory
+    ) {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(Locale.ROOT,
                 "You are roleplaying as %s, an individual Minecraft %s villager.\n" +
@@ -89,6 +103,24 @@ public final class VillagerDialoguePromptBuilder {
             }
         }
 
+        if (currentOffers != null && !currentOffers.isEmpty()) {
+            sb.append("\nYour current stall trade inventory & offers:\n");
+            int count = 0;
+            for (TradeOfferSnapshot offer : currentOffers) {
+                if (count++ >= 6) break; // bounded context cap
+                sb.append("- ").append(offer.toPromptDescription()).append("\n");
+            }
+        }
+
+        if (tradeHistory != null && !tradeHistory.isEmpty()) {
+            sb.append("\nThis customer's past purchases at your stall:\n");
+            int count = 0;
+            for (com.reazip.economycraft.gossip.storage.TradeRecord trade : tradeHistory) {
+                if (count++ >= 5) break; // bounded context cap
+                sb.append("- Bought ").append(trade.toPromptDescription()).append("\n");
+            }
+        }
+
         sb.append(String.format(Locale.ROOT, "\nCurrent server inflation: %.2fx.\n\n", inflation));
 
         if (customInstructions != null && !customInstructions.isBlank()) {
@@ -99,9 +131,10 @@ public final class VillagerDialoguePromptBuilder {
                 1. Keep it short and easy to understand: most lines should be under 15 words. Avoid overly complex prose or purple vocabulary.
                 2. Speak in exactly 1 concise, conversational sentence matching your personality, quirk, and relationship with this player.
                 3. Topic Rotation: Rotate your angle — comment on your backstory/quirk, trade prices, inflation, stall inventory shortages, or relationship with this customer. Do not fixate on the same trade item every time.
-                4. Address the player or your past memories directly when appropriate.
-                5. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.
-                6. Respond strictly with valid JSON with fields:
+                4. Context Awareness: Use your stall trade offers and customer past purchases as natural roleplay context (e.g. comment on their past buys, grumble about low stock, or mention what you are selling). DO NOT read out your inventory like a shop catalog or menu list; weave it organically into character speech.
+                5. Address the player or your past memories directly when appropriate.
+                6. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.
+                7. Respond strictly with valid JSON with fields:
                    {
                      "dialogue": "<your concise line>",
                      "sentiment_delta": <-2 to 5 integer>

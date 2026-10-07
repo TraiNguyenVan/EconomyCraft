@@ -99,4 +99,98 @@ class VillagerDialoguePromptBuilderTest {
         assertTrue(prompt.contains("Diamond prices collapsed."));
         assertTrue(prompt.contains("DO NOT repeat"));
     }
+
+    @Test
+    @DisplayName("Prompt builder injects active trade offers and customer trade history")
+    void testPromptBuilderWithTradeOffersAndHistory() {
+        UUID villagerUuid = UUID.randomUUID();
+        UUID playerUuid = UUID.randomUUID();
+
+        VillagerProfile profile = new VillagerProfile(
+                villagerUuid, "Barnaby", "armorer", "plains",
+                List.of("grumpy"), "Obsessed with iron.", "Backstory", 0, 0
+        );
+        PlayerMemory memory = PlayerMemory.createDefault(villagerUuid, playerUuid, 0);
+
+        List<com.reazip.economycraft.gossip.memory.TradeOfferSnapshot> offers = List.of(
+                new com.reazip.economycraft.gossip.memory.TradeOfferSnapshot(
+                        "Emerald", 15, null, 0, "Diamond Chestplate", 1, false, 8),
+                new com.reazip.economycraft.gossip.memory.TradeOfferSnapshot(
+                        "Iron Ingot", 24, null, 0, "Emerald", 1, true, 0)
+        );
+
+        List<com.reazip.economycraft.gossip.storage.TradeRecord> history = List.of(
+                new com.reazip.economycraft.gossip.storage.TradeRecord(
+                        1L, villagerUuid, playerUuid, "Iron Helmet", 1, 60L, 1000L),
+                new com.reazip.economycraft.gossip.storage.TradeRecord(
+                        2L, villagerUuid, playerUuid, "Shield", 1, 40L, 2000L)
+        );
+
+        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(
+                profile,
+                memory,
+                "a local merchant",
+                null,
+                1.0,
+                null,
+                null,
+                offers,
+                history
+        );
+
+        assertTrue(prompt.contains("Your current stall trade inventory & offers:"));
+        assertTrue(prompt.contains("Diamond Chestplate for 15x Emerald [In stock]"));
+        assertTrue(prompt.contains("Emerald for 24x Iron Ingot [OUT OF STOCK]"));
+        assertTrue(prompt.contains("This customer's past purchases at your stall:"));
+        assertTrue(prompt.contains("Iron Helmet ($60)"));
+        assertTrue(prompt.contains("Shield ($40)"));
+    }
+
+    @Test
+    @DisplayName("Prompt builder caps large inventory and history to bounded limits")
+    void testPromptBuilderCappingLimits() {
+        UUID villagerUuid = UUID.randomUUID();
+        UUID playerUuid = UUID.randomUUID();
+
+        VillagerProfile profile = new VillagerProfile(
+                villagerUuid, "Barnaby", "armorer", "plains",
+                List.of("grumpy"), "Obsessed with iron.", "Backstory", 0, 0
+        );
+        PlayerMemory memory = PlayerMemory.createDefault(villagerUuid, playerUuid, 0);
+
+        // 15 offers
+        java.util.List<com.reazip.economycraft.gossip.memory.TradeOfferSnapshot> offers = new java.util.ArrayList<>();
+        for (int i = 0; i < 15; i++) {
+            offers.add(new com.reazip.economycraft.gossip.memory.TradeOfferSnapshot(
+                    "Emerald", 1, null, 0, "Item" + i, 1, false, 10));
+        }
+
+        // 20 history records
+        java.util.List<com.reazip.economycraft.gossip.storage.TradeRecord> history = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            history.add(new com.reazip.economycraft.gossip.storage.TradeRecord(
+                    (long) i, villagerUuid, playerUuid, "OldItem" + i, 1, 10L, 1000L));
+        }
+
+        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(
+                profile,
+                memory,
+                "a buyer",
+                null,
+                1.0,
+                null,
+                null,
+                offers,
+                history
+        );
+
+        // Verify only up to 6 offers and 5 history items are injected
+        assertTrue(prompt.contains("Item0"));
+        assertTrue(prompt.contains("Item5"));
+        assertFalse(prompt.contains("Item6"));
+
+        assertTrue(prompt.contains("OldItem0"));
+        assertTrue(prompt.contains("OldItem4"));
+        assertFalse(prompt.contains("OldItem5"));
+    }
 }

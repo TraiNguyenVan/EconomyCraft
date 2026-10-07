@@ -104,4 +104,29 @@ class VillagerDatabaseTest {
 
         assertEquals(2, database.getVillagerCount().get());
     }
+
+    @Test
+    @DisplayName("Record and retrieve recent trade history")
+    void testSaveAndGetRecentTrades() throws Exception {
+        UUID villagerUuid = UUID.randomUUID();
+        UUID playerUuid = UUID.randomUUID();
+
+        // Save villager profile for foreign key
+        VillagerProfile profile = new VillagerProfile(
+                villagerUuid, "Garrick", "weaponsmith", "taiga",
+                List.of("stoic"), "Sharpens blades", "Veteran smith", 100L, 100L);
+        database.saveVillager(profile).get();
+
+        database.recordTradeTransaction(villagerUuid, playerUuid, "Diamond Sword", 1, 150L, 1000L).get();
+        database.recordTradeTransaction(villagerUuid, playerUuid, "Iron Ingot", 5, 25L, 2000L).get();
+        database.recordTradeTransaction(villagerUuid, playerUuid, "Shield", 1, 50L, 3000L).get();
+
+        List<com.reazip.economycraft.gossip.storage.TradeRecord> trades = database.getRecentTrades(villagerUuid, playerUuid, 2).get();
+        assertEquals(2, trades.size());
+        // Ordered by timestamp DESC
+        assertEquals("Shield", trades.get(0).itemName());
+        assertEquals(50L, trades.get(0).pricePaid());
+        assertEquals("Iron Ingot", trades.get(1).itemName());
+        assertEquals(5, trades.get(1).itemCount());
+    }
 }
