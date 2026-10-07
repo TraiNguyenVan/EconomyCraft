@@ -92,8 +92,6 @@ public final class EconomyCommands {
         dispatcher.register(withCommandPermission(
                 buildOrders("orders", buildContext).requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_ORDERS));
         dispatcher.register(withCommandPermission(
-                buildOrders("order", buildContext).requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_ORDERS));
-        dispatcher.register(withCommandPermission(
                 buildDeliveries().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_DELIVERIES));
         dispatcher.register(withCommandPermission(
                 buildDaily().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_DAILY));
@@ -187,7 +185,6 @@ public final class EconomyCommands {
         root.then(withCommandPermission(buildOffers(), Nodes.COMMAND_OFFERS));
         root.then(withCommandPermission(buildShop(), Nodes.COMMAND_SHOP));
         root.then(withCommandPermission(buildOrders("orders", buildContext), Nodes.COMMAND_ORDERS));
-        root.then(withCommandPermission(buildOrders("order", buildContext), Nodes.COMMAND_ORDERS));
         root.then(withCommandPermission(buildDeliveries(), Nodes.COMMAND_DELIVERIES));
         root.then(withCommandPermission(buildDaily(), Nodes.COMMAND_DAILY));
         root.then(withCommandPermission(buildTransactions(), Nodes.COMMAND_TRANSACTIONS));

@@ -188,7 +188,7 @@ public final class VillagerGossipListener {
                             return (pool != null && !pool.isEmpty()) ? pool.getNextRoundRobinRumor(category) : null;
                         });
                         if (rumor != null && !rumor.isBlank()) {
-                            Component message = formatRumor(villager, "[" + category.name() + "] " + rumor);
+                            Component message = formatRumor(villager, rumor);
                             if (server != null) {
                                 server.execute(() -> server.getPlayerList().broadcastSystemMessage(message, false));
                             } else {
@@ -201,7 +201,7 @@ public final class VillagerGossipListener {
                     if (pool != null && !pool.isEmpty()) {
                         String rumor = pool.getNextRoundRobinRumor(category);
                         if (rumor != null && !rumor.isBlank()) {
-                            Component message = formatRumor(villager, "[" + category.name() + "] " + rumor);
+                            Component message = formatRumor(villager, rumor);
                             if (server != null) {
                                 server.getPlayerList().broadcastSystemMessage(message, false);
                             } else {
