@@ -31,6 +31,8 @@ class GossipConfigTest {
         assertFalse(config.publicChat(), "publicChat must default to false");
         assertEquals(GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, config.systemInstruction(),
                 "systemInstruction must default to DEFAULT_SYSTEM_INSTRUCTION");
+        assertEquals(GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, config.dialogueSystemInstruction(),
+                "dialogueSystemInstruction must default to DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION");
         assertEquals(3, config.poolSizePerCategory(), "poolSizePerCategory must default to 3");
     }
 
@@ -57,6 +59,7 @@ class GossipConfigTest {
                   "temperature": 0.4,
                   "public_chat": true,
                   "system_instruction": "Custom prompt instructions here.",
+                  "dialogue_system_instruction": "Custom dialogue rules.",
                   "pool_size_per_category": 5
                 }
                 """;
@@ -72,6 +75,7 @@ class GossipConfigTest {
         assertEquals(0.4, config.temperature(), 1e-6);
         assertTrue(config.publicChat());
         assertEquals("Custom prompt instructions here.", config.systemInstruction());
+        assertEquals("Custom dialogue rules.", config.dialogueSystemInstruction());
         assertEquals(5, config.poolSizePerCategory());
     }
 

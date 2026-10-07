@@ -27,6 +27,7 @@ public record GossipConfig(
         @SerializedName("temperature") double temperature,
         @SerializedName("public_chat") boolean publicChat,
         @SerializedName("system_instruction") String systemInstruction,
+        @SerializedName("dialogue_system_instruction") String dialogueSystemInstruction,
         @SerializedName("pool_size_per_category") int poolSizePerCategory,
         @SerializedName("base_url") String baseUrl
 ) {
@@ -48,6 +49,18 @@ public record GossipConfig(
             "Villagers have quirky mannerisms: occasionally mutter, sigh, or hum (e.g. 'Hmm...', 'Hrmm...', 'Huh?', 'Haah...'), but vary how lines begin and do NOT start every line with 'Hrmm...' — many lines should begin directly. " +
             "Always refer to money in dollars ('$'). " +
             "Never mention real player usernames; use the given archetypes.";
+
+    public static final String DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION =
+            "Dialogue Instructions:\n" +
+            "1. Keep it short and easy to understand: most lines should be under 15 words. Avoid overly complex prose or purple vocabulary.\n" +
+            "2. Speak in exactly 1 concise, conversational sentence matching your personality, quirk, and relationship with this player.\n" +
+            "3. Address the player or your past memories directly when appropriate.\n" +
+            "4. Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak and DO NOT start every line with 'Hrmm...'.\n" +
+            "5. Respond strictly with valid JSON with fields:\n" +
+            "   {\n" +
+            "     \"dialogue\": \"<your concise line>\",\n" +
+            "     \"sentiment_delta\": <-2 to 5 integer>\n" +
+            "   }";
 
     public static final int MIN_REFRESH_INTERVAL_MINUTES = 5;
     public static final int MAX_REFRESH_INTERVAL_MINUTES = 1440;
@@ -84,6 +97,11 @@ public record GossipConfig(
         } else {
             systemInstruction = systemInstruction.trim();
         }
+        if (dialogueSystemInstruction == null || dialogueSystemInstruction.isBlank()) {
+            dialogueSystemInstruction = DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION;
+        } else {
+            dialogueSystemInstruction = dialogueSystemInstruction.trim();
+        }
         poolSizePerCategory = clampInt("gemini_gossip.pool_size_per_category", poolSizePerCategory,
                 MIN_POOL_SIZE_PER_CATEGORY, MAX_POOL_SIZE_PER_CATEGORY);
     }
@@ -98,7 +116,7 @@ public record GossipConfig(
             double temperature,
             boolean publicChat
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, DEFAULT_SYSTEM_INSTRUCTION, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
     }
 
     public GossipConfig(
@@ -112,7 +130,7 @@ public record GossipConfig(
             boolean publicChat,
             String systemInstruction
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, DEFAULT_POOL_SIZE_PER_CATEGORY, DEFAULT_BASE_URL);
     }
 
     public GossipConfig(
@@ -127,7 +145,23 @@ public record GossipConfig(
             String systemInstruction,
             int poolSizePerCategory
     ) {
-        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, poolSizePerCategory, DEFAULT_BASE_URL);
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, poolSizePerCategory, DEFAULT_BASE_URL);
+    }
+
+    public GossipConfig(
+            boolean enabled,
+            String apiKey,
+            String model,
+            int refreshIntervalMinutes,
+            int cooldownMinutes,
+            boolean anonymizePlayers,
+            double temperature,
+            boolean publicChat,
+            String systemInstruction,
+            int poolSizePerCategory,
+            String baseUrl
+    ) {
+        this(enabled, apiKey, model, refreshIntervalMinutes, cooldownMinutes, anonymizePlayers, temperature, publicChat, systemInstruction, DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, poolSizePerCategory, baseUrl);
     }
 
     public static GossipConfig createDefault() {
@@ -141,6 +175,7 @@ public record GossipConfig(
                 DEFAULT_TEMPERATURE,
                 DEFAULT_PUBLIC_CHAT,
                 DEFAULT_SYSTEM_INSTRUCTION,
+                DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION,
                 DEFAULT_POOL_SIZE_PER_CATEGORY,
                 DEFAULT_BASE_URL
         );
@@ -217,6 +252,7 @@ public record GossipConfig(
                 temperature,
                 publicChat,
                 systemInstruction,
+                dialogueSystemInstruction,
                 poolSizePerCategory,
                 baseUrl
         );
@@ -261,6 +297,7 @@ public record GossipConfig(
             out.name("temperature").value(value.temperature());
             out.name("public_chat").value(value.publicChat());
             out.name("system_instruction").value(value.systemInstruction());
+            out.name("dialogue_system_instruction").value(value.dialogueSystemInstruction());
             out.name("pool_size_per_category").value(value.poolSizePerCategory());
             out.name("base_url").value(value.baseUrl());
             out.endObject();
@@ -282,6 +319,7 @@ public record GossipConfig(
             double temperature = DEFAULT_TEMPERATURE;
             boolean publicChat = DEFAULT_PUBLIC_CHAT;
             String systemInstruction = DEFAULT_SYSTEM_INSTRUCTION;
+            String dialogueSystemInstruction = DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION;
             int poolSizePerCategory = DEFAULT_POOL_SIZE_PER_CATEGORY;
             String baseUrl = DEFAULT_BASE_URL;
 
@@ -302,6 +340,7 @@ public record GossipConfig(
                     case "temperature" -> temperature = in.nextDouble();
                     case "public_chat" -> publicChat = in.nextBoolean();
                     case "system_instruction" -> systemInstruction = in.nextString();
+                    case "dialogue_system_instruction" -> dialogueSystemInstruction = in.nextString();
                     case "pool_size_per_category" -> poolSizePerCategory = in.nextInt();
                     case "base_url" -> baseUrl = in.nextString();
                     default -> in.skipValue();
@@ -319,6 +358,7 @@ public record GossipConfig(
                     temperature,
                     publicChat,
                     systemInstruction,
+                    dialogueSystemInstruction,
                     poolSizePerCategory,
                     baseUrl
             );

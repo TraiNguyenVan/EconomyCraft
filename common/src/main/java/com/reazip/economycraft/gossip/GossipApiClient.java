@@ -199,7 +199,7 @@ public class GossipApiClient {
         }
 
         String systemInstruction = VillagerDialoguePromptBuilder.buildSystemInstruction(
-                profile, memory, playerArchetype, grapevineRumors, inflation);
+                profile, memory, playerArchetype, grapevineRumors, inflation, config.dialogueSystemInstruction());
 
         boolean isOpenAi = isOpenAiCompatible();
         String url;
