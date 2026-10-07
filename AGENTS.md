@@ -395,17 +395,29 @@ Things that will waste your time if you trust them.
 
 ## 8. The wiki is a separate repository
 
-`wiki/` is **not** rendered by GitHub from this repository. A GitHub wiki is its own git clone. Changes here
-do not appear on the hosted wiki until pushed there:
+`wiki/` is **not** rendered by GitHub from this repository. A GitHub wiki is its own git clone, so editing
+`wiki/` here changes nothing for readers until it is pushed there separately.
+
+### Publishing wiki changes
 
 ```bash
 git clone https://github.com/TraiNguyenVan/EconomyCraft.wiki.git
-# copy pages in, then commit and push
+cd EconomyCraft.wiki
+cp /path/to/EconomyCraft/wiki/*.md .
+git commit -am "Update wiki"
+git push
 ```
 
-Internal wiki links are relative (`Factions`); links from `README.md` to a wiki page must be absolute
-(`https://github.com/TraiNguyenVan/EconomyCraft/wiki/...`), because a wiki page is not reachable by a
-repository-relative path.
+Push every page that changed, including `_Sidebar.md` — it is the wiki's navigation, and a page added without a
+sidebar entry is effectively invisible. If the clone reports the pages as unchanged, they were already pushed.
+
+After pushing, confirm the hosted wiki actually updated: GitHub caches wiki pages aggressively, so an unchanged
+render can be stale rather than a failed push.
+
+Internal wiki links are relative (`Factions`) — that is how a GitHub wiki addresses its own pages, and it is why
+the link checker retries a bare relative target with `.md` appended. Links from `README.md` to a wiki page must
+be **absolute** (`https://github.com/TraiNguyenVan/EconomyCraft/wiki/...`), because a wiki page is not reachable
+by a repository-relative path.
 
 ---
 

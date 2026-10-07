@@ -145,7 +145,7 @@ past design decision, using only the project's documents.
 - [X] T047 [US3] Leave historical test-count claims in `CHANGELOG.md` alone — they are a record of what was true when written. Add no new count, per `research.md` R2
 - [X] T048 [US3] Verify every `TODO.md` §1 ground rule appears in `.specify/memory/constitution.md` or `AGENTS.md` before deleting, per FR-019
 - [X] T049 [US3] Verify no `TODO.md` content that is the last record of a design decision is lost: grep `.specify/memory/constitution.md` and `AGENTS.md` for phase numbers, `P<n>-T<n>` task IDs and `D<n>` decision IDs, and confirm the source-set rule, the no-NBT rule, the no-custom-networking rule and the ShopGuard dependency statement are all present
-- [ ] T050 [US3] **Gate**: confirm with the user that the open Vim buffer for `TODO.md` is saved or deliberately discarded. Unsaved buffer content is in no commit and will be lost. Then `git rm TODO.md` and record the recovery command in `specs/001-refresh-all-documents/notes.md`
+- [X] T050 [US3] **Gate**: confirm with the user that the open Vim buffer for `TODO.md` is saved or deliberately discarded. Unsaved buffer content is in no commit and will be lost. Then `git rm TODO.md` and record the recovery command in `specs/001-refresh-all-documents/notes.md`
 - [X] T051 [US3] Confirm `AGENTS.md` §6 still describes its relationship to the constitution correctly after both files exist
 
 **Checkpoint**: All three stories independently functional. Verifies SC-006, SC-007, SC-010, SC-012.
@@ -154,14 +154,14 @@ past design decision, using only the project's documents.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T052 [P] Run `quickstart.md` V5 and confirm 0 paths pointing outside the repository
-- [ ] T053 [P] Run `quickstart.md` V8 and confirm `origin` is `TraiNguyenVan/EconomyCraft`, the MOTD URL in `common/src/main/resources/assets/economycraft/config.json` is untouched, and the GPL attribution in `README.md` is intact
-- [ ] T054 [P] Run `quickstart.md` V9 and confirm player pages are Vietnamese and integrator pages English
+- [X] T052 [P] Run `quickstart.md` V5 and confirm 0 paths pointing outside the repository
+- [X] T053 [P] Run `quickstart.md` V8 and confirm `origin` is `TraiNguyenVan/EconomyCraft`, the MOTD URL in `common/src/main/resources/assets/economycraft/config.json` is untouched, and the GPL attribution in `README.md` is intact
+- [X] T054 [P] Run `quickstart.md` V9 and confirm player pages are Vietnamese and integrator pages English
 - [ ] T055 **Run `quickstart.md` V7 last**: `git diff --stat` over `common api fabric neoforge build.gradle gradle.properties` MUST be empty, then `./gradlew -Pminecraft_version=26.3 :common:test` must pass unchanged. A non-empty diff or a failing test means documentation work altered behavior, violating FR-001 — revert the behavior change, never edit the test
-- [ ] T056 Run the authoritative sweep `quickstart.md` V6 and confirm all checks report OK: 0 undocumented keys, 1 `## Unreleased` heading, `TODO.md` absent, 0 constitution placeholders
-- [ ] T057 Re-run the config extraction and confirm no default drifted during the work, per the `quickstart.md` V6 warning
-- [ ] T058 Document the manual wiki publish step from `quickstart.md` V10 for the maintainer — `wiki/` is a separate git clone and these edits do not reach the hosted wiki on their own
-- [ ] T059 Record the two KnownIssues from `data-model.md` §6 as separate code-side decisions: the unverified `gemini-3.8-flash` model identifier, and ShopGuard's unverifiable external state. Neither may be fixed in this feature
+- [X] T056 Run the authoritative sweep `quickstart.md` V6 and confirm all checks report OK: 0 undocumented keys, 1 `## Unreleased` heading, `TODO.md` absent, 0 constitution placeholders
+- [X] T057 Re-run the config extraction and confirm no default drifted during the work, per the `quickstart.md` V6 warning
+- [X] T058 Document the manual wiki publish step from `quickstart.md` V10 for the maintainer — `wiki/` is a separate git clone and these edits do not reach the hosted wiki on their own
+- [X] T059 Record the two KnownIssues from `data-model.md` §6 as separate code-side decisions: the unverified `gemini-3.8-flash` model identifier, and ShopGuard's unverifiable external state. Neither may be fixed in this feature
 
 ---
 

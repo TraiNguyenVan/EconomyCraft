@@ -97,3 +97,63 @@ Two earlier extraction attempts produced wrong results and were discarded rather
 
 Recorded because the failure mode is silent: each attempt produced a plausible-looking file with the wrong
 contents. Only cross-checking the count against the audit caught it.
+## T050 — TODO.md deleted
+
+Deleted 2026-10-07 after the owner's explicit confirmation. The file was fully committed with no unsaved
+working-tree changes and no `.swp` files present at deletion time.
+
+**Recovery command** — the entire file is in git history, in full:
+
+```sh
+git show c9b682c:TODO.md            # print it
+git show c9b682c:TODO.md > TODO.md  # restore it
+```
+
+`c9b682c` is the last commit that touched `TODO.md`
+("fix(faction): key party benefits on hasChosen, not the default party", 2026-10-03).
+
+**What was migrated before deletion**, verified in T048/T049:
+
+| Content | New home |
+|---|---|
+| 8 ground rules (§1) | constitution principles I-VIII, each citing enforcing code |
+| Architecture baseline (§2) | `AGENTS.md` §3-4, re-verified rather than copied |
+| Builder reach decision | `AGENTS.md` §4 "Builder reach is a vanilla attribute" |
+| Toll verification block | `AGENTS.md` §4 "Verifying toll changes" |
+| Faction API rationale | `AGENTS.md` §4 + `wiki/API-Reference.md` |
+| Container-lock design reasoning | `CHANGELOG.md`, marked removed with its reasoning kept |
+
+Six rows of the old baseline were **wrong** and were corrected rather than copied: mixin counts, the
+`EconomyCraftApiImpl` name, `FISCAL_SOURCES`' location, the `api/v1` type count, online-time tracking, and
+villager trading. A seventh claim — "there is no central tax policy" — was also wrong and was corrected in
+Phase 5 when `tax/TaxPolicy.java` was found with ~20 call sites.
+
+## T059 — KnownIssues recorded as code-side decisions
+
+Two defects cannot be fixed by documentation. FR-001 forbids the code change, so they are recorded here and in
+`data-model.md` §6 as `reported-only`, with the owner marked `code`.
+
+### 1. The gossip model identifier is unverified
+
+`gemini_gossip.model` ships `gemini-3.8-flash` (`config.json:229`, `GossipConfig.DEFAULT_MODEL`). That
+identifier could not be confirmed to exist at any provider. It is documented **as shipped**, with no claim that
+it is valid.
+
+Resolving this is a code-side decision: either the identifier is corrected in `config.json` and
+`GossipConfig.DEFAULT_MODEL`, or the provider is changed. It is deliberately *not* corrected here, because a
+documentation fix would change shipped runtime behaviour and would be unverifiable — if the model does not
+exist, the failure is at generation time, and guessing a replacement from a search result would be a worse
+outcome than a documented unknown.
+
+### 2. ShopGuard's state cannot be checked from this repository
+
+ShopGuard is an external, Fabric-only mod. Its current API, versions and behaviour are not observable here, so
+the documentation states the dependency and the graceful-degradation behaviour, and makes **no claim** about
+ShopGuard's own state or current releases.
+
+Everything asserted about the seam is asserted only about *this* side of it: the reflection in
+`ClaimBridge` / `ReflectiveShopGuardBackend`, the `Platform.isModLoaded("shopguard")` gate at
+`ClaimBridge.java:53`, and the single consumer at `FactionEffects.java:157,169`. Those are checkable here, and
+they were checked.
+
+Neither KnownIssue may be fixed as part of this feature.
