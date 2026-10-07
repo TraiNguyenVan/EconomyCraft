@@ -274,7 +274,7 @@ documentation-only, consistent with FR-001.
   `.specify/integrations/opencode.manifest.json` tracks a SHA-256 per command file, so every edit here leaves the
   manifest stale and it must be refreshed in the same task. (FR-016, `missing`)
 
-- [ ] T061 Relocate the six `TODO.md` constraints that were deleted with the file and are absent from every surviving
+- [X] T061 Relocate the six `TODO.md` constraints that were deleted with the file and are absent from every surviving
   document, per FR-019 and SC-012 (zero design decisions lost). Recover the text with
   `git show c9b682c:TODO.md` and record each where it is relevant — a standing rule in
   `.specify/memory/constitution.md`, a contributor trap in `AGENTS.md` §7 — without inventing new rules. The six,

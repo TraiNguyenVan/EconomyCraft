@@ -401,6 +401,26 @@ Things that will waste your time if you trust them.
 | Looking for `EconomyManager` in `util/` | It is at the package root |
 | `online_time.json` not being in `DATA_FILES` | It is deliberately excluded — `common/src/main/java/com/reazip/economycraft/util/EconomyPaths.java:32`. The file exists and is used by `OnlineTimeService`, but `/eco import` must not carry it: importing per-player progression would hand every player a fresh party and profession. `player_activity.json` is last-seen millis for dynamic pricing and is **not** online time; the two must never be merged |
 | Assuming tax is computed in one place | It *is*: `tax/TaxPolicy.java`, reached through `TaxScope`, with ~20 call sites. It was once copy-pasted across 18 of them. `tax/package-info.java` states the invariant — no `taxRate` multiplication outside that package — but **nothing enforces it**, so verify with a grep rather than trusting it. Add a tax site by calling `TaxPolicy`, never by inlining `Math.round(base * taxRate)` |
+| Concluding a vanilla hook has no check because the method you read has none | On 26.3 the deobfuscated jar is in the Gradle cache and **there are no sources** — the `*-sources.jar` is an empty zip — so every hook question is answered by reading **bytecode**. A method that "has no distance check" may simply not be the method that performs it. Follow the call **one level deeper** before concluding a check does not exist, and never write gameplay code against an unverified signature. This is not hypothetical: it is how the Builder reach bonus was first decided wrongly |
+| Computing tax once for display, then again for the charge | `AuctionUi` and `OrdersUi` build **lore** from a `TaxPolicy` quote, and the charge path runs its own. Both must go through `TaxPolicy`/`TaxScope`, or the price the player was shown is not the price they paid |
+| Assuming a debit that fails is a no-op | `EconomyManager.MAX` is `999_999_999_999`, and `transferMoney`'s refund path can fail with `MAX_BALANCE_EXCEEDED`. Every levy and rebate must handle a **failed debit** without corrupting its own bookkeeping — a partial tax is worse than none |
+| Mixing up which clock a duration uses | Three are in play: the 30 h faction lockout is **wall-clock**, faction taxes accrue on **online time**, effect cooldowns are **wall-clock** (`common/src/main/java/com/reazip/economycraft/time/CooldownService.java:19`). `common/src/main/java/com/reazip/economycraft/faction/FactionStore.java:36` records why the lockout is not online time (a lockout that pauses when the player logs off is not a lockout). Mixing these is the single most likely logic bug in this area |
+
+### Invariants that must not regress
+
+These predate the current tree and are not enforced by any test. Verify them by hand before claiming a
+change is safe.
+
+- **The inert case**: `/ah`, `/orders`, `/shop`, `/sell`, `/toll`, `/daily` and `/transactions` behave
+  identically when every player is Anarchist-and-unemployed **and** every new rate is 0.
+- **A player with no faction and no profession** is fully exempt from every faction and profession system
+  and pays exactly the pre-update tax on every flow.
+- **Display helpers never create a balance.** An offline account may be *displayed* in the toll picker if
+  EconomyCraft already knows it; it must never be conjured from an unverified name.
+- **Existing data files load unchanged.** `balances`, `stats.json`, `auctions.json`, `orders.json` and
+  `tolls.json` must load as written. No new migration may touch an existing file.
+- **No new `EconomyPaths.DATA_FILES` / `SETTINGS_FILES` entry** may cause `/eco import` to copy or delete
+  anything. Adding one is a gameplay decision, not bookkeeping.
 
 ---
 
