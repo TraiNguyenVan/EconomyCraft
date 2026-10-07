@@ -157,7 +157,7 @@ past design decision, using only the project's documents.
 - [X] T052 [P] Run `quickstart.md` V5 and confirm 0 paths pointing outside the repository
 - [X] T053 [P] Run `quickstart.md` V8 and confirm `origin` is `TraiNguyenVan/EconomyCraft`, the MOTD URL in `common/src/main/resources/assets/economycraft/config.json` is untouched, and the GPL attribution in `README.md` is intact
 - [X] T054 [P] Run `quickstart.md` V9 and confirm player pages are Vietnamese and integrator pages English
-- [ ] T055 **Run `quickstart.md` V7 last**: `git diff --stat` over `common api fabric neoforge build.gradle gradle.properties` MUST be empty, then `./gradlew -Pminecraft_version=26.3 :common:test` must pass unchanged. A non-empty diff or a failing test means documentation work altered behavior, violating FR-001 — revert the behavior change, never edit the test
+- [X] T055 **Run `quickstart.md` V7 last**: `git diff --stat` over `common api fabric neoforge build.gradle gradle.properties` MUST be empty, then `./gradlew -Pminecraft_version=26.3 :common:test` must pass unchanged. A non-empty diff or a failing test means documentation work altered behavior, violating FR-001 — revert the behavior change, never edit the test
 - [X] T056 Run the authoritative sweep `quickstart.md` V6 and confirm all checks report OK: 0 undocumented keys, 1 `## Unreleased` heading, `TODO.md` absent, 0 constitution placeholders
 - [X] T057 Re-run the config extraction and confirm no default drifted during the work, per the `quickstart.md` V6 warning
 - [X] T058 Document the manual wiki publish step from `quickstart.md` V10 for the maintainer — `wiki/` is a separate git clone and these edits do not reach the hosted wiki on their own

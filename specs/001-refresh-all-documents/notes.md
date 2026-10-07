@@ -157,3 +157,57 @@ Everything asserted about the seam is asserted only about *this* side of it: the
 they were checked.
 
 Neither KnownIssue may be fixed as part of this feature.
+
+## T055 — V7 gate passed
+
+Both halves of the FR-001 gate, verified on 2026-10-07:
+
+**`git diff` over the source trees is empty.** Across all six phases this feature touched documentation,
+`.gitignore` and spec-kit tooling only. Zero `.java` files, zero config JSON, zero build files:
+
+```
+git diff --name-only 93950c4^ HEAD | grep -E '\.java$|\.json$|build\.gradle|gradle\.properties'
+# -> no output
+```
+
+**`:common:test` passes on 26.3**: 49 test classes, 556 tests, 0 failures, 0 errors, 0 skipped. Counts are
+recorded here rather than in any user-facing document, because coverage is per-target and a single number is
+wrong for four of the five targets.
+
+### Two environment obstacles, and why they are not project defects
+
+Neither was caused by the repository. Both are recorded so the next person does not repeat the diagnosis.
+
+**1. No usable JDK on this machine.** It is Alpine Linux, so the C library is **musl**. Every glibc JDK —
+including a freshly downloaded Temurin — fails identically with `Unable to load jimage library`, which reads
+like a corrupt download but is not one. `ldd` on the library shows the real cause: `libjvm.so` resolves through
+`/lib/ld-musl-x86_64.so.1`. Adoptium ships no musl build, and `apk add` needs root, so the working JDK was
+assembled by extracting Alpine's own musl packages (`openjdk25-jre`, `openjdk25-jre-headless`,
+`openjdk25-jdk`) into a local directory without installing them. `java` lives in `-jre-headless`, not `-jre`.
+
+**2. SSL and temp space.** The extracted JDK ships a dangling `lib/security/cacerts` symlink, so Gradle fails
+with `trustAnchors parameter must be non-empty`; a JKS keystore must be built from `/etc/ssl/certs`. Separately,
+Gradle failed with `Permission denied` writing its temp files until `GRADLE_USER_HOME` was pointed off the
+sticky-bit `/tmp` on this host.
+
+```bash
+export JAVA_HOME=/home/yes/gwtmp/alpine-jdk/usr/lib/jvm/java-25-openjdk
+export GRADLE_USER_HOME=/home/yes/gwtmp/gh
+export GRADLE_OPTS="-Djavax.net.ssl.trustStore=$JAVA_HOME/lib/security/cacerts \
+  -Djavax.net.ssl.trustStorePassword=changeit -Djavax.net.ssl.trustStoreType=PKCS12"
+./gradlew -Pminecraft_version=26.3 :common:test
+```
+
+### A trap worth recording: `BUILD SUCCESSFUL` is not a test pass
+
+The first run reported `BUILD SUCCESSFUL` with `:common:test UP-TO-DATE`. That is Gradle confirming cached
+outputs — **no test executed**. Accepting it would have meant reporting a result never obtained. The real run
+used `cleanTest`, and the result was confirmed from the XML in `common/build/test-results/test/` rather than
+from the exit code:
+
+```bash
+./gradlew -Pminecraft_version=26.3 :common:cleanTest :common:test
+grep -l '<failure\|<error' common/build/test-results/test/*.xml   # expect: no output
+```
+
+`BUILD SUCCESSFUL` plus `UP-TO-DATE` means nothing was verified. Always check that the test task actually ran.
