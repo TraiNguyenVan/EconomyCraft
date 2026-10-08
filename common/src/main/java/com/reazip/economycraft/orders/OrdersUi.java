@@ -106,11 +106,12 @@ public final class OrdersUi {
         }
     }
 
-    private static void addDescriptionLore(List<Component> lore, OrderRequest request) {
+    private static void addNoteLore(List<Component> lore, OrderRequest request) {
         if (request != null && request.description != null && !request.description.isBlank()) {
             net.minecraft.network.chat.MutableComponent line = Component.literal("Note: ")
-                    .withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GOLD));
-            line.append(com.reazip.economycraft.motd.MotdFormatter.formatLine(request.description));
+                    .withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GREEN));
+            line.append(com.reazip.economycraft.motd.MotdFormatter.formatLine(request.description)
+                    .copy().withStyle(ChatFormatting.GREEN));
             lore.add(line);
         }
     }
@@ -140,13 +141,13 @@ public final class OrdersUi {
         NumberInputUi.openMoney(player, "What will you pay?",
                 prototype.copyWithCount(Math.min(amount, prototype.getMaxStackSize())),
                 "Total reward", 100L * amount, 1, EconomyManager.MAX,
-                "Next: Description", price -> requestLore(player, eco, amount, price),
-                (p, price) -> chooseDescription(p, eco, prototype, amount, price),
+                "Next: Note", price -> requestLore(player, eco, amount, price),
+                (p, price) -> chooseNote(p, eco, prototype, amount, price),
                 p -> chooseAmount(p, eco, prototype));
     }
 
-    private static void chooseDescription(ServerPlayer player, EconomyManager eco, ItemStack prototype, int amount, long price) {
-        TextInputUi.open(player, "Add a note/description", "", Items.NAME_TAG,
+    private static void chooseNote(ServerPlayer player, EconomyManager eco, ItemStack prototype, int amount, long price) {
+        TextInputUi.open(player, "Add a note", "", Items.NAME_TAG,
                 "Note: ", "Optional note (blank to skip)", true,
                 (p, text) -> {
                     String desc = text.isBlank() ? null : text.trim();
@@ -317,7 +318,7 @@ public final class OrdersUi {
                 List<Component> lore = new ArrayList<>();
                 addRewardLore(lore, r.price, tax, r.amount);
                 addBountyLore(lore, r);
-                addDescriptionLore(lore, r);
+                addNoteLore(lore, r);
                 lore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(r.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.labeledValue("Requester", mine ? "you" : reqName, MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(r.expiresAt)));
@@ -519,7 +520,7 @@ public final class OrdersUi {
             List<Component> itemLore = new ArrayList<>();
             addRewardLore(itemLore, req.price, tax, req.amount);
             addBountyLore(itemLore, req);
-            addDescriptionLore(itemLore, req);
+            addNoteLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.labeledValue("Requester", requesterName, MenuUiSupport.LABEL_PRIMARY_COLOR));
             int heldByViewer = OrderFulfillment.countHeld(parent.viewer(), req.item);
@@ -687,7 +688,7 @@ public final class OrdersUi {
             long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, req.price);
             List<Component> itemLore = new ArrayList<>();
             addRewardLore(itemLore, req.price, tax, req.amount);
-            addDescriptionLore(itemLore, req);
+            addNoteLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(req.expiresAt)));
             itemLore.add(MenuUiSupport.line("This will remove the request", ChatFormatting.RED));
@@ -778,7 +779,7 @@ public final class OrdersUi {
                     return true;
                 }
                 EconomySounds.click(serverPlayer);
-                TextInputUi.open(serverPlayer, "Edit note/description", current.description == null ? "" : current.description,
+                TextInputUi.open(serverPlayer, "Edit note", current.description == null ? "" : current.description,
                         Items.NAME_TAG, "Note: ", "Optional note (blank to clear)", true,
                         (p, newDesc) -> applyDescriptionEdit(parent, p, current.id, newDesc),
                         p -> parent.openRemove(p, current));

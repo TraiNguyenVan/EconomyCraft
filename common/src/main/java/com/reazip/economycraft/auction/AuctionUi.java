@@ -108,11 +108,12 @@ public final class AuctionUi {
         }
     }
 
-    private static void addDescriptionLore(List<Component> lore, AuctionListing listing) {
+    private static void addNoteLore(List<Component> lore, AuctionListing listing) {
         if (listing.description != null && !listing.description.isBlank()) {
             net.minecraft.network.chat.MutableComponent line = Component.literal("Note: ")
-                    .withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GOLD));
-            line.append(com.reazip.economycraft.motd.MotdFormatter.formatLine(listing.description));
+                    .withStyle(s -> s.withItalic(false).withColor(ChatFormatting.GREEN));
+            line.append(com.reazip.economycraft.motd.MotdFormatter.formatLine(listing.description)
+                    .copy().withStyle(ChatFormatting.GREEN));
             lore.add(line);
         }
     }
@@ -181,13 +182,13 @@ public final class AuctionUi {
 
     private static void choosePrice(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount) {
         NumberInputUi.openMoney(player, "Set your price", prototype.copyWithCount(amount), "Price",
-                100, 1, EconomyManager.MAX, "Next: Description", price -> listingLore(player, amount, price),
-                (p, price) -> chooseDescription(p, auctions, prototype, amount, price),
+                100, 1, EconomyManager.MAX, "Next: Note", price -> listingLore(player, amount, price),
+                (p, price) -> chooseNote(p, auctions, prototype, amount, price),
                 p -> backFromPrice(player, auctions, prototype));
     }
 
-    private static void chooseDescription(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount, long price) {
-        TextInputUi.open(player, "Add a note/description", "", Items.NAME_TAG,
+    private static void chooseNote(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount, long price) {
+        TextInputUi.open(player, "Add a note", "", Items.NAME_TAG,
                 "Note: ", "Optional note (blank to skip)", true,
                 (p, text) -> {
                     String desc = text.isBlank() ? null : text.trim();
@@ -406,7 +407,7 @@ public final class AuctionUi {
                 lore.add(createPriceLore(l.price, quote));
                 lore.add(MenuUiSupport.labeledValue("Seller", mine ? "you" : sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
                 addBuybackLore(lore, l);
-                addDescriptionLore(lore, l);
+                addNoteLore(lore, l);
                 lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(l.expiresAt)));
                 lore.add(MenuUiSupport.labeledValue("Click", mine ? "Remove listing" : "Buy it", MenuUiSupport.LABEL_SECONDARY_COLOR));
                 if (MenuUiSupport.hasContainerContents(l.item)) {
@@ -560,7 +561,7 @@ public final class AuctionUi {
             lore.add(createPriceLore(listing.price, quote));
             lore.add(MenuUiSupport.labeledValue("Seller", sellerName, MenuUiSupport.LABEL_PRIMARY_COLOR));
             addBuybackLore(lore, listing);
-            addDescriptionLore(lore, listing);
+            addNoteLore(lore, listing);
             lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)));
             if (!canAfford(viewer, listing)) {
                 lore.add(MenuUiSupport.line("You can't afford this — but you can offer a price.",
@@ -730,7 +731,7 @@ public final class AuctionUi {
             List<Component> lore = new ArrayList<>();
             lore.add(createPriceLore(listing.price, quote));
             lore.add(MenuUiSupport.labeledValue("Seller", "you", MenuUiSupport.LABEL_PRIMARY_COLOR));
-            addDescriptionLore(lore, listing);
+            addNoteLore(lore, listing);
             lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(listing.expiresAt)));
             lore.add(MenuUiSupport.line("This will remove the listing", ChatFormatting.RED));
             item.set(DataComponents.LORE, new ItemLore(lore));
@@ -825,7 +826,7 @@ public final class AuctionUi {
                     return true;
                 }
                 EconomySounds.click(sp);
-                TextInputUi.open(sp, "Edit note/description", current.description == null ? "" : current.description,
+                TextInputUi.open(sp, "Edit note", current.description == null ? "" : current.description,
                         Items.NAME_TAG, "Note: ", "Optional note (blank to clear)", true,
                         (p, newDesc) -> applyDescriptionEdit(p, auctions, current.id, newDesc, query, sort, mineOnly),
                         p -> openRemove(p, auctions, listing, query, sort, mineOnly));
