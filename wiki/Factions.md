@@ -1,53 +1,53 @@
-# Chi tiết Phe phái (Factions)
+# Factions
 
-EconomyCraft mang đến 4 phe phái với các lợi ích (Buff) và trách nhiệm (Debuff) đặc thù. Bạn có thể chọn phe bằng lệnh `/tag` hoặc `/eco party <tên_phe>`.
-
-> [!NOTE]
-> Quy ước **"X phút online"**: Thời gian chỉ được tích lũy khi người chơi trực tiếp online trên server và tạm dừng khi offline. Đồng hồ đếm chỉ kích hoạt và đặt lại khi người chơi tích lũy đủ X phút online.
-
----
-
-## 1. Communism (Chủ nghĩa cộng sản)
-- **Biểu tượng:** `☭` | **Màu sắc:** Đỏ
-- **Buff:**
-  - **Tài trợ:** *Chưa triển khai.* Buff này được lên kế hoạch nhưng hiện chưa có hiệu ứng nào được cài đặt trong mod, nên chọn phe này chưa mang lại lợi ích nào từ Tài trợ.
-  - **Đầu tư công:** Có 50% tỉ lệ được miễn hoàn toàn tiền thuế (tax) khi chi trả qua các trạm thu phí Toll (chủ sở hữu trạm thu phí vẫn nhận đủ số tiền phí).
-- **Debuff:**
-  - **Đảng phí:** Mỗi 45 phút tích lũy online, người chơi bị trừ $10 nộp vào Đảng phí (tiền bị thiêu hủy khỏi lưu thông).
-  - **Thuế thu nhập cá nhân:** Mừng 45 phút online, ngay sau khi thu Đảng phí, tiến hành đánh thuế chống đầu cơ dựa trên số dư còn lại. Chỉ **một** bậc thuế được áp dụng, và đó là bậc cao nhất mà số dư của bạn đạt tới:
-    - Số dư từ $10,000 trở lên: Thu 0.25% tổng số tiền hiện có.
-    - Số dư từ $15,000 trở lên: Thu 0.375% tổng số tiền hiện có.
-    - Số dư từ $22,000 trở lên: Thu 0.625% tổng số tiền hiện có.
+EconomyCraft offers four factions, each with distinct benefits and drawbacks. Choose a faction with `/tag` or `/eco party <faction_name>`.
 
 > [!NOTE]
-> Mức thuế trên đây là mặc định của mod. Quản trị viên server có thể chỉnh lại trong `config.json`.
+> **Online-time rule:** Time accumulates only while a player is online on the server and pauses while they are offline. A timer activates and resets each time the player accumulates the specified number of online minutes.
 
 ---
 
-## 2. Capitalism (Chủ nghĩa tư bản)
-- **Biểu tượng:** `$` | **Màu sắc:** Vàng
-- **Buff:**
-  - **Thị trường cạnh tranh:** Khi bạn đăng bán đồ trên chợ `/ah`, người mua đồ của bạn sẽ được miễn phí thuế giao dịch, giúp mặt hàng của bạn cạnh tranh tốt hơn về giá.
-- **Debuff:**
-  - **Nhà nước tư bản:** Thuế tài sản hàng ngày ở mức cơ sở 2.5% (nhân với hệ số lạm phát và tỉ trọng tài sản của phe). Mức thuế không thể tăng hay giảm quá 25% mỗi ngày, nên không thể bị đẩy lên hoặc hạ xuống quá nhanh. Thuế giao dịch qua trạm thu phí Toll tăng thêm 25%.
+## 1. Communism
+- **Icon:** `☭` | **Color:** Red
+- **Benefits:**
+  - **Subsidy:** This has no effect in the current version.
+  - **Public Investment:** 50% chance to pay no tax when using toll stations. The toll owner still receives the full toll fee.
+- **Drawbacks:**
+  - **Party Dues:** Every 45 accumulated online minutes, $10 is deducted as party dues and removed from circulation.
+  - **Personal Income Tax:** Every 45 online minutes, immediately after party dues are collected, an anti-hoarding tax is charged based on the remaining balance. Only **one** tier applies: the highest tier reached by your balance.
+    - Balance of $10,000 or more: 0.25% of the current balance.
+    - Balance of $15,000 or more: 0.375% of the current balance.
+    - Balance of $22,000 or more: 0.625% of the current balance.
+
+> [!NOTE]
+> These tax rates are the mod's defaults. Server administrators can change them in `config.json`.
 
 ---
 
-## 3. Monarchy (Chế độ quân chủ)
-- **Biểu tượng:** `♔` | **Màu sắc:** Tím
-- **Buff:**
-  - **Tự trị:** Chi phí tạo và mở rộng vùng đất bảo vệ (claim đất qua ShopGuard) được giảm một nửa (-50%).
-  - **Phép vua thua lệ làng:** Tăng 15% sát thương gây ra và tăng 15% khả năng chống chịu (giảm 15% sát thương nhận vào) khi bạn đang đứng trong chính vùng đất đã claim của mình.
-- **Debuff:**
-  - **Cống nạp:** Đóng thêm khoản thuế cống nạp bằng với lượng thuế hàng ngày của Monarchy (được trừ trực tiếp và tiêu hủy). Mức thuế hàng ngày của Monarchy nhỏ hơn nhiều so với Capitalism và được điều chỉnh theo tổng lượng tiền đang lưu hành trên server.
-  - **Nhập khẩu:** Có tỉ lệ 50% khi mua sắm vật phẩm (shop, chợ `/ah`, đơn đặt hàng) phải chịu thêm 50% thuế nhập khẩu tính trên tiền thuế của món đó.
+## 2. Capitalism
+- **Icon:** `$` | **Color:** Yellow
+- **Benefits:**
+  - **Competitive Market:** When you list an item on the `/ah` auction house, its buyer is exempt from the transaction tax, making your listing more competitive.
+- **Drawbacks:**
+  - **Capitalist State:** Daily wealth tax has a base rate of 2.5%, multiplied by the inflation factor and the faction's share of wealth. The rate cannot increase or decrease by more than 25% per day. Toll transaction tax is increased by 25%.
 
 ---
 
-## 4. Anarchism (Chủ nghĩa vô chính phủ)
-- **Biểu tượng:** `Ⓐ` | **Màu sắc:** Trắng / Xám (Mặc định khi chưa chọn phe)
-- **Buff:**
-  - **Tự do:** Hoàn toàn không phải đóng bất kỳ loại thuế nào (thuế giao dịch, thuế hàng ngày, thuế toll... đều về 0; vẫn trả phí mua đồ và phí toll gốc).
-  - **Thoải mái:** Tăng 15% tốc độ chạy bộ và 15% tốc độ di chuyển trên ngựa khi đang đứng trên vùng đất hoang dã chưa bị ai claim.
-- **Debuff:**
-  - **Vô chính phủ:** Không được phép sở hữu hoặc claim vùng đất mới; không thể nhận chuyển nhượng đất từ người chơi khác; không thể được thêm vào danh sách tin tưởng (`/claim trust`) trên vùng đất của người khác.
+## 3. Monarchy
+- **Icon:** `♔` | **Color:** Purple
+- **Benefits:**
+  - **Autonomy:** The cost of creating and expanding protected land claims through ShopGuard is reduced by half (-50%).
+  - **The Crown's Protection:** Deal 15% more damage and gain 15% damage resistance (take 15% less damage) while standing in your own claimed land.
+- **Drawbacks:**
+  - **Tribute:** An additional tribute tax is charged and destroyed, equal to Monarchy's daily tax. Monarchy's daily tax is much lower than Capitalism's and is adjusted based on the total money in circulation on the server.
+  - **Imports:** Each purchase from the `/ah` auction house or fulfillment of an order has a 50% chance of incurring an additional import tax equal to 50% of that transaction's tax.
+
+---
+
+## 4. Anarchism
+- **Icon:** `Ⓐ` | **Color:** White / Gray (default when no faction is chosen)
+- **Benefits:**
+  - **Freedom:** You pay no taxes of any kind (transaction, daily, or toll taxes are all zero; the original purchase and toll fees still apply).
+  - **Ease:** Gain 15% movement speed on foot and 15% movement speed on horseback while in wilderness that has not been claimed.
+- **Drawbacks:**
+  - **Anarchy:** You cannot own or claim new land, receive a land transfer from another player, or be added to another player's trust list with `/claim trust`.

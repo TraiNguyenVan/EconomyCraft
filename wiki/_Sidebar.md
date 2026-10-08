@@ -1,9 +1,30 @@
 **Gameplay**
 
-- [Chọn Tag (Phe phái & Nghề nghiệp)](Chon-tag)
-- [Phe phái (Factions)](Factions)
-- [Nghề nghiệp (Professions)](Professions)
-- [Trạm Thu Phí (Tolls)](Tolls)
+- [Choosing a Party and Profession](Choosing-a-Party-and-Profession)
+- [Factions](Factions)
+- [Professions](Professions)
+- [Tolls](Tolls)
+- [Shop and selling](Shop-and-Selling)
+- [Auctions, orders, and offers](Auctions-Orders-and-Offers)
+- [Balances, daily rewards, and leaderboards](Balances-Daily-Rewards-and-Leaderboards)
+- [Server quests](Server-Quests)
+- [Villager dialogue](Villager-Dialogue)
+
+**Server owners**
+
+- [Server administration](Server-Administration)
+
+---
+
+## Page language
+
+All wiki pages are written in **English**.
+
+- Player guides contain no source code, Gradle commands, test-class names, or internal identifiers.
+- The server-owner guide may document shipped command names, configuration keys, and permission nodes, but not implementation details.
+- Integrator pages may include Java examples.
+- Pages describe only features that are shipped.
+- Do not state a raw test count; coverage varies by Minecraft target.
 
 **EconomyCraft API v1**
 
@@ -15,21 +36,3 @@
 - [API reference](API-Reference)
 
 ---
-
-## Ngôn ngữ của trang (Page language)
-
-Mỗi trang viết bằng **một** ngôn ngữ, và ngôn ngữ phụ thuộc vào đối tượng đọc:
-
-| Đối tượng | Ngôn ngữ | Trang |
-|---|---|---|
-| Người chơi | **Tiếng Việt** | Chọn Tag, Phe phái, Nghề nghiệp, Trạm Thu Phí |
-| Người tích hợp (mod developer) | **Tiếng Anh** | Home, Getting started, Balances and payments, Prices and leaderboard, Balance events, API reference |
-
-Quy tắc bổ sung:
-
-- Trang dành cho người chơi **không chứa mã nguồn**: không có lệnh Gradle, không có tên lớp kiểm thử, không có
-  định danh nội bộ. Chỉ nói những gì người chơi cần làm.
-- Trang dành cho người tích hợp có thể chứa mã Java, và viết bằng tiếng Anh.
-- Trang chỉ mô tả những gì **đã được phát hành**. Tính năng chưa có trong bản dùng thử không thuộc wiki.
-- Không nêu số lượng bài kiểm thử dưới dạng một con số. Số lượng phụ thuộc vào từng phiên bản Minecraft mục tiêu,
-  nên một con số duy nhất sẽ sai ở cả năm phiên bản trong số đó.
