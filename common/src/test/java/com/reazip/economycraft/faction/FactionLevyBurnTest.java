@@ -51,6 +51,13 @@ class FactionLevyBurnTest {
     }
 
     @Test
+    void moneyFormattingUsesOneCurrencyMarkerAndPreservesGrouping() {
+        assertEquals("-$10", FactionLevyService.formatMoney(-10L));
+        assertEquals("$10", FactionLevyService.formatMoney(10L));
+        assertEquals("-$1.234", FactionLevyService.formatMoney(-1_234L));
+    }
+
+    @Test
     void levyBurnsFeeThenTaxThroughRemovals() {
         // 30 000: $10 fee leaves 29 990, tier 3 at 0.625 % is 187 (D3 ordering).
         EconomyManager eco = nullRejectingManager(30_000L, 29_990L);

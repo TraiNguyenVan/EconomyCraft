@@ -155,10 +155,12 @@ public final class FactionLevyService {
 
         MutableComponent message = Component.literal("[Đảng Cộng sản] ").withStyle(ChatFormatting.RED)
                 .append(Component.literal("Đảng phí: ").withStyle(ChatFormatting.GRAY))
-                .append(money(feePaid ? -fee : 0L));
+                .append(Component.literal(formatMoney(feePaid ? -fee : 0L))
+                        .withStyle(feePaid ? ChatFormatting.RED : ChatFormatting.GREEN));
         if (incomeTax > 0L) {
             message = message.append(Component.literal(" | Thuế thu nhập: ").withStyle(ChatFormatting.GRAY))
-                    .append(money(taxPaid ? -incomeTax : 0L));
+                    .append(Component.literal(formatMoney(taxPaid ? -incomeTax : 0L))
+                            .withStyle(taxPaid ? ChatFormatting.RED : ChatFormatting.GREEN));
         }
         online.sendSystemMessage(message);
 
@@ -171,9 +173,8 @@ public final class FactionLevyService {
         }
     }
 
-    private static MutableComponent money(long signed) {
-        return Component.literal((signed < 0 ? "-$" : "$") + EconomyCraft.formatMoney(Math.abs(signed)))
-                .withStyle(signed < 0 ? ChatFormatting.RED : ChatFormatting.GREEN);
+    static String formatMoney(long signed) {
+        return (signed < 0 ? "-" : "") + EconomyCraft.formatMoney(Math.abs(signed));
     }
 
     @Nullable
