@@ -276,21 +276,6 @@ class TransactionAnonymizerTest {
 
         assertTrue(formatted.contains("sold goods to the market shop"));
     }
-
-    @Test
-    @DisplayName("formatDigest formats list of transactions into immutable string list")
-    void testFormatDigest() {
-        TransactionEntry entry1 = createSampleEntry("P1", null, EconomySources.DAILY_REWARD.asString(), 100, null);
-        TransactionEntry entry2 = createSampleEntry("P2", null, EconomySources.WEALTH_TAX.asString(), -500, null);
-
-        List<String> digest = TransactionAnonymizer.formatDigest(List.of(entry1, entry2), true, null);
-
-        assertEquals(2, digest.size());
-        assertTrue(digest.get(0).contains("claimed a daily stipend"));
-        assertTrue(digest.get(1).contains("was assessed a wealth tax levy"));
-        assertThrows(UnsupportedOperationException.class, () -> digest.add("extra"));
-    }
-
     @Test
     @DisplayName("Identifies Server Quests as the town quest board across orders and escrows")
     void testServerQuestIdentification() {

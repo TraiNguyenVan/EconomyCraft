@@ -5,12 +5,10 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
- * Thread-safe, lock-free tracker for per-player, per-villager gossip cooldowns,
- * plus a global server-wide throttle for public rumor broadcasts.
+ * Thread-safe, lock-free tracker for per-player, per-villager dialogue cooldowns.
  * Uses a composite (playerUuid, villagerUuid) key and ConcurrentHashMap.
  */
 public final class CooldownTracker {
@@ -26,7 +24,7 @@ public final class CooldownTracker {
     }
 
     private final ConcurrentHashMap<CooldownKey, Long> cooldowns = new ConcurrentHashMap<>();
-    private final AtomicLong lastPublicBroadcastMillis = new AtomicLong(0L);
+    
     private final LongSupplier timeSupplier;
 
     public CooldownTracker() {
@@ -115,42 +113,9 @@ public final class CooldownTracker {
     }
 
     /**
-     * Attempts to acquire the global server-wide public broadcast slot atomically.
-     * Returns true if the cooldown has elapsed and updates the timestamp, false if still on cooldown.
-     *
-     * @param cooldownMillis minimum quiet duration between public broadcasts
-     * @return true if allowed to broadcast, false if suppressed
-     */
-    public boolean tryAcquirePublicBroadcast(long cooldownMillis) {
-        if (cooldownMillis <= 0) return true;
-        long now = timeSupplier.getAsLong();
-        while (true) {
-            long last = lastPublicBroadcastMillis.get();
-            if (last != 0L && (now - last < cooldownMillis)) {
-                return false;
-            }
-            if (lastPublicBroadcastMillis.compareAndSet(last, now)) {
-                return true;
-            }
-        }
-    }
-
-    /**
-     * Checks whether public broadcast is currently on cooldown server-wide.
-     */
-    public boolean isPublicBroadcastOnCooldown(long cooldownMillis) {
-        if (cooldownMillis <= 0) return false;
-        long last = lastPublicBroadcastMillis.get();
-        if (last == 0L) return false;
-        long now = timeSupplier.getAsLong();
-        return (now - last) < cooldownMillis;
-    }
-
-    /**
-     * Clears all cooldown entries and resets the public broadcast cooldown.
+     * Clears all cooldown entries.
      */
     public void clear() {
         cooldowns.clear();
-        lastPublicBroadcastMillis.set(0L);
     }
 }

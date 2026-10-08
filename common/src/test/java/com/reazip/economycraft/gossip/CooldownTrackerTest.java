@@ -170,31 +170,4 @@ class CooldownTrackerTest {
         assertTrue(latch.await(5, TimeUnit.SECONDS), "Concurrent test should finish promptly");
         executor.shutdown();
     }
-
-    @Test
-    @DisplayName("T010: Global public broadcast throttle throttles server-wide rumors")
-    void testGlobalPublicBroadcastThrottle() {
-        AtomicLong clock = new AtomicLong(1000L);
-        CooldownTracker tracker = new CooldownTracker(clock::get);
-
-        long throttleMillis = 180_000L; // 3 minutes
-
-        // First attempt succeeds
-        assertTrue(tracker.tryAcquirePublicBroadcast(throttleMillis));
-        assertTrue(tracker.isPublicBroadcastOnCooldown(throttleMillis));
-
-        // Immediate subsequent attempt fails
-        assertFalse(tracker.tryAcquirePublicBroadcast(throttleMillis));
-
-        // Advance clock by 2 minutes - still throttled
-        clock.addAndGet(120_000L);
-        assertTrue(tracker.isPublicBroadcastOnCooldown(throttleMillis));
-        assertFalse(tracker.tryAcquirePublicBroadcast(throttleMillis));
-
-        // Advance clock past 3 minutes - succeeds and resets throttle window
-        clock.addAndGet(60_001L);
-        assertFalse(tracker.isPublicBroadcastOnCooldown(throttleMillis));
-        assertTrue(tracker.tryAcquirePublicBroadcast(throttleMillis));
-        assertTrue(tracker.isPublicBroadcastOnCooldown(throttleMillis));
-    }
 }

@@ -15,7 +15,7 @@ NeoForge from one codebase and requires no client-side mod.
 
 It provides: balances and payments, a fixed-price shop, an auction house, player order books, price offers,
 deliveries, leaderboards, block tolls, dynamic shop pricing, a daily wealth tax, server-funded quests,
-LLM-driven villager economic gossip, a configurable login message, and a faction/profession tag system that
+LLM-driven private villager dialogue, a configurable login message, and a faction/profession tag system that
 modifies taxation, land interaction and combat.
 
 It is an enhanced fork of [PhilipB06/EconomyCraft](https://github.com/PhilipB06/EconomyCraft) (ReaZip).
@@ -240,9 +240,9 @@ ShopGuard integration and are the precedent.
 | `professions` | 61 | per-profession thresholds and effects |
 | `factions` | 38 | per-faction tax rates, icons, colours, multipliers |
 | `quests` | 14 | server-funded quests and buyback |
-| `gemini_gossip` | 14 | LLM provider, prompts, privacy |
+| `gemini_gossip` | 9 | LLM provider, prompts, privacy |
 | `motd` | 3 | login message |
-| **total** | **164** | |
+| **total** | **159** | |
 
 Shipped data directory: `config/economycraft/{config,prices,webhook}.json` + `data/*.json` + `logs/*.log`.
 About 21 data files are written at runtime; `util/EconomyPaths.java:40-51` marks which are importable.
@@ -280,8 +280,10 @@ rather than touch `FactionEffects`.
 
 ### Villager dialogue exists
 
-Gossip is built on villager dialogue — `gossip/GossipConfig.java`, `/eco gossip dialogue [prof]`. Villager
-*trading* as a feature is separate and minimal.
+Villager dialogue is the gossip feature — `gossip/GossipConfig.java`, `/eco gossip dialogue [prof]`. Speech is
+**private**: one line to the interacting player, never broadcast. The shared rumor pool, the periodic
+transaction digest, and the `public_chat` broadcast option were removed; there is no pool or category code
+left in the tree. Villager *trading* as a feature is separate and minimal.
 
 ### Builder reach is a vanilla attribute, not a range check
 

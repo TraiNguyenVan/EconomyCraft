@@ -1,7 +1,10 @@
 package com.reazip.economycraft.gossip;
 
-import com.sun.net.httpserver.HttpServer;
+import com.reazip.economycraft.gossip.memory.IndividualDialogueResult;
+import com.reazip.economycraft.gossip.storage.PlayerMemory;
+import com.reazip.economycraft.gossip.storage.VillagerProfile;
 import com.reazip.economycraft.time.MutableClock;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.*;
 
 import java.io.IOException;
@@ -10,11 +13,16 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Covers the private dialogue request path, the circuit breaker, and silent degradation.
+ * The shared rumor-pool path was removed; these tests now drive generateIndividualDialogue.
+ */
 class GossipApiClientTest {
 
     private HttpServer server;
@@ -24,7 +32,6 @@ class GossipApiClientTest {
     private final AtomicReference<String> lastCapturedBody = new AtomicReference<>("");
     private final AtomicReference<String> lastCapturedApiKey = new AtomicReference<>("");
     private final AtomicReference<String> lastCapturedAuthHeader = new AtomicReference<>("");
-    private final AtomicReference<String> lastCapturedUri = new AtomicReference<>("");
 
     private int responseStatusCode = 200;
     private String responsePayload = "";
@@ -35,7 +42,6 @@ class GossipApiClientTest {
         lastCapturedBody.set("");
         lastCapturedApiKey.set("");
         lastCapturedAuthHeader.set("");
-        lastCapturedUri.set("");
         responseStatusCode = 200;
         responsePayload = "";
         clock = new MutableClock(1_000_000_000L);
@@ -44,7 +50,6 @@ class GossipApiClientTest {
         port = server.getAddress().getPort();
         server.createContext("/", exchange -> {
             requestCounter.incrementAndGet();
-            lastCapturedUri.set(exchange.getRequestURI().toString());
             lastCapturedApiKey.set(exchange.getRequestHeaders().getFirst("x-goog-api-key"));
             lastCapturedAuthHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
@@ -66,11 +71,27 @@ class GossipApiClientTest {
         }
     }
 
+    private VillagerProfile testProfile() {
+        return new VillagerProfile(
+                UUID.randomUUID(), "Barnaby", "armorer", "plains",
+                List.of("grumpy", "shrewd"), "Obsessed with iron purity.",
+                "Left the capital after tax disputes.", 0, 0
+        );
+    }
+
+    private PlayerMemory testMemory(VillagerProfile profile) {
+        return new PlayerMemory(profile.uuid(), UUID.randomUUID(), 25, 4, 1500L, 0,
+                List.of("Visited stall"));
+    }
+
+    private GossipConfig testConfig(String apiKey, String model, String baseUrl) {
+        return new GossipConfig(true, apiKey, model, 3, true, 0.85, 0.5,
+                GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, baseUrl);
+    }
+
     private GossipApiClient createGeminiClient(String apiKey) {
-        GossipConfig config = new GossipConfig(true, apiKey, "gemini-3.8-flash", 20, 3, true, 0.85, false,
-                GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, 3, "http://127.0.0.1:" + port);
-        // Note: For gemini protocol, baseUrl must match generativelanguage or default
-        return new GossipApiClient(config, java.net.http.HttpClient.newHttpClient(), "http://127.0.0.1:" + port, clock) {
+        return new GossipApiClient(testConfig(apiKey, "gemini-3.8-flash", "http://127.0.0.1:" + port),
+                java.net.http.HttpClient.newHttpClient(), "http://127.0.0.1:" + port, clock) {
             @Override
             public boolean isOpenAiCompatible() {
                 return false; // Force Gemini mode in this test client
@@ -79,9 +100,14 @@ class GossipApiClientTest {
     }
 
     private GossipApiClient createOpenAiClient(String apiKey) {
-        GossipConfig config = new GossipConfig(true, apiKey, "gpt-4o-mini", 20, 3, true, 0.85, false,
-                GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, 3, "http://127.0.0.1:" + port + "/v1");
-        return new GossipApiClient(config, java.net.http.HttpClient.newHttpClient(), "http://127.0.0.1:" + port + "/v1", clock);
+        return new GossipApiClient(testConfig(apiKey, "gpt-4o-mini", "http://127.0.0.1:" + port + "/v1"),
+                java.net.http.HttpClient.newHttpClient(), "http://127.0.0.1:" + port + "/v1", clock);
+    }
+
+    private java.util.concurrent.CompletableFuture<Optional<IndividualDialogueResult>> requestDialogue(
+            GossipApiClient client) {
+        VillagerProfile profile = testProfile();
+        return client.generateIndividualDialogue(profile, testMemory(profile), "The Feudal Lord", 7.5);
     }
 
     @Test
@@ -92,7 +118,7 @@ class GossipApiClientTest {
           "candidates": [{
             "content": {
               "parts": [{
-                "text": "{\\"farmer\\":[\\"Good harvest!\\"],\\"blacksmith\\":[\\"Cheap iron!\\"]}"
+                "text": "{\\"dialogue\\":\\"Careful, that blade is sharper than your purse.\\",\\"sentiment_delta\\":1}"
               }]
             }
           }]
@@ -100,17 +126,19 @@ class GossipApiClientTest {
         """;
 
         GossipApiClient client = createGeminiClient("test-api-key-123");
-        Optional<GossipPool> pool = client.generateRumors("<context>test</context>").get();
+        Optional<IndividualDialogueResult> result = requestDialogue(client).get();
 
-        assertTrue(pool.isPresent());
+        assertTrue(result.isPresent());
         assertEquals("test-api-key-123", lastCapturedApiKey.get());
 
         String captured = lastCapturedBody.get();
-        assertTrue(captured.contains("BLOCK_ONLY_HIGH"));
         assertTrue(captured.contains("\"thinkingBudget\":0"));
         assertTrue(captured.contains("response_schema"));
-        assertTrue(captured.contains("farmer"));
-        assertTrue(captured.contains("blacksmith"));
+        assertTrue(captured.contains("sentiment_delta"));
+        assertTrue(captured.contains("dialogue"));
+        assertTrue(captured.contains("system_instruction"));
+        // The persona reaches the provider in the system prompt, never as a player identity.
+        assertTrue(captured.contains("Barnaby"));
     }
 
     @Test
@@ -120,56 +148,22 @@ class GossipApiClientTest {
         {
           "choices": [{
             "message": {
-              "content": "{\\"farmer\\":[\\"Fresh bread!\\"],\\"blacksmith\\":[\\"Swords ready!\\"]}"
+              "content": "{\\"dialogue\\":\\"Mind the shop prices today.\\",\\"sentiment_delta\\":0}"
             }
           }]
         }
         """;
 
         GossipApiClient client = createOpenAiClient("sk-test-openai-key");
-        Optional<GossipPool> pool = client.generateRumors("<context>economy</context>").get();
+        Optional<IndividualDialogueResult> result = requestDialogue(client).get();
 
-        assertTrue(pool.isPresent());
+        assertTrue(result.isPresent());
         assertEquals("Bearer sk-test-openai-key", lastCapturedAuthHeader.get());
-        assertTrue(lastCapturedUri.get().endsWith("/chat/completions"));
 
         String captured = lastCapturedBody.get();
-        assertTrue(captured.contains("\"model\":\"gpt-4o-mini\""));
-        assertTrue(captured.contains("\"json_object\""));
-        assertTrue(captured.contains("role"));
-        assertTrue(captured.contains("system"));
-        assertTrue(captured.contains("user"));
-
-        GossipPool res = pool.get();
-        assertEquals(1, res.getRumors(GossipCategory.FARMER).size());
-        assertEquals("Fresh bread!", res.getRumors(GossipCategory.FARMER).get(0));
-    }
-
-    @Test
-    void testSuccessfulResponseParsingIntoGossipPool() throws Exception {
-        responseStatusCode = 200;
-        responsePayload = """
-        {
-          "candidates": [{
-            "content": {
-              "parts": [{
-                "text": "{\\"farmer\\":[\\"Apples!\\"],\\"cleric\\":[\\"Potions!\\"],\\"general\\":[\\"Economy booming!\\"]}"
-              }]
-            }
-          }]
-        }
-        """;
-
-        GossipApiClient client = createGeminiClient("test-key");
-        Optional<GossipPool> pool = client.generateRumors("ctx").get();
-
-        assertTrue(pool.isPresent());
-        GossipPool p = pool.get();
-        assertEquals(3, p.totalRumors());
-        assertEquals(List.of("Apples!"), p.getRumors(GossipCategory.FARMER));
-        assertEquals(List.of("Potions!"), p.getRumors(GossipCategory.CLERIC));
-        assertEquals(List.of("Economy booming!"), p.getRumors(GossipCategory.GENERAL));
-        assertTrue(p.getRumors(GossipCategory.BLACKSMITH).isEmpty());
+        assertTrue(captured.contains("messages"));
+        assertTrue(captured.contains("sentiment_delta"));
+        assertTrue(captured.contains("Barnaby"));
     }
 
     @Test
@@ -180,25 +174,21 @@ class GossipApiClientTest {
         GossipApiClient client = createGeminiClient("test-key");
         assertFalse(client.isCircuitOpen());
 
-        // 1st failure
-        client.generateRumors("ctx").get();
+        requestDialogue(client).get();
         assertEquals(1, client.getConsecutiveFailures());
         assertFalse(client.isCircuitOpen());
 
-        // 2nd failure
-        client.generateRumors("ctx").get();
+        requestDialogue(client).get();
         assertEquals(2, client.getConsecutiveFailures());
         assertFalse(client.isCircuitOpen());
 
-        // 3rd failure - should trip circuit breaker
-        client.generateRumors("ctx").get();
+        requestDialogue(client).get();
         assertEquals(3, client.getConsecutiveFailures());
         assertTrue(client.isCircuitOpen());
 
-        // 4th call: circuit breaker should immediately block without sending HTTP request
+        // 4th call: circuit breaker should immediately block without sending an HTTP request
         int requestsBefore = requestCounter.get();
-        Optional<GossipPool> blocked = client.generateRumors("ctx").get();
-        assertTrue(blocked.isEmpty());
+        assertTrue(requestDialogue(client).get().isEmpty());
         assertEquals(requestsBefore, requestCounter.get());
     }
 
@@ -209,30 +199,29 @@ class GossipApiClientTest {
 
         GossipApiClient client = createGeminiClient("test-key");
 
-        client.generateRumors("ctx").get();
-        client.generateRumors("ctx").get();
-        client.generateRumors("ctx").get();
+        requestDialogue(client).get();
+        requestDialogue(client).get();
+        requestDialogue(client).get();
         assertTrue(client.isCircuitOpen());
 
         // Advance clock by 31 minutes (quiet period is 30m)
         clock.advanceMinutes(31);
         assertFalse(client.isCircuitOpen());
 
-        // Next successful request should reset consecutive failures
         responseStatusCode = 200;
         responsePayload = """
         {
           "candidates": [{
             "content": {
               "parts": [{
-                "text": "{\\"general\\":[\\"Peace restored!\\"]}"
+                "text": "{\\"dialogue\\":\\"Peace restored, friend.\\",\\"sentiment_delta\\":2}"
               }]
             }
           }]
         }
         """;
 
-        Optional<GossipPool> recovered = client.generateRumors("ctx").get();
+        Optional<IndividualDialogueResult> recovered = requestDialogue(client).get();
         assertTrue(recovered.isPresent());
         assertEquals(0, client.getConsecutiveFailures());
         assertFalse(client.isCircuitOpen());
@@ -244,9 +233,7 @@ class GossipApiClientTest {
         responsePayload = "Service Unavailable";
 
         GossipApiClient client = createGeminiClient("test-key");
-        Optional<GossipPool> pool = client.generateRumors("ctx").get();
-
-        assertTrue(pool.isEmpty());
+        assertTrue(requestDialogue(client).get().isEmpty());
         assertEquals(1, client.getConsecutiveFailures());
         assertFalse(client.isCircuitOpen());
     }
@@ -254,9 +241,7 @@ class GossipApiClientTest {
     @Test
     void testUnconfiguredApiKeySilent() throws Exception {
         GossipApiClient client = createGeminiClient("");
-        Optional<GossipPool> pool = client.generateRumors("ctx").get();
-
-        assertTrue(pool.isEmpty());
+        assertTrue(requestDialogue(client).get().isEmpty());
         assertEquals(0, requestCounter.get());
         assertFalse(client.isCircuitOpen());
     }
@@ -273,9 +258,7 @@ class GossipApiClientTest {
         """;
 
         GossipApiClient client = createGeminiClient("test-key");
-        Optional<GossipPool> pool = client.generateRumors("ctx").get();
-
-        assertTrue(pool.isEmpty());
+        assertTrue(requestDialogue(client).get().isEmpty());
     }
 
     @Test
@@ -294,9 +277,7 @@ class GossipApiClientTest {
         """;
 
         GossipApiClient client = createGeminiClient("test-key");
-        Optional<GossipPool> pool = client.generateRumors("ctx").get();
-
-        assertTrue(pool.isEmpty());
+        assertTrue(requestDialogue(client).get().isEmpty());
         assertEquals(1, client.getConsecutiveFailures());
     }
 
@@ -306,9 +287,7 @@ class GossipApiClientTest {
         responsePayload = "Too Many Requests";
 
         GossipApiClient client = createGeminiClient("test-key");
-        Optional<GossipPool> pool = client.generateRumors("ctx").get();
-
-        assertTrue(pool.isEmpty());
+        assertTrue(requestDialogue(client).get().isEmpty());
         assertEquals(1, client.getConsecutiveFailures());
     }
 
@@ -326,12 +305,12 @@ class GossipApiClientTest {
     void testExtractJsonObjectWithReasoningPreamble() {
         String reasoningOutput = """
                 Here is a thinking process:
-                1. The user wants villager economic rumors.
-                2. I will generate them for all professions.
+                1. The user wants villager dialogue.
+                2. I will generate one line.
                 ```json
                 {
-                  "farmer": ["Wheat is golden!"],
-                  "general": ["Market is up!"]
+                  "dialogue": "Wheat is golden!",
+                  "sentiment_delta": 1
                 }
                 ```
                 I hope this helps!
@@ -339,71 +318,6 @@ class GossipApiClientTest {
         String extracted = GossipApiClient.extractJsonObject(reasoningOutput);
         assertTrue(extracted.startsWith("{"));
         assertTrue(extracted.endsWith("}"));
-        assertTrue(extracted.contains("\"farmer\""));
-
-        GossipApiClient client = createGeminiClient("test-key");
-        Optional<GossipPool> pool = client.parseGossipJson(reasoningOutput);
-        assertTrue(pool.isPresent());
-        assertEquals(List.of("Wheat is golden!"), pool.get().getRumors(GossipCategory.FARMER));
-        assertEquals(List.of("Market is up!"), pool.get().getRumors(GossipCategory.GENERAL));
-    }
-
-    @Test
-    void testDiversifyRumorsRemovesExcessiveLeadingGrunts() {
-        List<String> repetitiveLines = List.of(
-                "Hrmm... that $1.305 feather delivery fee is basically rent now.",
-                "Hrmm... that $1.536 escrow deposit is a small fortune.",
-                "Hrmm... librarian whispers that the party levy is huge."
-        );
-
-        List<String> diversified = GossipApiClient.diversifyRumors(repetitiveLines);
-        assertEquals(3, diversified.size());
-        assertEquals("Hrmm... that $1.305 feather delivery fee is basically rent now.", diversified.get(0));
-        assertEquals("That $1.536 escrow deposit is a small fortune.", diversified.get(1));
-        assertEquals("Librarian whispers that the party levy is huge.", diversified.get(2));
-    }
-
-    @Test
-    void testDiversifyRumorsPreservesDiverseLines() {
-        List<String> naturalLines = List.of(
-                "$768 for feathers? My wheat barely sells at this rate.",
-                "Huh? I thought party levy was a dance move.",
-                "Inflation is out of control today."
-        );
-
-        List<String> diversified = GossipApiClient.diversifyRumors(naturalLines);
-        assertEquals(naturalLines, diversified);
-    }
-
-    @Test
-    void testParseSingleRumorJson() {
-        GossipApiClient client = createGeminiClient("key");
-        Optional<String> rumor = client.parseSingleRumorJson("```json\n{\"rumor\": \"Feather prices are soaring today!\"}\n```");
-        assertTrue(rumor.isPresent());
-        assertEquals("Feather prices are soaring today!", rumor.get());
-
-        assertTrue(client.parseSingleRumorJson("{}").isEmpty());
-        assertTrue(client.parseSingleRumorJson("invalid text").isEmpty());
-    }
-
-    @Test
-    void testGenerateSingleRumorGemini() throws Exception {
-        responseStatusCode = 200;
-        responsePayload = """
-        {
-          "candidates": [{
-            "content": {
-              "parts": [{
-                "text": "{\\"rumor\\":\\"Fresh bread selling for $5 a loaf!\\"}"
-              }]
-            }
-          }]
-        }
-        """;
-
-        GossipApiClient client = createGeminiClient("test-key");
-        Optional<String> result = client.generateSingleRumor(GossipCategory.FARMER, "Recent trade activity").join();
-        assertTrue(result.isPresent());
-        assertEquals("Fresh bread selling for $5 a loaf!", result.get());
+        assertTrue(extracted.contains("\"dialogue\""));
     }
 }

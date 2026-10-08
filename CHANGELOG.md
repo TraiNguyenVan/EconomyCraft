@@ -5,6 +5,33 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Public villager gossip removed; dialogue is private only
+
+Villager speech is now delivered **only** to the player who opened the trade interface, under every
+configuration. There is no longer any way to let villagers talk in server chat.
+
+This removes the whole shared rumor pipeline, not just the broadcast call:
+
+- `public_chat`, `public_chat_chance`, `refresh_interval_minutes`, `system_instruction` and
+  `pool_size_per_category` are gone from the `gemini_gossip` section (14 keys → 9).
+- The rumor pool, its profession categories, the profession→category mapper, the transaction digest, the
+  periodic digest worker and the on-demand single-rumor generator are deleted from the source tree.
+- The private prompt loses its "Word from your fellow villagers across the realm" section, because the pool it
+  drew from no longer exists. Everything else the prompt carries is untouched: the villager's personality and
+  backstory, its memory of your visits and trades, what it currently sells, and repetition avoidance.
+- `/eco gossip refresh` and `/eco gossip test` are removed — both existed only to populate and sample the
+  pool. They now return *Unknown subcommand*. `/eco gossip status`, `/eco gossip dialogue`,
+  `/eco gossip reload`, and `/eco gossip memory inspect|clear` are unchanged.
+- `/eco gossip status` no longer reports a rumor count or a refresh interval, and reports circuit-breaker
+  state from the client rather than from the deleted worker.
+
+**Your `config.json` needs no edit.** Removed keys are skipped when reading, so an existing file boots
+normally. The next time anything saves the config, the stale keys are pruned for you silently.
+
+**Deliberately kept**, because the private path depends on them and they are not gossip-pool machinery:
+player archetype anonymization, the prompt-injection sanitizer, and the recently-spoken-line tracker. The
+last of these now records only real dialogue, since nothing else writes to it.
+
 ### An undecided player is an Anarchist
 
 `FactionId.defaultFaction()` is Anarchism, so a player who has never run `/eco party` already *is* one as far

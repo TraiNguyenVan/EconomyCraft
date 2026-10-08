@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class VillagerDialoguePromptBuilderTest {
 
     @Test
-    @DisplayName("Prompt builder includes persona, memories, grapevine, and inflation")
+    @DisplayName("Prompt builder includes persona, memories, and current stock, and no longer includes grapevine rumors")
     void testPromptBuilderCompleteness() {
         UUID villagerUuid = UUID.randomUUID();
         UUID playerUuid = UUID.randomUUID();
@@ -41,16 +41,10 @@ class VillagerDialoguePromptBuilderTest {
                 List.of("Purchased diamond helmet", "Visited stall", "Asked about shield repairs")
         );
 
-        List<String> grapevine = List.of(
-                "Iron prices dropped 10% today.",
-                "The Quest Board posted a massive bounty."
-        );
-
         String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(
                 profile,
                 memory,
                 "The Feudal Lord",
-                grapevine,
                 7.5
         );
 
@@ -62,7 +56,8 @@ class VillagerDialoguePromptBuilderTest {
         assertTrue(prompt.contains("The Feudal Lord"));
         assertFalse(prompt.contains("Purchased diamond helmet"));
         assertTrue(prompt.contains("Visited stall"));
-        assertTrue(prompt.contains("Iron prices dropped 10%"));
+        assertFalse(prompt.contains("across the realm"),
+                "The shared rumor pool was removed; no grapevine section may appear");
         assertFalse(prompt.contains("inflation"));
         assertTrue(prompt.contains("dialogue"));
         assertTrue(prompt.contains("sentiment_delta"));
@@ -89,7 +84,6 @@ class VillagerDialoguePromptBuilderTest {
                 profile,
                 memory,
                 "a local merchant",
-                null,
                 1.0,
                 null,
                 recentTopics
@@ -131,7 +125,6 @@ class VillagerDialoguePromptBuilderTest {
                 profile,
                 memory,
                 "a local merchant",
-                null,
                 1.0,
                 null,
                 null,
@@ -180,7 +173,6 @@ class VillagerDialoguePromptBuilderTest {
                 profile,
                 memory,
                 "a buyer",
-                null,
                 1.0,
                 null,
                 null,
@@ -207,7 +199,7 @@ class VillagerDialoguePromptBuilderTest {
         PlayerMemory memory = new PlayerMemory(villagerUuid, playerUuid, 5, 3, 9999, 1,
                 List.of("Completed trade involving 8x Wheat", "Visited stall"));
 
-        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(profile, memory, "customer", null, 1.0);
+        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(profile, memory, "customer", 1.0);
         assertFalse(prompt.contains("8x Wheat"));
         assertTrue(prompt.contains("Visited stall"));
     }
@@ -220,7 +212,7 @@ class VillagerDialoguePromptBuilderTest {
         VillagerProfile profile = new VillagerProfile(villagerUuid, "Barnaby", "farmer", "plains", List.of(), "", "", 0, 0);
         PlayerMemory memory = new PlayerMemory(villagerUuid, playerUuid, 5, 3, 9999, 1,
                 List.of("Completed trade involving wheat"));
-        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(profile, memory, "customer", null, 1.0);
+        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(profile, memory, "customer", 1.0);
         assertTrue(prompt.contains("Do not claim a past visit, trade, or relationship"));
     }
 }

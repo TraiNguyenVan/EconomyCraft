@@ -294,22 +294,4 @@ public final class TransactionAnonymizer {
 
         return "- " + actor + " participated in an economic transaction of " + formattedAmount + ".";
     }
-
-    /**
-     * Formats a list of transactions into an event line digest for prompt consumption.
-     */
-    public static List<String> formatDigest(
-            List<TransactionEntry> entries,
-            boolean anonymizePlayers,
-            @Nullable Function<UUID, String> factionResolver
-    ) {
-        if (entries == null || entries.isEmpty()) {
-            return List.of();
-        }
-        List<String> lines = new ArrayList<>(entries.size());
-        for (TransactionEntry entry : entries) {
-            lines.add(formatTransaction(entry, anonymizePlayers, factionResolver));
-        }
-        return Collections.unmodifiableList(lines);
-    }
 }

@@ -31,7 +31,6 @@ public class VillagerMemoryService {
     private final VillagerDatabase database;
     private final GossipApiClient apiClient;
     private final Supplier<GossipConfig> configSupplier;
-    private final Supplier<GossipPool> poolSupplier;
     private final DoubleSupplier inflationSupplier;
     private final @Nullable Function<UUID, String> factionResolver;
     private final @Nullable com.reazip.economycraft.gossip.RecentSpokenTracker recentSpokenTracker;
@@ -47,18 +46,6 @@ public class VillagerMemoryService {
             VillagerDatabase database,
             GossipApiClient apiClient,
             Supplier<GossipConfig> configSupplier,
-            Supplier<GossipPool> poolSupplier,
-            DoubleSupplier inflationSupplier,
-            @Nullable Function<UUID, String> factionResolver
-    ) {
-        this(database, apiClient, configSupplier, poolSupplier, inflationSupplier, factionResolver, null);
-    }
-
-    public VillagerMemoryService(
-            VillagerDatabase database,
-            GossipApiClient apiClient,
-            Supplier<GossipConfig> configSupplier,
-            Supplier<GossipPool> poolSupplier,
             DoubleSupplier inflationSupplier,
             @Nullable Function<UUID, String> factionResolver,
             @Nullable com.reazip.economycraft.gossip.RecentSpokenTracker recentSpokenTracker
@@ -66,7 +53,6 @@ public class VillagerMemoryService {
         this.database = database;
         this.apiClient = apiClient;
         this.configSupplier = configSupplier;
-        this.poolSupplier = poolSupplier;
         this.inflationSupplier = inflationSupplier;
         this.factionResolver = factionResolver;
         this.recentSpokenTracker = recentSpokenTracker;
@@ -138,11 +124,6 @@ public class VillagerMemoryService {
             villager.setCustomNameVisible(false); // standard nametag visibility on look
         }
 
-        // Resolve global grapevine rumors for this villager's category
-        GossipCategory category = ProfessionMapper.fromEntity(villager);
-        GossipPool pool = poolSupplier.get();
-        List<String> grapevine = (pool != null) ? pool.getRumors(category) : List.of();
-
         // Resolve player archetype
         String faction = factionResolver != null ? factionResolver.apply(playerUuid) : null;
         String playerName = player.getScoreboardName();
@@ -168,7 +149,7 @@ public class VillagerMemoryService {
                     LOGGER.info("[EconomyCraft-AI] Villager {} ({}) interacting with player {}. Extracted {} offer(s), {} past trade(s).",
                             profile.name(), profile.profession(), playerName, offers.size(), trades.size());
                     return apiClient.generateIndividualDialogue(
-                            profile, memory, archetype, grapevine, inflation, recentSpoken, offers, trades)
+                            profile, memory, archetype, inflation, recentSpoken, offers, trades)
                             .thenApply(result -> Map.entry(result, memory));
                 })
                 .thenApply(contextual -> {

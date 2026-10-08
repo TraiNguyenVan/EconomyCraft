@@ -17,10 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -113,115 +110,50 @@ public class GossipApiClient {
         return circuitOpenUntilMillis.get();
     }
 
-    public CompletableFuture<Optional<GossipPool>> generateRumors(@Nullable TransactionDigest digest) {
-        if (digest == null) {
-            return generateRumors("The village market is quiet with standard trade activity.");
-        }
-        return generateRumors(digest.toPromptContext());
-    }
-
-    public CompletableFuture<Optional<GossipPool>> generateRumors(String economicContext) {
-        String apiKey = config.getEffectiveApiKey();
-        if (!config.enabled() || apiKey == null || apiKey.isBlank()) {
-            return CompletableFuture.completedFuture(Optional.empty());
-        }
-
-        if (isCircuitOpen()) {
-            return CompletableFuture.completedFuture(Optional.empty());
-        }
-
-        boolean isOpenAi = isOpenAiCompatible();
-        String url;
-        String requestJson;
-        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
-                .timeout(Duration.ofSeconds(25))
-                .header("Content-Type", "application/json");
-
-        if (isOpenAi) {
-            url = baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions";
-            requestJson = buildOpenAiRequestBody(economicContext);
-            reqBuilder.header("Authorization", "Bearer " + apiKey);
-        } else {
-            url = String.format("%s/v1beta/models/%s:generateContent", baseUrl, config.model());
-            requestJson = buildGeminiRequestBody(economicContext);
-            reqBuilder.header("x-goog-api-key", apiKey);
-        }
-
-        HttpRequest request = reqBuilder
-                .uri(URI.create(url))
-                .POST(HttpRequest.BodyPublishers.ofString(requestJson))
-                .build();
-
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .<Optional<GossipPool>>thenApply(response -> {
-                    if (response.statusCode() == 200) {
-                        Optional<GossipPool> pool = isOpenAi
-                                ? parseOpenAiResponse(response.body())
-                                : parseGeminiResponse(response.body());
-                        if (pool.isPresent()) {
-                            recordSuccess();
-                            return pool;
-                        } else {
-                            recordFailure(200, "Empty or blocked content");
-                            return Optional.<GossipPool>empty();
-                        }
-                    } else {
-                        recordFailure(response.statusCode(), "HTTP error");
-                        return Optional.<GossipPool>empty();
-                    }
-                })
-                .exceptionally(ex -> {
-                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
-                    LOGGER.warn("[EconomyCraft-AI] Request failed with exception: {}", cause.toString());
-                    recordFailure(-1, cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName());
-                    return Optional.<GossipPool>empty();
-                });
-    }
-
+    /**
+     * Determines whether the configured endpoint speaks the OpenAI-compatible dialect.
+     */
     public boolean isOpenAiCompatible() {
         return config.isOpenAiCompatible();
     }
 
     /**
      * Asynchronously generates personalized, in-character dialogue for an individual villager
-     * based on their persistent persona, memory with the visiting player, and profession grapevine news.
+     * based on their persistent persona, memory with the visiting player, and current stall stock.
      */
     public CompletableFuture<Optional<IndividualDialogueResult>> generateIndividualDialogue(
             VillagerProfile profile,
             PlayerMemory memory,
             String playerArchetype,
-            @Nullable List<String> grapevineRumors,
             double inflation
     ) {
-        return generateIndividualDialogue(profile, memory, playerArchetype, grapevineRumors, inflation, null);
+        return generateIndividualDialogue(profile, memory, playerArchetype, inflation, null);
     }
 
     /**
      * Asynchronously generates personalized, in-character dialogue for an individual villager
-     * based on their persistent persona, memory with the visiting player, and profession grapevine news,
+     * based on their persistent persona and memory with the visiting player,
      * with negative prompting against recently spoken topics to prevent repetition.
      */
     public CompletableFuture<Optional<IndividualDialogueResult>> generateIndividualDialogue(
             VillagerProfile profile,
             PlayerMemory memory,
             String playerArchetype,
-            @Nullable List<String> grapevineRumors,
             double inflation,
             @Nullable List<String> recentSpokenTopics
     ) {
-        return generateIndividualDialogue(profile, memory, playerArchetype, grapevineRumors, inflation, recentSpokenTopics, null, null);
+        return generateIndividualDialogue(profile, memory, playerArchetype, inflation, recentSpokenTopics, null, null);
     }
 
     /**
      * Asynchronously generates personalized, in-character dialogue for an individual villager
-     * based on their persistent persona, memory with the visiting player, profession grapevine news,
+     * based on their persistent persona, memory with the visiting player,
      * recently spoken topics, current stall offers, and per-player trade history.
      */
     public CompletableFuture<Optional<IndividualDialogueResult>> generateIndividualDialogue(
             VillagerProfile profile,
             PlayerMemory memory,
             String playerArchetype,
-            @Nullable List<String> grapevineRumors,
             double inflation,
             @Nullable List<String> recentSpokenTopics,
             @Nullable List<com.reazip.economycraft.gossip.memory.TradeOfferSnapshot> currentOffers,
@@ -233,7 +165,7 @@ public class GossipApiClient {
         }
 
         String systemInstruction = VillagerDialoguePromptBuilder.buildSystemInstruction(
-                profile, memory, playerArchetype, grapevineRumors, inflation, config.dialogueSystemInstruction(), recentSpokenTopics, currentOffers, tradeHistory);
+                profile, memory, playerArchetype, inflation, config.dialogueSystemInstruction(), recentSpokenTopics, currentOffers, tradeHistory);
 
         LOGGER.info("[EconomyCraft-AI] Generating dialogue for villager {} ({}) with {} offer(s), {} trade history record(s).",
                 profile.name(), profile.profession(),
@@ -290,275 +222,8 @@ public class GossipApiClient {
     }
 
     /**
-     * Asynchronously generates a single in-character economic rumor on demand for a specific profession.
+     * Builds an OpenAI-compatible chat-completions request carrying the individual dialogue prompt.
      */
-    public CompletableFuture<Optional<String>> generateSingleRumor(GossipCategory category, String economicContext) {
-        return generateSingleRumor(category, economicContext, null);
-    }
-
-    /**
-     * Asynchronously generates a single in-character economic rumor on demand for a specific profession,
-     * avoiding recently spoken topics.
-     */
-    public CompletableFuture<Optional<String>> generateSingleRumor(
-            GossipCategory category,
-            String economicContext,
-            @Nullable List<String> recentSpoken
-    ) {
-        String apiKey = config.getEffectiveApiKey();
-        if (!config.enabled() || apiKey == null || apiKey.isBlank() || isCircuitOpen()) {
-            return CompletableFuture.completedFuture(Optional.empty());
-        }
-
-        boolean isOpenAi = isOpenAiCompatible();
-        String url;
-        String requestJson;
-        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
-                .timeout(Duration.ofSeconds(15))
-                .header("Content-Type", "application/json");
-
-        if (isOpenAi) {
-            url = baseUrl.endsWith("/chat/completions") ? baseUrl : baseUrl + "/chat/completions";
-            requestJson = buildOpenAiSingleRumorRequestBody(category, economicContext, recentSpoken);
-            reqBuilder.header("Authorization", "Bearer " + apiKey);
-        } else {
-            url = String.format("%s/v1beta/models/%s:generateContent", baseUrl, config.model());
-            requestJson = buildGeminiSingleRumorRequestBody(category, economicContext, recentSpoken);
-            reqBuilder.header("x-goog-api-key", apiKey);
-        }
-
-        HttpRequest request = reqBuilder
-                .uri(URI.create(url))
-                .POST(HttpRequest.BodyPublishers.ofString(requestJson))
-                .build();
-
-        return httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .<Optional<String>>thenApply(response -> {
-                    if (response.statusCode() == 200) {
-                        Optional<String> rumor = isOpenAi
-                                ? parseOpenAiSingleRumorResponse(response.body())
-                                : parseGeminiSingleRumorResponse(response.body());
-                        if (rumor.isPresent()) {
-                            recordSuccess();
-                            return rumor;
-                        } else {
-                            recordFailure(200, "Empty or blocked single rumor");
-                            return Optional.empty();
-                        }
-                    } else {
-                        recordFailure(response.statusCode(), "HTTP error in single rumor");
-                        return Optional.empty();
-                    }
-                })
-                .exceptionally(ex -> {
-                    Throwable cause = (ex.getCause() != null) ? ex.getCause() : ex;
-                    LOGGER.warn("[EconomyCraft-AI] Single rumor request failed: {}", cause.toString());
-                    recordFailure(-1, cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName());
-                    return Optional.empty();
-                });
-    }
-
-    public String buildOpenAiSingleRumorRequestBody(GossipCategory category, String economicContext) {
-        return buildOpenAiSingleRumorRequestBody(category, economicContext, null);
-    }
-
-    public String buildOpenAiSingleRumorRequestBody(
-            GossipCategory category,
-            String economicContext,
-            @Nullable List<String> recentSpoken
-    ) {
-        JsonObject root = new JsonObject();
-        root.addProperty("model", config.model());
-        root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 1.5));
-        root.addProperty("max_tokens", 256);
-
-        JsonObject reasoning = new JsonObject();
-        reasoning.addProperty("effort", "none");
-        root.add("reasoning", reasoning);
-
-        JsonObject responseFormat = new JsonObject();
-        responseFormat.addProperty("type", "json_object");
-        root.add("response_format", responseFormat);
-
-        String systemPrompt = String.format(Locale.ROOT,
-                "You are a witty, satirical economic gossip for a %s villager on an economy Minecraft server.\n" +
-                "Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak.\n" +
-                "Always refer to money in dollars ('$'). Never mention real player usernames.\n" +
-                "CRITICAL: Avoid repeating topics or items that were recently discussed. Vary your perspective and humor.\n" +
-                "Based on the recent transactions summary and guidelines, write exactly ONE short, humorous rumor line (under 25 words) matching your profession.\n" +
-                "If recent market activity is quiet, make a witty remark about stable prices, inflation, or your trade stall.",
-                category.name().toLowerCase(Locale.ROOT));
-
-        JsonArray messages = new JsonArray();
-        JsonObject sysMsg = new JsonObject();
-        sysMsg.addProperty("role", "system");
-        sysMsg.addProperty("content", systemPrompt);
-        messages.add(sysMsg);
-
-        StringBuilder userContent = new StringBuilder();
-        if (economicContext != null && !economicContext.isBlank()) {
-            userContent.append(economicContext).append("\n\n");
-        } else {
-            userContent.append("The village market is quiet.\n\n");
-        }
-
-        if (recentSpoken != null && !recentSpoken.isEmpty()) {
-            userContent.append("RECENTLY SPOKEN VILLAGE TOPICS (DO NOT repeat these topics or focus on these exact items):\n");
-            for (String line : recentSpoken) {
-                userContent.append("- \"").append(line).append("\"\n");
-            }
-            userContent.append("\n");
-        }
-
-        userContent.append("TOPIC ROTATION GUIDELINES:\n")
-                .append("Rotate your focus across diverse angles:\n")
-                .append("- Angle 1: A fresh market transaction, bounty, or auction from the digest (different from recent topics).\n")
-                .append("- Angle 2: Treasury taxes, tolls, or village economy.\n")
-                .append("- Angle 3: Your own stall supplies, material shortages, or inventory gripes.\n")
-                .append("- Angle 4: Quirky villager profession humor, weather for crops, or customer habits.\n\n")
-                .append("Respond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
-
-        JsonObject userMsg = new JsonObject();
-        userMsg.addProperty("role", "user");
-        userMsg.addProperty("content", userContent.toString());
-        messages.add(userMsg);
-
-        root.add("messages", messages);
-        return GSON.toJson(root);
-    }
-
-    public String buildGeminiSingleRumorRequestBody(GossipCategory category, String economicContext) {
-        return buildGeminiSingleRumorRequestBody(category, economicContext, null);
-    }
-
-    public String buildGeminiSingleRumorRequestBody(
-            GossipCategory category,
-            String economicContext,
-            @Nullable List<String> recentSpoken
-    ) {
-        JsonObject root = new JsonObject();
-
-        String systemPrompt = String.format(Locale.ROOT,
-                "You are a witty, satirical economic gossip for a %s villager on an economy Minecraft server.\n" +
-                "Villagers have quirky mannerisms: occasionally mutter or hum ('Hmm...', 'Huh?', 'Haah...'), but vary how you speak.\n" +
-                "Always refer to money in dollars ('$'). Never mention real player usernames.\n" +
-                "CRITICAL: Avoid repeating topics or items that were recently discussed. Vary your perspective and humor.\n" +
-                "Based on the recent transactions summary and guidelines, write exactly ONE short, humorous rumor line (under 25 words) matching your profession.\n" +
-                "If recent market activity is quiet, make a witty remark about stable prices, inflation, or your trade stall.",
-                category.name().toLowerCase(Locale.ROOT));
-
-        JsonObject sysObj = new JsonObject();
-        JsonArray sysParts = new JsonArray();
-        JsonObject sysPart = new JsonObject();
-        sysPart.addProperty("text", systemPrompt);
-        sysParts.add(sysPart);
-        sysObj.add("parts", sysParts);
-        root.add("system_instruction", sysObj);
-
-        JsonArray contents = new JsonArray();
-        JsonObject contentObj = new JsonObject();
-        JsonArray contentParts = new JsonArray();
-        JsonObject textPart = new JsonObject();
-
-        StringBuilder userContent = new StringBuilder();
-        if (economicContext != null && !economicContext.isBlank()) {
-            userContent.append(economicContext).append("\n\n");
-        } else {
-            userContent.append("The village market is quiet.\n\n");
-        }
-
-        if (recentSpoken != null && !recentSpoken.isEmpty()) {
-            userContent.append("RECENTLY SPOKEN VILLAGE TOPICS (DO NOT repeat these topics or focus on these exact items):\n");
-            for (String line : recentSpoken) {
-                userContent.append("- \"").append(line).append("\"\n");
-            }
-            userContent.append("\n");
-        }
-
-        userContent.append("TOPIC ROTATION GUIDELINES:\n")
-                .append("Rotate your focus across diverse angles:\n")
-                .append("- Angle 1: A fresh market transaction, bounty, or auction from the digest (different from recent topics).\n")
-                .append("- Angle 2: Treasury taxes, tolls, or village economy.\n")
-                .append("- Angle 3: Your own stall supplies, material shortages, or inventory gripes.\n")
-                .append("- Angle 4: Quirky villager profession humor, weather for crops, or customer habits.\n\n")
-                .append("Respond strictly with valid JSON: {\"rumor\": \"<one sentence>\"}");
-
-        textPart.addProperty("text", userContent.toString());
-        contentParts.add(textPart);
-        contentObj.add("parts", contentParts);
-        contents.add(contentObj);
-        root.add("contents", contents);
-
-        JsonObject genConfig = new JsonObject();
-        genConfig.addProperty("response_mime_type", "application/json");
-        genConfig.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 1.5));
-        genConfig.addProperty("maxOutputTokens", 256);
-
-        JsonObject thinkingConfig = new JsonObject();
-        thinkingConfig.addProperty("thinkingBudget", 0);
-        genConfig.add("thinkingConfig", thinkingConfig);
-
-        JsonObject schema = new JsonObject();
-        schema.addProperty("type", "OBJECT");
-        JsonObject properties = new JsonObject();
-        JsonObject rumorProp = new JsonObject();
-        rumorProp.addProperty("type", "STRING");
-        properties.add("rumor", rumorProp);
-        JsonArray required = new JsonArray();
-        required.add("rumor");
-        schema.add("properties", properties);
-        schema.add("required", required);
-        genConfig.add("response_schema", schema);
-
-        root.add("generationConfig", genConfig);
-        return GSON.toJson(root);
-    }
-
-    private Optional<String> parseOpenAiSingleRumorResponse(String responseBody) {
-        try {
-            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
-            if (json == null || !json.has("choices")) return Optional.empty();
-            JsonArray choices = json.getAsJsonArray("choices");
-            if (choices.isEmpty()) return Optional.empty();
-            JsonObject first = choices.get(0).getAsJsonObject();
-            if (!first.has("message")) return Optional.empty();
-            JsonObject message = first.getAsJsonObject("message");
-            if (!message.has("content") || message.get("content").isJsonNull()) return Optional.empty();
-            return parseSingleRumorJson(message.get("content").getAsString());
-        } catch (Exception e) {
-            return Optional.empty();
-        }
-    }
-
-    private Optional<String> parseGeminiSingleRumorResponse(String responseBody) {
-        try {
-            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
-            if (json == null || !json.has("candidates")) return Optional.empty();
-            JsonArray candidates = json.getAsJsonArray("candidates");
-            if (candidates.isEmpty()) return Optional.empty();
-            JsonObject first = candidates.get(0).getAsJsonObject();
-            if (!first.has("content")) return Optional.empty();
-            JsonArray parts = first.getAsJsonObject("content").getAsJsonArray("parts");
-            if (parts == null || parts.isEmpty()) return Optional.empty();
-            return parseSingleRumorJson(parts.get(0).getAsJsonObject().get("text").getAsString());
-        } catch (Exception e) {
-            return Optional.empty();
-        }
-    }
-
-    public Optional<String> parseSingleRumorJson(String rawText) {
-        try {
-            String cleanText = extractJsonObject(rawText);
-            JsonObject obj = GSON.fromJson(cleanText, JsonObject.class);
-            if (obj == null || !obj.has("rumor")) return Optional.empty();
-            String rumor = obj.get("rumor").getAsString().trim();
-            return rumor.isEmpty() ? Optional.empty() : Optional.of(rumor);
-        } catch (Exception e) {
-            LOGGER.warn("[EconomyCraft-AI] Failed to parse single rumor JSON: {}", e.getMessage());
-            return Optional.empty();
-        }
-    }
-
     private String buildOpenAiIndividualDialogueRequestBody(String systemPrompt) {
         JsonObject root = new JsonObject();
         root.addProperty("model", config.model());
@@ -685,247 +350,6 @@ public class GossipApiClient {
             LOGGER.warn("[EconomyCraft-AI] Failed to parse individual dialogue JSON: {}", e.getMessage());
             return Optional.empty();
         }
-    }
-
-    // --- Gemini Request / Response ---
-
-    public String buildGeminiRequestBody(String economicContext) {
-        JsonObject root = new JsonObject();
-
-        // system_instruction
-        JsonObject systemInstruction = new JsonObject();
-        JsonArray sysParts = new JsonArray();
-        JsonObject sysPart = new JsonObject();
-        sysPart.addProperty("text", config.systemInstruction());
-        sysParts.add(sysPart);
-        systemInstruction.add("parts", sysParts);
-        root.add("system_instruction", systemInstruction);
-
-        // contents
-        JsonArray contents = new JsonArray();
-        JsonObject contentObj = new JsonObject();
-        JsonArray contentParts = new JsonArray();
-        JsonObject textPart = new JsonObject();
-        String promptText = (economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>")
-                + String.format("\n\nConstraint: Write exactly %d short, witty, and DIVERSE gossip lines for each villager profession category. Ensure lines in each category rotate across different topics (e.g. trades, taxes/tolls, stall supplies, and profession humor).", config.poolSizePerCategory());
-        textPart.addProperty("text", promptText);
-        contentParts.add(textPart);
-        contentObj.add("parts", contentParts);
-        contents.add(contentObj);
-        root.add("contents", contents);
-
-        // safetySettings
-        JsonArray safetySettings = new JsonArray();
-        String[] categories = {
-                "HARM_CATEGORY_HARASSMENT",
-                "HARM_CATEGORY_HATE_SPEECH",
-                "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "HARM_CATEGORY_DANGEROUS_CONTENT"
-        };
-        for (String cat : categories) {
-            JsonObject safety = new JsonObject();
-            safety.addProperty("category", cat);
-            safety.addProperty("threshold", "BLOCK_ONLY_HIGH");
-            safetySettings.add(safety);
-        }
-        root.add("safetySettings", safetySettings);
-
-        // generationConfig
-        JsonObject genConfig = new JsonObject();
-        genConfig.addProperty("response_mime_type", "application/json");
-        genConfig.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 2.0));
-        genConfig.addProperty("maxOutputTokens", Math.max(1024, config.poolSizePerCategory() * 250));
-
-        JsonObject thinkingConfig = new JsonObject();
-        thinkingConfig.addProperty("thinkingBudget", 0);
-        genConfig.add("thinkingConfig", thinkingConfig);
-
-        // response_schema
-        JsonObject schema = new JsonObject();
-        schema.addProperty("type", "OBJECT");
-        JsonObject properties = new JsonObject();
-        JsonArray required = new JsonArray();
-
-        for (GossipCategory cat : GossipCategory.values()) {
-            JsonObject prop = new JsonObject();
-            prop.addProperty("type", "ARRAY");
-            JsonObject itemType = new JsonObject();
-            itemType.addProperty("type", "STRING");
-            prop.add("items", itemType);
-
-            properties.add(cat.jsonKey(), prop);
-            required.add(cat.jsonKey());
-        }
-        schema.add("properties", properties);
-        schema.add("required", required);
-        genConfig.add("response_schema", schema);
-
-        root.add("generationConfig", genConfig);
-        return GSON.toJson(root);
-    }
-
-    public Optional<GossipPool> parseGeminiResponse(String responseBody) {
-        try {
-            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
-            if (json == null || !json.has("candidates")) {
-                return Optional.empty();
-            }
-            JsonArray candidates = json.getAsJsonArray("candidates");
-            if (candidates.isEmpty()) {
-                return Optional.empty();
-            }
-            JsonObject first = candidates.get(0).getAsJsonObject();
-            if (first.has("finishReason") && "SAFETY".equalsIgnoreCase(first.get("finishReason").getAsString())) {
-                LOGGER.warn("[EconomyCraft-AI] Generation blocked by safety filter.");
-                return Optional.empty();
-            }
-            if (!first.has("content")) {
-                return Optional.empty();
-            }
-            JsonObject content = first.getAsJsonObject("content");
-            JsonArray parts = content.getAsJsonArray("parts");
-            if (parts == null || parts.isEmpty()) {
-                return Optional.empty();
-            }
-            String text = parts.get(0).getAsJsonObject().get("text").getAsString();
-            return parseGossipJson(text);
-        } catch (Exception e) {
-            LOGGER.warn("[EconomyCraft-AI] Failed to parse Gemini response: {}", e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    // --- OpenAI Compatible Request / Response ---
-
-    public String buildOpenAiRequestBody(String economicContext) {
-        JsonObject root = new JsonObject();
-        root.addProperty("model", config.model());
-        root.addProperty("temperature", Math.clamp(config.temperature(), 0.0, 2.0));
-        // Increased token budget to comfortably accommodate reasoning models (e.g. DeepSeek-R1, Nemotron, etc.)
-        root.addProperty("max_tokens", Math.max(3072, config.poolSizePerCategory() * 500));
-
-        // Suppress extraneous chain-of-thought preambles so reasoning models output JSON immediately
-        JsonObject reasoning = new JsonObject();
-        reasoning.addProperty("effort", "none");
-        root.add("reasoning", reasoning);
-
-        JsonObject responseFormat = new JsonObject();
-        responseFormat.addProperty("type", "json_object");
-        root.add("response_format", responseFormat);
-
-        JsonArray messages = new JsonArray();
-
-        // System message
-        JsonObject sysMsg = new JsonObject();
-        sysMsg.addProperty("role", "system");
-        sysMsg.addProperty("content", config.systemInstruction() + "\nRespond strictly with valid JSON containing keys for categories: farmer, blacksmith, cleric, librarian, nitwit, general. Each key maps to an array of rumor strings. Do not wrap with extra text.");
-        messages.add(sysMsg);
-
-        // User message
-        JsonObject userMsg = new JsonObject();
-        userMsg.addProperty("role", "user");
-        String promptText = (economicContext != null ? economicContext : "<economic_context>No recent activity</economic_context>")
-                + String.format("\n\nConstraint: Write exactly %d short, witty, and DIVERSE gossip lines for each villager profession category. Ensure lines in each category rotate across different topics (e.g. trades, taxes/tolls, stall supplies, and profession humor).", config.poolSizePerCategory());
-        userMsg.addProperty("content", promptText);
-        messages.add(userMsg);
-
-        root.add("messages", messages);
-        return GSON.toJson(root);
-    }
-
-    public Optional<GossipPool> parseOpenAiResponse(String responseBody) {
-        try {
-            JsonObject json = GSON.fromJson(responseBody, JsonObject.class);
-            if (json == null || !json.has("choices")) {
-                return Optional.empty();
-            }
-            JsonArray choices = json.getAsJsonArray("choices");
-            if (choices.isEmpty()) {
-                return Optional.empty();
-            }
-            JsonObject first = choices.get(0).getAsJsonObject();
-            if (!first.has("message")) {
-                return Optional.empty();
-            }
-            JsonObject message = first.getAsJsonObject("message");
-            if (!message.has("content") || message.get("content").isJsonNull()) {
-                return Optional.empty();
-            }
-            String content = message.get("content").getAsString();
-            return parseGossipJson(content);
-        } catch (Exception e) {
-            LOGGER.warn("[EconomyCraft-AI] Failed to parse OpenAI response: {}", e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    // --- Common JSON Parsing ---
-
-    public Optional<GossipPool> parseGossipJson(String rawText) {
-        try {
-            String cleanText = extractJsonObject(rawText);
-            JsonObject rumorsObj = GSON.fromJson(cleanText, JsonObject.class);
-            if (rumorsObj == null) {
-                return Optional.empty();
-            }
-
-            Map<GossipCategory, List<String>> map = new EnumMap<>(GossipCategory.class);
-            for (GossipCategory cat : GossipCategory.values()) {
-                if (rumorsObj.has(cat.jsonKey())) {
-                    JsonElement elem = rumorsObj.get(cat.jsonKey());
-                    if (elem.isJsonArray()) {
-                        List<String> lines = new ArrayList<>();
-                        for (JsonElement item : elem.getAsJsonArray()) {
-                            lines.add(item.getAsString());
-                        }
-                        List<String> diversified = diversifyRumors(lines);
-                        if (!diversified.isEmpty()) {
-                            map.put(cat, diversified);
-                        }
-                    }
-                }
-            }
-
-            return Optional.of(new GossipPool(map, Instant.now()));
-        } catch (Exception e) {
-            LOGGER.warn("[EconomyCraft-AI] Failed to parse gossip JSON: {}", e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    private static final Pattern LEADING_GRUNT_PATTERN =
-            Pattern.compile("^(?:[Hh][Rr]?[Mm]+|[Hh]uh|[Hh]aah?)[.!?,… -]+(.*)$", Pattern.CASE_INSENSITIVE);
-
-    /**
-     * Prevents repetitive opening grunts (e.g. 'Hrmm...') from dominating every rumor in a category.
-     * Preserves villager personality on the first grunt match, but strips repetitive opening grunts
-     * from subsequent lines in the category so dialogue feels varied and natural.
-     */
-    static List<String> diversifyRumors(List<String> rawLines) {
-        if (rawLines == null || rawLines.isEmpty()) return List.of();
-        List<String> result = new ArrayList<>(rawLines.size());
-        boolean gruntKept = false;
-        for (String line : rawLines) {
-            if (line == null || line.isBlank()) continue;
-            String trimmed = line.trim();
-            Matcher matcher = LEADING_GRUNT_PATTERN.matcher(trimmed);
-            if (matcher.matches()) {
-                if (!gruntKept) {
-                    gruntKept = true;
-                    result.add(trimmed);
-                } else {
-                    String remainder = matcher.group(1).trim();
-                    if (!remainder.isEmpty()) {
-                        result.add(Character.toUpperCase(remainder.charAt(0)) + remainder.substring(1));
-                    } else {
-                        result.add(trimmed);
-                    }
-                }
-            } else {
-                result.add(trimmed);
-            }
-        }
-        return Collections.unmodifiableList(result);
     }
 
     /**
