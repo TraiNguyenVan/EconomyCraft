@@ -86,6 +86,11 @@ public final class QuestBuyback {
                     unlisted, key);
             return false;
         }
+        if (eco.getQuests().getAutoMarketBlacklist().contains(key)) {
+            long dropped = eco.getQuestStock().withdraw(key, unlisted);
+            LOGGER.info("[EconomyCraft] Voided {} units of quarantined quest stock for '{}'.", dropped, key);
+            return dropped > 0;
+        }
         if (quests.requireShopPrice && eco.getEffectiveBuyPrice(entry) <= 0) {
             long dropped = eco.getQuestStock().withdraw(key, unlisted);
             LOGGER.warn("[EconomyCraft] Voided {} units of quest stock for '{}': it has no shop price and require_shop_price is on.",

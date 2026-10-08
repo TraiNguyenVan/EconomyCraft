@@ -266,4 +266,86 @@ class QuestLogicTest {
                     "unit=" + unit + " amount=" + amount);
         }
     }
+
+    // --- shouldReprice (drift deadband) ---
+
+    @Test
+    void shouldRepriceRespectsPercentageDeadband() {
+        // At 10% threshold:
+        assertFalse(QuestLogic.shouldReprice(100L, 100L, 0.10));
+        assertFalse(QuestLogic.shouldReprice(100L, 105L, 0.10)); // +5%
+        assertFalse(QuestLogic.shouldReprice(100L, 95L, 0.10));  // -5%
+        assertFalse(QuestLogic.shouldReprice(100L, 109L, 0.10)); // +9%
+        assertTrue(QuestLogic.shouldReprice(100L, 110L, 0.10));  // +10%
+        assertTrue(QuestLogic.shouldReprice(100L, 90L, 0.10));   // -10%
+        assertTrue(QuestLogic.shouldReprice(100L, 125L, 0.10));  // +25%
+        assertTrue(QuestLogic.shouldReprice(100L, 75L, 0.10));   // -25%
+
+        // Zero threshold reprices on any change
+        assertFalse(QuestLogic.shouldReprice(100L, 100L, 0.0));
+        assertTrue(QuestLogic.shouldReprice(100L, 101L, 0.0));
+    }
+
+    // --- balancedAmount (dynamic budget balancing) ---
+
+    @Test
+    void balancedAmountNeverOvershootsAvailableFunding() {
+        assertEquals(0, QuestLogic.balancedAmount(0L, 1, 10L));
+        assertEquals(0, QuestLogic.balancedAmount(50L, 1, 100L)); // cannot afford even 1 unit
+
+        // Last slot takes entire remaining funding cleanly
+        assertEquals(15, QuestLogic.balancedAmount(150L, 1, 10L));
+
+        // Multiple slots distribute evenly and never overshoot availableFunding
+        for (long funding = 100L; funding <= 12_000L; funding += 250L) {
+            for (int slots = 1; slots <= 10; slots++) {
+                for (long unit = 3L; unit <= 300L; unit += 17L) {
+                    int amount = QuestLogic.balancedAmount(funding, slots, unit);
+                    long cost = amount * unit;
+                    assertTrue(cost <= funding,
+                            "cost " + cost + " exceeded funding " + funding + " (slots=" + slots + ", unit=" + unit + ")");
+                }
+            }
+        }
+    }
+
+    // --- stratifiedDraw (category quotas and weights) ---
+
+    @Test
+    void stratifiedDrawEnforcesCategoryQuotaAndWeights() {
+        List<QuestLogic.ScoredCandidate> candidates = List.of(
+                new QuestLogic.ScoredCandidate("stone:1", "blocks.stones", 1.0),
+                new QuestLogic.ScoredCandidate("stone:2", "blocks.stones", 1.0),
+                new QuestLogic.ScoredCandidate("stone:3", "blocks.stones", 1.0),
+                new QuestLogic.ScoredCandidate("stone:4", "blocks.stones", 1.0),
+                new QuestLogic.ScoredCandidate("food:1", "food", 2.0),
+                new QuestLogic.ScoredCandidate("food:2", "food", 1.5),
+                new QuestLogic.ScoredCandidate("food:3", "food", 1.0),
+                new QuestLogic.ScoredCandidate("ore:1", "ores", 3.0),
+                new QuestLogic.ScoredCandidate("ore:2", "ores", 2.5),
+                new QuestLogic.ScoredCandidate("ore:3", "ores", 1.0)
+        );
+
+        java.util.Map<String, Integer> weights = java.util.Map.of(
+                "ores", 30,
+                "food", 25,
+                "blocks.stones", 10
+        );
+
+        var result = QuestLogic.stratifiedDraw(candidates, weights, 2, 5, 42L);
+        assertEquals(5, result.primary().size());
+        assertEquals(5, result.backfill().size());
+
+        // Assert at most 2 per category in primary
+        long stones = result.primary().stream().filter(k -> k.startsWith("stone:")).count();
+        long foods = result.primary().stream().filter(k -> k.startsWith("food:")).count();
+        long ores = result.primary().stream().filter(k -> k.startsWith("ore:")).count();
+
+        assertTrue(stones <= 2, "stones count: " + stones);
+        assertTrue(foods <= 2, "foods count: " + foods);
+        assertTrue(ores <= 2, "ores count: " + ores);
+
+        // Highest weight category ores is picked first
+        assertTrue(result.primary().get(0).startsWith("ore:"));
+    }
 }

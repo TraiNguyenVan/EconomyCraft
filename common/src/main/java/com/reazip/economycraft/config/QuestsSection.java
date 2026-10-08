@@ -4,7 +4,9 @@ import com.google.gson.annotations.SerializedName;
 import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The {@code quests} section: the automatic server bounty board.
@@ -101,6 +103,28 @@ public class QuestsSection {
     @SerializedName("bot_name")
     public String botName = "Server Quests";
 
+    @SerializedName("reprice_threshold_percent")
+    public double repriceThresholdPercent = 0.10;
+
+    @SerializedName("max_unsold_expiries")
+    public int maxUnsoldExpiries = 1;
+
+    @SerializedName("max_per_category")
+    public int maxPerCategory = 2;
+
+    @SerializedName("category_weights")
+    public Map<String, Integer> categoryWeights = defaultCategoryWeights();
+
+    public static Map<String, Integer> defaultCategoryWeights() {
+        Map<String, Integer> weights = new LinkedHashMap<>();
+        weights.put("ores", 30);
+        weights.put("food", 25);
+        weights.put("redstone", 20);
+        weights.put("utility", 15);
+        weights.put("blocks.stones", 10);
+        return weights;
+    }
+
     @SerializedName("buyback")
     public BuybackSettings buyback = new BuybackSettings();
 
@@ -123,6 +147,10 @@ public class QuestsSection {
             sellFallbackMultiplier = 3.3;
         }
         blacklist = ConfigClamp.cleanList("quests.blacklist", blacklist);
+        repriceThresholdPercent = ConfigClamp.percentage("quests.reprice_threshold_percent", repriceThresholdPercent);
+        maxUnsoldExpiries = clampAtLeastOne("quests.max_unsold_expiries", maxUnsoldExpiries);
+        maxPerCategory = clampAtLeastOne("quests.max_per_category", maxPerCategory);
+        categoryWeights = clampCategoryWeights(categoryWeights);
         if (botName == null || botName.isBlank()) {
             LOGGER.warn("[EconomyCraft] quests.bot_name is blank; using 'Server Quests'.");
             botName = "Server Quests";
@@ -130,6 +158,17 @@ public class QuestsSection {
             botName = botName.trim();
         }
         buyback.clamp();
+    }
+
+    private static Map<String, Integer> clampCategoryWeights(Map<String, Integer> raw) {
+        if (raw == null || raw.isEmpty()) return defaultCategoryWeights();
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> entry : raw.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank()) continue;
+            int weight = entry.getValue() == null ? 0 : Math.max(0, entry.getValue());
+            out.put(entry.getKey().trim(), weight);
+        }
+        return out.isEmpty() ? defaultCategoryWeights() : out;
     }
 
     /**

@@ -49,6 +49,10 @@ public final class AdminQuestsUi {
     private static final int FORCE_REDRAW = 16;
     private static final int PERIOD = 17;
     private static final int BACK = 18;
+    private static final int REPRICE_DEADBAND = 19;
+    private static final int MAX_EXPIRIES = 20;
+    private static final int MAX_PER_CATEGORY = 21;
+    private static final int MARKET_BLACKLIST = 22;
 
     public static void open(ServerPlayer player, EconomyManager eco) {
         if (!MenuUiSupport.checkOrDeny(player, EconomyPermissions.checkAdmin(player, Nodes.ADMIN_SETTINGS))) return;
@@ -110,6 +114,27 @@ public final class AdminQuestsUi {
                     MenuUiSupport.line("Board re-draws every " + pluralDays(quests.periodDays) + ".", ChatFormatting.WHITE),
                     periodCountdownLine(eco),
                     MenuUiSupport.hint("Click to change.")));
+
+            container.setItem(REPRICE_DEADBAND, MenuUiSupport.button(Items.CLOCK, "Reprice Deadband", ChatFormatting.GOLD,
+                    MenuUiSupport.line("Drift threshold: " + percent(quests.repriceThresholdPercent), ChatFormatting.WHITE),
+                    MenuUiSupport.hint("Reprice order only if price drifts >= this."),
+                    MenuUiSupport.hint("Click to change.")));
+
+            container.setItem(MAX_EXPIRIES, MenuUiSupport.button(Items.BARRIER, "Max AH Expiries", ChatFormatting.RED,
+                    MenuUiSupport.line(quests.maxUnsoldExpiries + " expiry cycle(s)", ChatFormatting.WHITE),
+                    MenuUiSupport.hint("Quarantines item and voids unsold stock."),
+                    MenuUiSupport.hint("Click to cycle (1..5).")));
+
+            container.setItem(MAX_PER_CATEGORY, MenuUiSupport.button(Items.COMPASS, "Category Quota", ChatFormatting.AQUA,
+                    MenuUiSupport.line("Max " + quests.maxPerCategory + " per category", ChatFormatting.WHITE),
+                    MenuUiSupport.hint("Ceiling on quests from same category."),
+                    MenuUiSupport.hint("Click to cycle (1..5).")));
+
+            int quarantined = eco.getQuests().getAutoMarketBlacklist().size();
+            container.setItem(MARKET_BLACKLIST, MenuUiSupport.button(Items.LAVA_BUCKET, "Market Quarantine", ChatFormatting.DARK_RED,
+                    MenuUiSupport.line(quarantined + " item(s) quarantined.", ChatFormatting.WHITE),
+                    MenuUiSupport.hint("Items that failed to sell on /ah."),
+                    MenuUiSupport.hint("Click to clear quarantine.")));
 
             if (EconomyPermissions.checkAdmin(viewer, Nodes.ADMIN_RESET)) {
                 container.setItem(FORCE_REDRAW, MenuUiSupport.button(Items.RECOVERY_COMPASS, "Force Re-draw", ChatFormatting.RED,
@@ -220,6 +245,38 @@ public final class AdminQuestsUi {
                     if (!EconomyPermissions.checkAdmin(viewer, Nodes.ADMIN_RESET)) return true;
                     EconomySounds.click(viewer);
                     confirmForceRedraw(viewer, eco);
+                }
+                case REPRICE_DEADBAND -> {
+                    EconomySounds.click(viewer);
+                    NumberInputUi.openPercent(viewer, "Reprice deadband", new ItemStack(Items.CLOCK),
+                            "Reprice deadband", Math.round(quests.repriceThresholdPercent * 100),
+                            (p, next) -> {
+                                EconomyConfig.get().quests.repriceThresholdPercent = next / 100.0;
+                                EconomyConfig.save();
+                                EconomySounds.click(p);
+                                open(p, eco);
+                            },
+                            p -> open(p, eco));
+                }
+                case MAX_EXPIRIES -> {
+                    EconomySounds.click(viewer);
+                    quests.maxUnsoldExpiries = quests.maxUnsoldExpiries >= 5 ? 1 : quests.maxUnsoldExpiries + 1;
+                    EconomyConfig.save();
+                    render();
+                }
+                case MAX_PER_CATEGORY -> {
+                    EconomySounds.click(viewer);
+                    quests.maxPerCategory = quests.maxPerCategory >= 5 ? 1 : quests.maxPerCategory + 1;
+                    EconomyConfig.save();
+                    render();
+                }
+                case MARKET_BLACKLIST -> {
+                    EconomySounds.click(viewer);
+                    int count = eco.getQuests().getAutoMarketBlacklist().size();
+                    eco.getQuests().clearAutoMarketBlacklist();
+                    viewer.sendSystemMessage(Component.literal("[Quests] Cleared " + count + " item(s) from market quarantine.")
+                            .withStyle(ChatFormatting.GOLD));
+                    render();
                 }
                 case BACK -> {
                     EconomySounds.click(viewer);

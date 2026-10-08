@@ -19,9 +19,12 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
 
+import com.reazip.economycraft.auction.AuctionListing;
+import com.reazip.economycraft.config.QuestsSection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -57,10 +60,15 @@ public class QuestManager {
     private long weekStartMs;
     private long weekSeed;
     private final List<String> drawnKeys = new ArrayList<>();
+    private final List<String> backfillKeys = new ArrayList<>();
+    private final Set<String> lastPeriodKeys = new HashSet<>();
     private final Set<String> postedKeys = new HashSet<>();
     private final Set<Integer> questOrderIds = new LinkedHashSet<>();
     /** Per-unit price each open quest order was posted at, by order id — the sweep reprices drifters. */
     private final Map<String, Long> postedUnits = new LinkedHashMap<>();
+    private final Map<String, Integer> unsoldExpiries = new LinkedHashMap<>();
+    private final Set<String> autoMarketBlacklist = new LinkedHashSet<>();
+    private final Set<String> recentPurchases = new LinkedHashSet<>();
     private long mintedThisWeek;
     private boolean postedThisWeek;
 
@@ -105,12 +113,20 @@ public class QuestManager {
         weekSeed = now;
         mintedThisWeek = 0;
         postedThisWeek = false;
+        lastPeriodKeys.clear();
+        lastPeriodKeys.addAll(drawnKeys);
         drawnKeys.clear();
+        backfillKeys.clear();
         postedKeys.clear();
         questOrderIds.clear();
-        drawnKeys.addAll(QuestLogic.draw(candidates(eco), weekSeed, quests.weeklyCount));
-        LOGGER.info("[EconomyCraft] Quest period started ({} day(s)): drew {} item(s).",
-                quests.periodDays, drawnKeys.size());
+
+        var candidates = candidatesWithMarket(eco);
+        var drawResult = QuestLogic.stratifiedDraw(candidates, quests.categoryWeights, quests.maxPerCategory, quests.weeklyCount, weekSeed);
+        drawnKeys.addAll(drawResult.primary());
+        backfillKeys.addAll(drawResult.backfill());
+
+        LOGGER.info("[EconomyCraft] Quest period started ({} day(s)): drew {} primary item(s), {} backfill candidate(s).",
+                quests.periodDays, drawnKeys.size(), backfillKeys.size());
         save();
     }
 
@@ -127,7 +143,7 @@ public class QuestManager {
      */
     private void reconcilePricing(EconomyManager eco) {
         var quests = EconomyConfig.get().quests;
-        Set<String> blacklist = new HashSet<>(quests.blacklist);
+        Set<String> blacklist = combinedBlacklist(quests);
         int repriced = 0;
         int removed = 0;
         for (int id : new ArrayList<>(questOrderIds)) {
@@ -160,7 +176,7 @@ public class QuestManager {
                 continue;
             }
             Long posted = postedUnits.get(String.valueOf(id));
-            if (posted != null && posted == unit) continue;
+            if (posted != null && !QuestLogic.shouldReprice(posted, unit, quests.repriceThresholdPercent)) continue;
 
             if (repostRemainder(eco, order, entry.key(), unit)) repriced++;
         }
@@ -231,11 +247,19 @@ public class QuestManager {
         cancelLeftovers(eco);
         questOrderIds.clear();
         postedUnits.clear();
+        lastPeriodKeys.clear();
+        lastPeriodKeys.addAll(drawnKeys);
         drawnKeys.clear();
+        backfillKeys.clear();
         postedKeys.clear();
         weekStartMs = now;
         weekSeed = now;
-        drawnKeys.addAll(QuestLogic.draw(candidates(eco), weekSeed, quests.weeklyCount));
+
+        var candidates = candidatesWithMarket(eco);
+        var drawResult = QuestLogic.stratifiedDraw(candidates, quests.categoryWeights, quests.maxPerCategory, quests.weeklyCount, weekSeed);
+        drawnKeys.addAll(drawResult.primary());
+        backfillKeys.addAll(drawResult.backfill());
+
         postedThisWeek = false;
         postDrawn(eco, now);
         postedThisWeek = true;
@@ -282,61 +306,133 @@ public class QuestManager {
         }
     }
 
-    /** Price keys the draw may pick: plain catalog entries with a usable price, custom marker-matched tools excluded. */
-    private List<String> candidates(EconomyManager eco) {
+    public Set<String> combinedBlacklist(QuestsSection quests) {
+        Set<String> set = new HashSet<>(quests.blacklist);
+        set.addAll(autoMarketBlacklist);
+        return set;
+    }
+
+    private List<QuestLogic.ScoredCandidate> candidatesWithMarket(EconomyManager eco) {
         var quests = EconomyConfig.get().quests;
-        Set<String> blacklist = new HashSet<>(quests.blacklist);
-        List<String> out = new ArrayList<>();
+        Set<String> blacklist = combinedBlacklist(quests);
+        List<QuestLogic.ScoredCandidate> out = new ArrayList<>();
+
         for (PriceRegistry.PriceEntry entry : eco.getPrices().allEntries()) {
             if (entry.customItem() != null) continue;
+            String key = entry.key();
+
+            // Hard filter: Do not draw if bot already holds stock or active listing on AH
+            if (eco.getQuestStock().get(key) > 0) continue;
+            if (hasActiveBuyback(eco, key)) continue;
+
+            // Hard filter: Do not draw what was drawn last period (deduplication)
+            if (lastPeriodKeys.contains(key)) continue;
+
             long effectiveBuy = eco.getEffectiveBuyPrice(entry);
             long unit = QuestLogic.questUnit(effectiveBuy, entry.unitSell(),
                     quests.priceFactor, quests.sellFallbackMultiplier);
-            if (QuestLogic.eligible(entry.key(), unit, quests.minQuestUnit, quests.maxQuestUnit, blacklist,
+            if (!QuestLogic.eligible(key, unit, quests.minQuestUnit, quests.maxQuestUnit, blacklist,
                     effectiveBuy > 0, quests.requireShopPrice)) {
-                out.add(entry.key());
+                continue;
             }
+
+            double score = 1.0;
+            if (hasPlayerOrder(eco, key)) score += 0.5;
+            if (recentPurchases.contains(key)) score += 0.5;
+
+            String cat = entry.category() != null ? entry.category() : "misc";
+            out.add(new QuestLogic.ScoredCandidate(key, cat, score));
         }
         return out;
     }
 
+    private boolean hasActiveBuyback(EconomyManager eco, String key) {
+        for (AuctionListing listing : eco.getAuctions().getListings()) {
+            if (!BOT_UUID.equals(listing.seller)) continue;
+            if (listing.item == null || listing.item.isEmpty()) continue;
+            PriceRegistry.PriceEntry pe = eco.getPrices().resolve(listing.item);
+            if (pe != null && key.equals(pe.key())) return true;
+        }
+        return false;
+    }
+
+    private boolean hasPlayerOrder(EconomyManager eco, String key) {
+        for (OrderRequest req : eco.getOrders().getRequests()) {
+            if (BOT_UUID.equals(req.requester)) continue;
+            if (req.item == null || req.item.isEmpty()) continue;
+            PriceRegistry.PriceEntry pe = eco.getPrices().resolve(req.item);
+            if (pe != null && key.equals(pe.key())) return true;
+        }
+        return false;
+    }
+
+    /** Price keys the draw may pick: plain catalog entries with a usable price, custom marker-matched tools excluded. */
+    public List<String> candidates(EconomyManager eco) {
+        return candidatesWithMarket(eco).stream().map(QuestLogic.ScoredCandidate::key).toList();
+    }
+
     private void postDrawn(EconomyManager eco, long now) {
         var quests = EconomyConfig.get().quests;
-        long share = quests.weeklyCount <= 0 ? 0 : quests.weeklyBudget / quests.weeklyCount;
         long weekEnd = weekStartMs + QuestLogic.periodMillis(quests.periodDays);
+        int targetCount = quests.weeklyCount;
+        List<String> pool = new ArrayList<>(drawnKeys);
+        int backfillIndex = 0;
 
-        for (String key : drawnKeys) {
-            if (postedKeys.contains(key)) continue;
+        for (int slot = 0; slot < pool.size(); slot++) {
             if (openQuestCount(eco) >= quests.maxConcurrent) break;
+
+            String key = pool.get(slot);
+            if (postedKeys.contains(key)) continue;
 
             PriceRegistry.PriceEntry entry = eco.getPrices().findByKey(key);
             if (entry == null) {
                 postedKeys.add(key);
+                if (pool.size() < targetCount + backfillIndex && backfillIndex < backfillKeys.size()) {
+                    pool.add(backfillKeys.get(backfillIndex++));
+                }
                 continue;
             }
             ItemStack proto = eco.getPrices().createPrototype(entry);
             if (proto.isEmpty()) {
                 postedKeys.add(key);
+                if (pool.size() < targetCount + backfillIndex && backfillIndex < backfillKeys.size()) {
+                    pool.add(backfillKeys.get(backfillIndex++));
+                }
                 continue;
             }
             long unit = QuestLogic.questUnit(eco.getEffectiveBuyPrice(entry), entry.unitSell(),
                     quests.priceFactor, quests.sellFallbackMultiplier);
-            if (!QuestLogic.eligible(key, unit, quests.minQuestUnit, quests.maxQuestUnit, new HashSet<>(quests.blacklist),
+            if (!QuestLogic.eligible(key, unit, quests.minQuestUnit, quests.maxQuestUnit, combinedBlacklist(quests),
                     eco.getEffectiveBuyPrice(entry) > 0, quests.requireShopPrice)) {
                 postedKeys.add(key);
+                if (pool.size() < targetCount + backfillIndex && backfillIndex < backfillKeys.size()) {
+                    pool.add(backfillKeys.get(backfillIndex++));
+                }
                 continue;
             }
-            int amount = QuestLogic.questAmount(share, unit);
+
+            int remainingSlots = Math.max(1, targetCount - openQuestCount(eco));
+            Long currentBalance = eco.getBalance(BOT_UUID, false);
+            long balance = currentBalance == null ? 0L : currentBalance;
+            long mintRemaining = Math.max(0L, quests.weeklyBudget - mintedThisWeek);
+            long availableFunding = balance + mintRemaining;
+
+            int amount = QuestLogic.balancedAmount(availableFunding, remainingSlots, unit);
             if (amount <= 0) {
                 postedKeys.add(key);
+                if (pool.size() < targetCount + backfillIndex && backfillIndex < backfillKeys.size()) {
+                    pool.add(backfillKeys.get(backfillIndex++));
+                }
                 continue;
             }
+
             long price = amount * unit;
-            // No fitsBudget pre-check here on purpose: the cap tracks minted coins, not escrow
-            // locked, and fund() below mints only the shortfall the bot balance does not cover.
-            // A full-price-against-cap check would wrongly stop a board the refunds already fund
-            // (a forced re-draw late in a spent week posts nothing). fund() false is the stop.
-            if (!fund(eco, price, quests.weeklyBudget, key)) break;
+            if (!fund(eco, price, quests.weeklyBudget, key)) {
+                if (pool.size() < targetCount + backfillIndex && backfillIndex < backfillKeys.size()) {
+                    pool.add(backfillKeys.get(backfillIndex++));
+                }
+                continue;
+            }
             post(eco, proto, key, amount, price, unit, now, weekEnd, true);
         }
     }
@@ -411,6 +507,46 @@ public class QuestManager {
         }
     }
 
+    public boolean onBuybackExpired(String key, int maxExpiries) {
+        if (key == null || key.isBlank()) return false;
+        int exp = unsoldExpiries.getOrDefault(key, 0) + 1;
+        if (exp >= maxExpiries) {
+            autoMarketBlacklist.add(key);
+            unsoldExpiries.remove(key);
+            save();
+            LOGGER.info("[EconomyCraft] Item '{}' reached {} unsold expiries; quarantined to market blacklist and voided.",
+                    key, exp);
+            return true;
+        }
+        unsoldExpiries.put(key, exp);
+        save();
+        return false;
+    }
+
+    public void onBuybackPurchased(String key) {
+        if (key == null || key.isBlank()) return;
+        unsoldExpiries.remove(key);
+        recentPurchases.add(key);
+        save();
+    }
+
+    public Set<String> getAutoMarketBlacklist() {
+        return Collections.unmodifiableSet(autoMarketBlacklist);
+    }
+
+    public void clearAutoMarketBlacklist() {
+        autoMarketBlacklist.clear();
+        save();
+    }
+
+    public boolean unbanMarketItem(String key) {
+        if (autoMarketBlacklist.remove(key)) {
+            save();
+            return true;
+        }
+        return false;
+    }
+
     private void load() {
         if (Files.notExists(file)) return;
         try {
@@ -424,6 +560,18 @@ public class QuestManager {
             if (root.has("drawnKeys")) {
                 for (var el : root.getAsJsonArray("drawnKeys")) drawnKeys.add(el.getAsString());
             }
+            if (root.has("backfillKeys")) {
+                for (var el : root.getAsJsonArray("backfillKeys")) backfillKeys.add(el.getAsString());
+            }
+            if (root.has("lastPeriodKeys")) {
+                for (var el : root.getAsJsonArray("lastPeriodKeys")) lastPeriodKeys.add(el.getAsString());
+            }
+            if (root.has("autoMarketBlacklist")) {
+                for (var el : root.getAsJsonArray("autoMarketBlacklist")) autoMarketBlacklist.add(el.getAsString());
+            }
+            if (root.has("recentPurchases")) {
+                for (var el : root.getAsJsonArray("recentPurchases")) recentPurchases.add(el.getAsString());
+            }
             if (root.has("postedKeys")) {
                 for (var el : root.getAsJsonArray("postedKeys")) postedKeys.add(el.getAsString());
             }
@@ -436,6 +584,15 @@ public class QuestManager {
                         postedUnits.put(entry.getKey(), entry.getValue().getAsLong());
                     } catch (Exception ex) {
                         LOGGER.warn("[EconomyCraft] Dropping an unreadable posted quest unit in {}", file);
+                    }
+                }
+            }
+            if (root.has("unsoldExpiries")) {
+                for (var entry : root.getAsJsonObject("unsoldExpiries").entrySet()) {
+                    try {
+                        unsoldExpiries.put(entry.getKey(), entry.getValue().getAsInt());
+                    } catch (Exception ex) {
+                        LOGGER.warn("[EconomyCraft] Dropping unreadable unsold expiries entry in {}", file);
                     }
                 }
             }
@@ -453,6 +610,18 @@ public class QuestManager {
         JsonArray drawn = new JsonArray();
         for (String key : drawnKeys) drawn.add(key);
         root.add("drawnKeys", drawn);
+        JsonArray backfill = new JsonArray();
+        for (String key : backfillKeys) backfill.add(key);
+        root.add("backfillKeys", backfill);
+        JsonArray lastPeriod = new JsonArray();
+        for (String key : lastPeriodKeys) lastPeriod.add(key);
+        root.add("lastPeriodKeys", lastPeriod);
+        JsonArray blacklistArr = new JsonArray();
+        for (String key : autoMarketBlacklist) blacklistArr.add(key);
+        root.add("autoMarketBlacklist", blacklistArr);
+        JsonArray recent = new JsonArray();
+        for (String key : recentPurchases) recent.add(key);
+        root.add("recentPurchases", recent);
         JsonArray posted = new JsonArray();
         for (String key : postedKeys) posted.add(key);
         root.add("postedKeys", posted);
@@ -462,6 +631,9 @@ public class QuestManager {
         JsonObject units = new JsonObject();
         for (var entry : postedUnits.entrySet()) units.addProperty(entry.getKey(), entry.getValue());
         root.add("postedUnits", units);
+        JsonObject expiries = new JsonObject();
+        for (var entry : unsoldExpiries.entrySet()) expiries.addProperty(entry.getKey(), entry.getValue());
+        root.add("unsoldExpiries", expiries);
         AsyncFileWriter.writeAsync(file, GSON.toJson(root));
     }
 }

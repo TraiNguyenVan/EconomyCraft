@@ -54,6 +54,11 @@ public class QuestStock {
         return take;
     }
 
+    public synchronized long get(String key) {
+        if (key == null) return 0;
+        return stock.getOrDefault(key, 0L);
+    }
+
     public synchronized Map<String, Long> snapshot() {
         return Map.copyOf(stock);
     }

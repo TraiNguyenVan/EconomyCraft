@@ -215,6 +215,15 @@ class BundledConfigTest {
             }
             return true;
         }
+        if (value instanceof Map<?, ?> map) {
+            if (!json.isJsonObject() || json.getAsJsonObject().size() != map.size()) return false;
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                String k = String.valueOf(entry.getKey());
+                if (!json.getAsJsonObject().has(k)) return false;
+                if (!matches(entry.getValue(), json.getAsJsonObject().get(k))) return false;
+            }
+            return true;
+        }
         return false;
     }
 

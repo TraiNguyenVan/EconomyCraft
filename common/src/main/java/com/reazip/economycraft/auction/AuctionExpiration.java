@@ -69,6 +69,13 @@ public final class AuctionExpiration {
             eco.getAuctions().addDelivery(QuestManager.BOT_UUID, stack, false);
             return;
         }
+        var quests = com.reazip.economycraft.EconomyConfig.get().quests;
+        int maxExpiries = quests != null ? quests.maxUnsoldExpiries : 1;
+        if (eco.getQuests().onBuybackExpired(entry.key(), maxExpiries)) {
+            LOGGER.info("[EconomyCraft] Buyback listing #{} expired; {}x {} voided and quarantined to market blacklist.",
+                    removed.id, stack.getCount(), entry.key());
+            return;
+        }
         eco.getQuestStock().deposit(entry.key(), stack.getCount());
         LOGGER.info("[EconomyCraft] Buyback listing #{} expired; {}x {} returned to quest stock and will relist.",
                 removed.id, stack.getCount(), entry.key());

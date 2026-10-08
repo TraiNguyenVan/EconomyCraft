@@ -85,6 +85,11 @@ public final class AuctionTrade {
 
         if (!buyback) {
             auctions.notifySellerSale(claimed, buyer);
+        } else {
+            com.reazip.economycraft.PriceRegistry.PriceEntry pe = eco.getPrices().resolve(claimed.item);
+            if (pe != null) {
+                eco.getQuests().onBuybackPurchased(pe.key());
+            }
         }
 
         NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.AH, claimed.id,

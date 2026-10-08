@@ -2,7 +2,10 @@ package com.reazip.economycraft.quests;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
@@ -60,6 +63,36 @@ public final class QuestLogic {
     }
 
     /**
+     * Sizing with dynamic share balancing: distributes the currently available funding across the
+     * remaining quest slots, ensuring rounding never overshoots the available headroom.
+     *
+     * @param availableFunding bot wallet balance plus remaining unminted budget
+     * @param remainingSlots number of quest slots remaining to post in this draw (at least 1)
+     * @param questUnit per-item quest price
+     * @return how many items to request, or 0 if the funding cannot afford even 1 unit
+     */
+    public static int balancedAmount(long availableFunding, int remainingSlots, long questUnit) {
+        if (questUnit <= 0 || availableFunding <= 0 || remainingSlots <= 0) return 0;
+        long targetShare = Math.max(1, availableFunding / remainingSlots);
+        int nominal = (int) Math.max(1, Math.round((double) targetShare / questUnit));
+        long maxAffordable = availableFunding / questUnit;
+        if (maxAffordable <= 0) return 0;
+        return (int) Math.min(nominal, maxAffordable);
+    }
+
+    /**
+     * Whether a quest's posted unit has drifted enough from the live unit to warrant cancelling and
+     * reposting. A drift strictly below {@code thresholdPercent} is ignored to prevent chat spam and
+     * order churn on hourly inflation adjustments.
+     */
+    public static boolean shouldReprice(long postedUnit, long liveUnit, double thresholdPercent) {
+        if (postedUnit <= 0 || liveUnit <= 0) return postedUnit != liveUnit;
+        if (thresholdPercent <= 0.0) return postedUnit != liveUnit;
+        double drift = Math.abs((double) (liveUnit - postedUnit)) / (double) postedUnit;
+        return drift >= thresholdPercent;
+    }
+
+    /**
      * How long one quest period lasts, in milliseconds.
      *
      * <p>Whole days only: the board's job is to give players a fixed, predictable span to work through
@@ -103,6 +136,96 @@ public final class QuestLogic {
         List<String> shuffled = new ArrayList<>(candidates);
         Collections.shuffle(shuffled, new Random(seed));
         return List.copyOf(shuffled.subList(0, Math.min(count, shuffled.size())));
+    }
+
+    public record ScoredCandidate(String key, String category, double score) {}
+
+    public record DrawResult(List<String> primary, List<String> backfill) {}
+
+    /**
+     * A stratified draw: picks candidates across distinct categories up to {@code maxPerCategory},
+     * weighted by category priority and market score, using {@code seed} for reproducibility.
+     * Returns an ordered list of primary keys up to {@code count}, and remaining backfill keys.
+     */
+    public static DrawResult stratifiedDraw(List<ScoredCandidate> candidates,
+                                            Map<String, Integer> categoryWeights,
+                                            int maxPerCategory,
+                                            int count,
+                                            long seed) {
+        if (candidates == null || candidates.isEmpty() || count <= 0) {
+            return new DrawResult(List.of(), List.of());
+        }
+        int perCatLimit = Math.max(1, maxPerCategory);
+
+        Map<String, List<ScoredCandidate>> byCategory = new LinkedHashMap<>();
+        for (ScoredCandidate c : candidates) {
+            String cat = c.category() != null ? c.category() : "misc";
+            byCategory.computeIfAbsent(cat, k -> new ArrayList<>()).add(c);
+        }
+
+        Random rng = new Random(seed);
+        for (var entry : byCategory.entrySet()) {
+            String cat = entry.getKey();
+            int catWeight = categoryWeights != null ? categoryWeights.getOrDefault(cat, 10) : 10;
+            Collections.shuffle(entry.getValue(), rng);
+            entry.getValue().sort((a, b) -> Double.compare(b.score() * catWeight, a.score() * catWeight));
+        }
+
+        List<String> sortedCategories = new ArrayList<>(byCategory.keySet());
+        sortedCategories.sort((catA, catB) -> {
+            int wA = categoryWeights != null ? categoryWeights.getOrDefault(catA, 10) : 10;
+            int wB = categoryWeights != null ? categoryWeights.getOrDefault(catB, 10) : 10;
+            return Integer.compare(wB, wA);
+        });
+
+        List<String> selected = new ArrayList<>();
+        Map<String, Integer> categoryUsage = new HashMap<>();
+        Map<String, Integer> categoryIndex = new HashMap<>();
+
+        boolean progress = true;
+        while (selected.size() < count && progress) {
+            progress = false;
+            for (String cat : sortedCategories) {
+                if (selected.size() >= count) break;
+                int used = categoryUsage.getOrDefault(cat, 0);
+                if (used >= perCatLimit) continue;
+                List<ScoredCandidate> catList = byCategory.get(cat);
+                int idx = categoryIndex.getOrDefault(cat, 0);
+                if (idx < catList.size()) {
+                    selected.add(catList.get(idx).key());
+                    categoryIndex.put(cat, idx + 1);
+                    categoryUsage.put(cat, used + 1);
+                    progress = true;
+                }
+            }
+        }
+
+        List<ScoredCandidate> backfillCandidates = new ArrayList<>();
+        for (String cat : sortedCategories) {
+            List<ScoredCandidate> catList = byCategory.get(cat);
+            int idx = categoryIndex.getOrDefault(cat, 0);
+            for (int i = idx; i < catList.size(); i++) {
+                backfillCandidates.add(catList.get(i));
+            }
+        }
+        backfillCandidates.sort((a, b) -> {
+            String catA = a.category() != null ? a.category() : "misc";
+            String catB = b.category() != null ? b.category() : "misc";
+            int wA = categoryWeights != null ? categoryWeights.getOrDefault(catA, 10) : 10;
+            int wB = categoryWeights != null ? categoryWeights.getOrDefault(catB, 10) : 10;
+            return Double.compare(b.score() * wB, a.score() * wA);
+        });
+
+        while (selected.size() < count && !backfillCandidates.isEmpty()) {
+            selected.add(backfillCandidates.remove(0).key());
+        }
+
+        List<String> backfillKeys = new ArrayList<>();
+        for (ScoredCandidate c : backfillCandidates) {
+            backfillKeys.add(c.key());
+        }
+
+        return new DrawResult(List.copyOf(selected), List.copyOf(backfillKeys));
     }
 
 /** Whether a merge would stay inside one lot: {@code take} more units fit on {@code open}. */
