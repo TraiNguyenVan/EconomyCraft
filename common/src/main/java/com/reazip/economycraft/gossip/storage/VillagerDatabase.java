@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
  */
 public class VillagerDatabase implements AutoCloseable {
     private static final Logger LOGGER = LogUtils.getLogger();
+    public static final long MEMORY_RETENTION_MILLIS = java.time.Duration.ofDays(90).toMillis();
 
     private final String jdbcUrl;
     private final ExecutorService dbExecutor;
@@ -118,6 +119,10 @@ public class VillagerDatabase implements AutoCloseable {
 
         initialized = true;
         LOGGER.info("[EconomyCraft-DB] Villager SQLite database initialized at {}", jdbcUrl);
+        deleteExpiredMemoriesAndTrades(System.currentTimeMillis()).exceptionally(error -> {
+            LOGGER.warn("[EconomyCraft-DB] Could not purge expired villager memories: {}", error.getMessage());
+            return 0;
+        });
     }
 
     // --- Asynchronous API ---
@@ -184,11 +189,16 @@ public class VillagerDatabase implements AutoCloseable {
                         return Optional.of(mapPlayerMemory(rs));
                     }
                 }
+                return Optional.empty();
             } catch (SQLException e) {
-                LOGGER.error("[EconomyCraft-DB] Error querying memory for " + villagerUuid + "/" + playerUuid, e);
+                throw new RuntimeException("Error querying player memory", e);
             }
-            return Optional.empty();
         }, dbExecutor);
+    }
+
+    public CompletableFuture<Optional<PlayerMemory>> getEligiblePlayerMemory(UUID villagerUuid, UUID playerUuid, long now) {
+        return getPlayerMemory(villagerUuid, playerUuid).thenApply(memory -> memory
+                .filter(value -> value.lastInteraction() >= retentionCutoff(now)));
     }
 
     public CompletableFuture<Void> savePlayerMemory(PlayerMemory memory) {
@@ -247,13 +257,69 @@ public class VillagerDatabase implements AutoCloseable {
         }, dbExecutor);
     }
 
+    public CompletableFuture<Void> recordTradeTransaction(
+            PlayerMemory memory, String itemName, int itemCount, long pricePaid, long timestamp
+    ) {
+        return CompletableFuture.runAsync(() -> {
+            ensureOpen();
+            try {
+                connection.setAutoCommit(false);
+                try {
+                    try (PreparedStatement ps = connection.prepareStatement("""
+                            INSERT INTO player_memories (villager_uuid, player_uuid, sentiment, interaction_count, total_spent, last_interaction, recent_events)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(villager_uuid, player_uuid) DO UPDATE SET
+                                sentiment = excluded.sentiment,
+                                interaction_count = excluded.interaction_count,
+                                total_spent = excluded.total_spent,
+                                last_interaction = excluded.last_interaction,
+                                recent_events = excluded.recent_events;
+                            """)) {
+                        ps.setString(1, memory.villagerUuid().toString());
+                        ps.setString(2, memory.playerUuid().toString());
+                        ps.setInt(3, memory.sentiment());
+                        ps.setInt(4, memory.interactionCount());
+                        ps.setLong(5, memory.totalSpent());
+                        ps.setLong(6, memory.lastInteraction());
+                        ps.setString(7, memory.eventsJson());
+                        ps.executeUpdate();
+                    }
+                    try (PreparedStatement ps = connection.prepareStatement("""
+                            INSERT INTO villager_trades (villager_uuid, player_uuid, item_name, item_count, price_paid, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?);
+                            """)) {
+                        ps.setString(1, memory.villagerUuid().toString());
+                        ps.setString(2, memory.playerUuid().toString());
+                        ps.setString(3, itemName);
+                        ps.setInt(4, itemCount);
+                        ps.setLong(5, pricePaid);
+                        ps.setLong(6, timestamp);
+                        ps.executeUpdate();
+                    }
+                    connection.commit();
+                } catch (SQLException e) {
+                    connection.rollback();
+                    throw e;
+                } finally {
+                    connection.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                throw new RuntimeException("Error recording completed villager trade", e);
+            }
+        }, dbExecutor);
+    }
+
     public CompletableFuture<List<TradeRecord>> getRecentTrades(UUID villagerUuid, UUID playerUuid, int limit) {
+        return getRecentTrades(villagerUuid, playerUuid, limit, System.currentTimeMillis());
+    }
+
+    public CompletableFuture<List<TradeRecord>> getRecentTrades(UUID villagerUuid, UUID playerUuid, int limit, long now) {
         return CompletableFuture.supplyAsync(() -> {
             ensureOpen();
             String sql = """
                 SELECT id, villager_uuid, player_uuid, item_name, item_count, price_paid, timestamp
                 FROM villager_trades
-                WHERE villager_uuid = ? AND player_uuid = ?
+                WHERE villager_uuid = ? AND player_uuid = ? AND timestamp >= ?
                 ORDER BY timestamp DESC
                 LIMIT ?;
             """;
@@ -261,7 +327,8 @@ public class VillagerDatabase implements AutoCloseable {
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
                 ps.setString(1, villagerUuid.toString());
                 ps.setString(2, playerUuid.toString());
-                ps.setInt(3, Math.max(1, limit));
+                ps.setLong(3, retentionCutoff(now));
+                ps.setInt(4, Math.max(1, Math.min(5, limit)));
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         list.add(new TradeRecord(
@@ -276,11 +343,75 @@ public class VillagerDatabase implements AutoCloseable {
                     }
                 }
             } catch (SQLException e) {
-                LOGGER.error("[EconomyCraft-DB] Error querying recent trades for " + villagerUuid + "/" + playerUuid, e);
+                throw new RuntimeException("Error querying recent trades", e);
             }
             return list;
         }, dbExecutor);
     }
+
+    public static long retentionCutoff(long now) {
+        return now - MEMORY_RETENTION_MILLIS;
+    }
+
+    public CompletableFuture<Integer> deleteExpiredMemoriesAndTrades(long now) {
+        return CompletableFuture.supplyAsync(() -> {
+            ensureOpen();
+            int deleted;
+            try (PreparedStatement trades = connection.prepareStatement("DELETE FROM villager_trades WHERE timestamp < ?");
+                 PreparedStatement memories = connection.prepareStatement("DELETE FROM player_memories WHERE last_interaction < ?")) {
+                connection.setAutoCommit(false);
+                try {
+                    trades.setLong(1, retentionCutoff(now));
+                    deleted = trades.executeUpdate();
+                    memories.setLong(1, retentionCutoff(now));
+                    deleted += memories.executeUpdate();
+                    connection.commit();
+                } catch (SQLException e) {
+                    connection.rollback();
+                    throw e;
+                } finally {
+                    connection.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                throw new RuntimeException("Error purging expired villager memories", e);
+            }
+            return deleted;
+        }, dbExecutor);
+    }
+
+    public CompletableFuture<Integer> clearMemoryPair(UUID villagerUuid, UUID playerUuid) {
+        return CompletableFuture.supplyAsync(() -> {
+            ensureOpen();
+            try (PreparedStatement memory = connection.prepareStatement("DELETE FROM player_memories WHERE villager_uuid = ? AND player_uuid = ?");
+                 PreparedStatement trades = connection.prepareStatement("DELETE FROM villager_trades WHERE villager_uuid = ? AND player_uuid = ?")) {
+                connection.setAutoCommit(false);
+                try {
+                    memory.setString(1, villagerUuid.toString());
+                    memory.setString(2, playerUuid.toString());
+                    int count = memory.executeUpdate();
+                    trades.setString(1, villagerUuid.toString());
+                    trades.setString(2, playerUuid.toString());
+                    count += trades.executeUpdate();
+                    connection.commit();
+                    return count;
+                } catch (SQLException e) {
+                    connection.rollback();
+                    throw e;
+                } finally {
+                    connection.setAutoCommit(true);
+                }
+            } catch (SQLException e) {
+                throw new RuntimeException("Error clearing villager memory pair", e);
+            }
+        }, dbExecutor);
+    }
+
+    public CompletableFuture<MemoryInspection> inspectMemoryPair(UUID villagerUuid, UUID playerUuid, long now) {
+        return getEligiblePlayerMemory(villagerUuid, playerUuid, now)
+                .thenCombine(getRecentTrades(villagerUuid, playerUuid, 5, now), MemoryInspection::new);
+    }
+
+    public record MemoryInspection(Optional<PlayerMemory> memory, List<TradeRecord> trades) {}
 
     public CompletableFuture<Integer> getVillagerCount() {
         return CompletableFuture.supplyAsync(() -> {

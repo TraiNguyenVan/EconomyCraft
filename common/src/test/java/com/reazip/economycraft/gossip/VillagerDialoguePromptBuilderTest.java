@@ -38,7 +38,7 @@ class VillagerDialoguePromptBuilderTest {
                 4,
                 1500L,
                 0,
-                List.of("Purchased diamond helmet", "Asked about shield repairs")
+                List.of("Purchased diamond helmet", "Visited stall", "Asked about shield repairs")
         );
 
         List<String> grapevine = List.of(
@@ -60,7 +60,8 @@ class VillagerDialoguePromptBuilderTest {
         assertTrue(prompt.contains("shrewd"));
         assertTrue(prompt.contains("Obsessed with iron purity"));
         assertTrue(prompt.contains("The Feudal Lord"));
-        assertTrue(prompt.contains("Purchased diamond helmet"));
+        assertFalse(prompt.contains("Purchased diamond helmet"));
+        assertTrue(prompt.contains("Visited stall"));
         assertTrue(prompt.contains("Iron prices dropped 10%"));
         assertFalse(prompt.contains("inflation"));
         assertTrue(prompt.contains("dialogue"));
@@ -142,8 +143,11 @@ class VillagerDialoguePromptBuilderTest {
         assertTrue(prompt.contains("Diamond Chestplate for 15x Emerald [In stock]"));
         assertTrue(prompt.contains("Emerald for 24x Iron Ingot [OUT OF STOCK]"));
         assertTrue(prompt.contains("This customer's past purchases at your stall:"));
-        assertTrue(prompt.contains("Iron Helmet ($60)"));
-        assertTrue(prompt.contains("Shield ($40)"));
+        assertTrue(prompt.contains("Iron Helmet"));
+        assertTrue(prompt.contains("Shield"));
+        assertFalse(prompt.contains("$60"));
+        assertFalse(prompt.contains("$40"));
+        assertTrue(prompt.contains("Historical purchase"));
     }
 
     @Test
@@ -192,5 +196,31 @@ class VillagerDialoguePromptBuilderTest {
         assertTrue(prompt.contains("OldItem0"));
         assertTrue(prompt.contains("OldItem4"));
         assertFalse(prompt.contains("OldItem5"));
+    }
+
+    @Test
+    @DisplayName("Prompt omits legacy trade events and forbids invented history when no verified facts remain")
+    void promptDoesNotTreatLegacyTradeStringsAsVerified() {
+        UUID villagerUuid = UUID.randomUUID();
+        UUID playerUuid = UUID.randomUUID();
+        VillagerProfile profile = new VillagerProfile(villagerUuid, "Barnaby", "farmer", "plains", List.of(), "", "", 0, 0);
+        PlayerMemory memory = new PlayerMemory(villagerUuid, playerUuid, 5, 3, 9999, 1,
+                List.of("Completed trade involving 8x Wheat", "Visited stall"));
+
+        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(profile, memory, "customer", null, 1.0);
+        assertFalse(prompt.contains("8x Wheat"));
+        assertTrue(prompt.contains("Visited stall"));
+    }
+
+    @Test
+    @DisplayName("Prompt avoids prior relationship claims when no eligible facts exist")
+    void promptForbidsHistoryWithoutEligibleFacts() {
+        UUID villagerUuid = UUID.randomUUID();
+        UUID playerUuid = UUID.randomUUID();
+        VillagerProfile profile = new VillagerProfile(villagerUuid, "Barnaby", "farmer", "plains", List.of(), "", "", 0, 0);
+        PlayerMemory memory = new PlayerMemory(villagerUuid, playerUuid, 5, 3, 9999, 1,
+                List.of("Completed trade involving wheat"));
+        String prompt = VillagerDialoguePromptBuilder.buildSystemInstruction(profile, memory, "customer", null, 1.0);
+        assertTrue(prompt.contains("Do not claim a past visit, trade, or relationship"));
     }
 }

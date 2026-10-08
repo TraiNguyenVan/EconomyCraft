@@ -1393,8 +1393,84 @@ public final class EconomyCommands {
                         })
                         .executes(ctx -> testIndividualDialogue(ctx.getSource(), StringArgumentType.getString(ctx, "profession")))));
         root.then(literal("reload").executes(ctx -> reloadGossip(ctx.getSource())));
+        root.then(literal("memory")
+                .requires(EconomyPermissions::hasAnyAdmin)
+                .then(literal("inspect").then(argument("villager-uuid", StringArgumentType.word())
+                        .then(argument("player-uuid", StringArgumentType.word())
+                                .executes(ctx -> inspectGossipMemory(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "villager-uuid"),
+                                        StringArgumentType.getString(ctx, "player-uuid"))))))
+                .then(literal("clear").then(argument("villager-uuid", StringArgumentType.word())
+                        .then(argument("player-uuid", StringArgumentType.word())
+                                .executes(ctx -> clearGossipMemory(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "villager-uuid"),
+                                        StringArgumentType.getString(ctx, "player-uuid")))))));
 
         return root;
+    }
+
+    private static int inspectGossipMemory(CommandSourceStack source, String villagerText, String playerText) {
+        if (!EconomyPermissions.hasAnyAdmin(source)) return 0;
+        UUID villagerId = parseUuid(villagerText);
+        UUID playerId = parseUuid(playerText);
+        if (villagerId == null || playerId == null) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Both identifiers must be valid UUIDs.").withStyle(ChatFormatting.RED), false);
+            return 0;
+        }
+        var service = VillagerGossipListener.getMemoryService();
+        if (service == null) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Memory service is unavailable.").withStyle(ChatFormatting.RED), false);
+            return 0;
+        }
+        service.inspectMemory(villagerId, playerId).whenComplete((inspection, error) -> source.getServer().execute(() -> {
+            if (!EconomyPermissions.hasAnyAdmin(source)) return;
+            if (error != null) {
+                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Memory inspection failed.").withStyle(ChatFormatting.RED), false);
+                return;
+            }
+            if (inspection.memory().isEmpty() && inspection.trades().isEmpty()) {
+                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] No stored memory for that pair.").withStyle(ChatFormatting.YELLOW), false);
+                return;
+            }
+            inspection.memory().ifPresent(memory -> reply(source, tryGetPlayer(source), Component.literal(
+                    "[EconomyCraft-AI] Relationship: sentiment " + memory.sentiment() + ", interactions " + memory.interactionCount()
+                            + ", last interaction " + memory.lastInteraction()).withStyle(ChatFormatting.AQUA), false));
+            inspection.memory().ifPresent(memory -> memory.recentEvents().forEach(event -> reply(source, tryGetPlayer(source),
+                    Component.literal("• " + event).withStyle(ChatFormatting.GRAY), false)));
+            inspection.trades().forEach(trade -> reply(source, tryGetPlayer(source), Component.literal(
+                    "• Historical trade: " + trade.toPromptDescription()).withStyle(ChatFormatting.GRAY), false));
+        }));
+        return 1;
+    }
+
+    private static int clearGossipMemory(CommandSourceStack source, String villagerText, String playerText) {
+        if (!EconomyPermissions.hasAnyAdmin(source)) return 0;
+        UUID villagerId = parseUuid(villagerText);
+        UUID playerId = parseUuid(playerText);
+        if (villagerId == null || playerId == null) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Both identifiers must be valid UUIDs.").withStyle(ChatFormatting.RED), false);
+            return 0;
+        }
+        var service = VillagerGossipListener.getMemoryService();
+        if (service == null) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Memory service is unavailable.").withStyle(ChatFormatting.RED), false);
+            return 0;
+        }
+        service.clearMemory(villagerId, playerId).whenComplete((deleted, error) -> source.getServer().execute(() -> {
+            if (!EconomyPermissions.hasAnyAdmin(source)) return;
+            if (error != null) {
+                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Memory clear failed.").withStyle(ChatFormatting.RED), false);
+            } else if (deleted == 0) {
+                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] No stored memory existed for that pair.").withStyle(ChatFormatting.YELLOW), false);
+            } else {
+                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Pair memory and trade history cleared.").withStyle(ChatFormatting.GREEN), false);
+            }
+        }));
+        return 1;
+    }
+
+    private static @Nullable UUID parseUuid(String value) {
+        try { return UUID.fromString(value); } catch (IllegalArgumentException ignored) { return null; }
     }
 
     private static int showGossipStatus(CommandSourceStack source) {

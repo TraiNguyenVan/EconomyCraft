@@ -35,9 +35,17 @@ public record PlayerMemory(
         sentiment = Math.clamp(sentiment, MIN_SENTIMENT, MAX_SENTIMENT);
         interactionCount = Math.max(0, interactionCount);
         totalSpent = Math.max(0L, totalSpent);
-        recentEvents = (recentEvents == null || recentEvents.isEmpty())
-                ? List.of()
-                : Collections.unmodifiableList(new ArrayList<>(recentEvents));
+        if (recentEvents == null || recentEvents.isEmpty()) {
+            recentEvents = List.of();
+        } else {
+            List<String> bounded = new ArrayList<>();
+            for (String event : recentEvents) {
+                if (event == null || event.isBlank() || event.length() > 240 || event.chars().anyMatch(Character::isISOControl)) continue;
+                bounded.add(event.trim());
+                if (bounded.size() > MAX_RECENT_EVENTS) bounded.remove(0);
+            }
+            recentEvents = Collections.unmodifiableList(bounded);
+        }
     }
 
     public static PlayerMemory createDefault(UUID villagerUuid, UUID playerUuid, long currentTime) {
@@ -72,9 +80,7 @@ public record PlayerMemory(
         int sentimentBonus = amountSpent > 500 ? 5 : 2;
         int newSentiment = Math.clamp(sentiment + sentimentBonus, MIN_SENTIMENT, MAX_SENTIMENT);
         List<String> newEvents = new ArrayList<>(recentEvents);
-        String event = (itemDescription != null && !itemDescription.isBlank())
-                ? "Completed trade involving " + itemDescription.trim()
-                : "Completed a trade";
+        String event = "Completed a trade";
         newEvents.add(event);
         while (newEvents.size() > MAX_RECENT_EVENTS) {
             newEvents.remove(0);
@@ -94,5 +100,10 @@ public record PlayerMemory(
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    public PlayerMemory withValidatedEvents(List<String> validatedEvents) {
+        return new PlayerMemory(villagerUuid, playerUuid, sentiment, interactionCount, totalSpent,
+                lastInteraction, validatedEvents);
     }
 }

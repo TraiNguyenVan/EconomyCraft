@@ -117,9 +117,10 @@ class VillagerDatabaseTest {
                 List.of("stoic"), "Sharpens blades", "Veteran smith", 100L, 100L);
         database.saveVillager(profile).get();
 
-        database.recordTradeTransaction(villagerUuid, playerUuid, "Diamond Sword", 1, 150L, 1000L).get();
-        database.recordTradeTransaction(villagerUuid, playerUuid, "Iron Ingot", 5, 25L, 2000L).get();
-        database.recordTradeTransaction(villagerUuid, playerUuid, "Shield", 1, 50L, 3000L).get();
+        long now = System.currentTimeMillis();
+        database.recordTradeTransaction(villagerUuid, playerUuid, "Diamond Sword", 1, 150L, now - 3000).get();
+        database.recordTradeTransaction(villagerUuid, playerUuid, "Iron Ingot", 5, 25L, now - 2000).get();
+        database.recordTradeTransaction(villagerUuid, playerUuid, "Shield", 1, 50L, now - 1000).get();
 
         List<com.reazip.economycraft.gossip.storage.TradeRecord> trades = database.getRecentTrades(villagerUuid, playerUuid, 2).get();
         assertEquals(2, trades.size());
@@ -128,5 +129,53 @@ class VillagerDatabaseTest {
         assertEquals(50L, trades.get(0).pricePaid());
         assertEquals("Iron Ingot", trades.get(1).itemName());
         assertEquals(5, trades.get(1).itemCount());
+    }
+
+    @Test
+    @DisplayName("Memory clear removes exactly one pair and its trade history")
+    void clearMemoryIsPairScoped() throws Exception {
+        UUID villager = UUID.randomUUID();
+        UUID player = UUID.randomUUID();
+        UUID otherPlayer = UUID.randomUUID();
+        database.saveVillager(new VillagerProfile(villager, "V", "farmer", "plains", List.of(), "", "", 0, 0)).get();
+        long now = System.currentTimeMillis();
+        database.savePlayerMemory(PlayerMemory.createDefault(villager, player, now)).get();
+        database.savePlayerMemory(PlayerMemory.createDefault(villager, otherPlayer, now)).get();
+        database.recordTradeTransaction(villager, player, "Wheat", 3, 99, now).get();
+        database.recordTradeTransaction(villager, otherPlayer, "Carrot", 2, 77, now).get();
+
+        assertEquals(2, database.clearMemoryPair(villager, player).get());
+        assertTrue(database.getPlayerMemory(villager, player).get().isEmpty());
+        assertEquals(1, database.getRecentTrades(villager, otherPlayer, 5).get().size());
+        assertTrue(database.getRecentTrades(villager, player, 5).get().isEmpty());
+    }
+
+    @Test
+    @DisplayName("Retention keeps the exact cutoff and excludes older rows")
+    void retentionBoundaryIsInclusive() throws Exception {
+        UUID villager = UUID.randomUUID();
+        UUID player = UUID.randomUUID();
+        long now = VillagerDatabase.MEMORY_RETENTION_MILLIS + 50_000;
+        long cutoff = VillagerDatabase.retentionCutoff(now);
+        database.saveVillager(new VillagerProfile(villager, "V", "farmer", "plains", List.of(), "", "", 0, 0)).get();
+        database.savePlayerMemory(PlayerMemory.createDefault(villager, player, cutoff - 1)).get();
+        database.recordTradeTransaction(villager, player, "Old", 1, 1, cutoff - 1).get();
+        database.recordTradeTransaction(villager, player, "Boundary", 2, 500, cutoff).get();
+
+        assertTrue(database.getEligiblePlayerMemory(villager, player, now).get().isEmpty());
+        var trades = database.getRecentTrades(villager, player, 5, now).get();
+        assertEquals(1, trades.size());
+        assertEquals(cutoff, trades.getFirst().timestamp());
+        assertEquals(2, database.deleteExpiredMemoriesAndTrades(now).get());
+    }
+
+    @Test
+    @DisplayName("Trade descriptions require safe text and a positive quantity")
+    void tradeProjectionValidatesItemAndQuantity() {
+        UUID villager = UUID.randomUUID();
+        UUID player = UUID.randomUUID();
+        assertEquals("2x Wheat", new com.reazip.economycraft.gossip.storage.TradeRecord(1, villager, player, "Wheat", 2, 10, 1).toPromptDescription());
+        assertEquals("", new com.reazip.economycraft.gossip.storage.TradeRecord(1, villager, player, "Wheat", 0, 10, 1).toPromptDescription());
+        assertEquals("", new com.reazip.economycraft.gossip.storage.TradeRecord(1, villager, player, "Bad\nName", 1, 10, 1).toPromptDescription());
     }
 }

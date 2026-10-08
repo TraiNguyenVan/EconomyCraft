@@ -15,10 +15,10 @@ public record TradeRecord(
         long timestamp
 ) {
     public String toPromptDescription() {
-        if (itemName == null || itemName.isBlank()) return "";
+        if (itemName == null || itemName.isBlank() || itemCount <= 0) return "";
 
         String name = itemName.trim();
-        if (name.chars().anyMatch(Character::isISOControl)) return "";
+        if (name.chars().anyMatch(Character::isISOControl) || name.length() > 120) return "";
 
         // Trade capture already stores names such as "3x Emerald" for stacks.
         // Avoid duplicating that quantity while still supporting older/plain names.

@@ -38,6 +38,10 @@ public class VillagerMemoryService {
 
     private final Map<UUID, VillagerProfile> profileCache = new ConcurrentHashMap<>();
     private final Map<String, PlayerMemory> memoryCache = new ConcurrentHashMap<>();
+    private final Map<String, Long> pairGenerations = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<PlayerMemory>> memoryLoads = new ConcurrentHashMap<>();
+    private final Map<String, Object> pairLocks = new ConcurrentHashMap<>();
+    private final Map<String, Long> memoryReadFailures = new ConcurrentHashMap<>();
 
     public VillagerMemoryService(
             VillagerDatabase database,
@@ -70,6 +74,10 @@ public class VillagerMemoryService {
 
     private String memoryKey(UUID villagerUuid, UUID playerUuid) {
         return villagerUuid.toString() + ":" + playerUuid.toString();
+    }
+
+    private Object pairLock(String key) {
+        return pairLocks.computeIfAbsent(key, ignored -> new Object());
     }
 
     /**
@@ -130,9 +138,6 @@ public class VillagerMemoryService {
             villager.setCustomNameVisible(false); // standard nametag visibility on look
         }
 
-        PlayerMemory memory = memoryCache.computeIfAbsent(key, k ->
-                PlayerMemory.createDefault(villagerUuid, playerUuid, System.currentTimeMillis()));
-
         // Resolve global grapevine rumors for this villager's category
         GossipCategory category = ProfessionMapper.fromEntity(villager);
         GossipPool pool = poolSupplier.get();
@@ -150,14 +155,27 @@ public class VillagerMemoryService {
         List<TradeOfferSnapshot> offers = TradeOfferSnapshot.fromOffers(villager.getOffers(), 10);
 
         // Fetch recent trade history asynchronously before requesting dialogue
-        return database.getRecentTrades(villagerUuid, playerUuid, 5)
-                .thenCompose(trades -> {
+        long generation = pairGenerations.getOrDefault(key, 0L);
+        return loadMemory(villagerUuid, playerUuid, key, generation)
+                .thenCombine(database.getRecentTrades(villagerUuid, playerUuid, 5).exceptionally(error -> {
+                    LOGGER.warn("[EconomyCraft-AI] Trade history read failed; continuing without trade context: {}", error.getMessage());
+                    return List.of();
+                }), (memory, trades) -> Map.entry(memory, trades))
+                .thenCompose(context -> {
+                    PlayerMemory memory = context.getKey();
+                    List<com.reazip.economycraft.gossip.storage.TradeRecord> trades = context.getValue().stream()
+                            .filter(t -> !t.toPromptDescription().isBlank()).toList();
                     LOGGER.info("[EconomyCraft-AI] Villager {} ({}) interacting with player {}. Extracted {} offer(s), {} past trade(s).",
                             profile.name(), profile.profession(), playerName, offers.size(), trades.size());
                     return apiClient.generateIndividualDialogue(
-                            profile, memory, archetype, grapevine, inflation, recentSpoken, offers, trades);
+                            profile, memory, archetype, grapevine, inflation, recentSpoken, offers, trades)
+                            .thenApply(result -> Map.entry(result, memory));
                 })
-                .thenApply(optResult -> {
+                .thenApply(contextual -> {
+                    Optional<IndividualDialogueResult> optResult = contextual.getKey();
+                    PlayerMemory contextMemory = contextual.getValue();
+                    synchronized (pairLock(key)) {
+                    if (pairGenerations.getOrDefault(key, 0L) != generation) return Optional.<String>empty();
                     if (optResult.isEmpty() || optResult.get().isEmpty()) {
                         return Optional.<String>empty();
                     }
@@ -171,25 +189,76 @@ public class VillagerMemoryService {
                     }
 
                     // Update memory
-                    PlayerMemory updatedMemory = memory.withInteraction(
+                    PlayerMemory updatedMemory = contextMemory.withInteraction(
                             result.sentimentDelta(),
                             "Visited stall",
                             System.currentTimeMillis()
                     );
-                    memoryCache.put(key, updatedMemory);
-                    database.savePlayerMemory(updatedMemory);
+                    if (!Objects.equals(memoryReadFailures.get(key), generation)) {
+                        memoryCache.put(key, updatedMemory);
+                        database.savePlayerMemory(updatedMemory).exceptionally(error -> {
+                            LOGGER.warn("[EconomyCraft-AI] Could not persist player memory: {}", error.getMessage());
+                            return null;
+                        });
+                    }
 
                     // Deliver message to player
                     var server = player.level().getServer();
                     if (server != null) {
                         server.execute(() -> {
                             Component formatted = formatVillagerSpeech(profile, result.dialogue());
-                            player.sendSystemMessage(formatted);
+                            synchronized (pairLock(key)) {
+                                if (pairGenerations.getOrDefault(key, 0L) == generation) player.sendSystemMessage(formatted);
+                            }
                         });
                     }
 
                     return Optional.of(result.dialogue());
+                    }
                 });
+    }
+
+    private CompletableFuture<PlayerMemory> loadMemory(UUID villagerUuid, UUID playerUuid, String key, long generation) {
+        PlayerMemory cached = memoryCache.get(key);
+        if (cached != null) return CompletableFuture.completedFuture(cached);
+        return memoryLoads.computeIfAbsent(key, ignored -> database.getEligiblePlayerMemory(villagerUuid, playerUuid, System.currentTimeMillis())
+                .handle((found, error) -> {
+                    if (error != null) {
+                        LOGGER.warn("[EconomyCraft-AI] Memory read failed; using an empty, non-persisted context: {}", error.getMessage());
+                        synchronized (pairLock(key)) {
+                            if (pairGenerations.getOrDefault(key, 0L) == generation) memoryReadFailures.put(key, generation);
+                        }
+                        return PlayerMemory.createDefault(villagerUuid, playerUuid, System.currentTimeMillis());
+                    }
+                    PlayerMemory memory = found.orElseGet(() -> PlayerMemory.createDefault(villagerUuid, playerUuid, System.currentTimeMillis()));
+                    synchronized (pairLock(key)) {
+                        if (pairGenerations.getOrDefault(key, 0L) == generation) {
+                            memoryReadFailures.remove(key);
+                            if (found.isPresent()) memoryCache.put(key, memory);
+                        }
+                    }
+                    return memory;
+                }).whenComplete((value, error) -> memoryLoads.remove(key)));
+    }
+
+    public CompletableFuture<VillagerDatabase.MemoryInspection> inspectMemory(UUID villagerUuid, UUID playerUuid) {
+        return database.inspectMemoryPair(villagerUuid, playerUuid, System.currentTimeMillis())
+                .thenApply(inspection -> new VillagerDatabase.MemoryInspection(
+                        inspection.memory().map(memory -> memory.withValidatedEvents(memory.recentEvents().stream()
+                                .filter(event -> "Visited stall".equalsIgnoreCase(event))
+                                .limit(5).toList())),
+                        inspection.trades().stream().filter(trade -> !trade.toPromptDescription().isBlank()).limit(5).toList()));
+    }
+
+    public CompletableFuture<Integer> clearMemory(UUID villagerUuid, UUID playerUuid) {
+        String key = memoryKey(villagerUuid, playerUuid);
+        synchronized (pairLock(key)) {
+            pairGenerations.merge(key, 1L, Long::sum);
+            memoryCache.remove(key);
+            memoryLoads.remove(key);
+            memoryReadFailures.remove(key);
+            return database.clearMemoryPair(villagerUuid, playerUuid);
+        }
     }
 
     /**
@@ -206,16 +275,25 @@ public class VillagerMemoryService {
      */
     public void recordTrade(UUID villagerUuid, UUID playerUuid, long amountSpent, @Nullable String itemDescription, int count) {
         String key = memoryKey(villagerUuid, playerUuid);
-        PlayerMemory memory = memoryCache.computeIfAbsent(key, k ->
-                PlayerMemory.createDefault(villagerUuid, playerUuid, System.currentTimeMillis()));
-
-        long now = System.currentTimeMillis();
-        PlayerMemory updated = memory.withTrade(amountSpent, itemDescription, now);
-        memoryCache.put(key, updated);
-        database.savePlayerMemory(updated);
-
-        String itemName = itemDescription != null && !itemDescription.isBlank() ? itemDescription : "Trade item";
-        database.recordTradeTransaction(villagerUuid, playerUuid, itemName, count, amountSpent, now);
+        long generation = pairGenerations.getOrDefault(key, 0L);
+        loadMemory(villagerUuid, playerUuid, key, generation).thenCompose(memory -> {
+            long now = System.currentTimeMillis();
+            PlayerMemory updated = memory.withTrade(amountSpent, itemDescription, now);
+            synchronized (pairLock(key)) {
+                if (pairGenerations.getOrDefault(key, 0L) != generation) return CompletableFuture.completedFuture(null);
+                String itemName = itemDescription != null && !itemDescription.isBlank() ? itemDescription : "Trade item";
+                if (Objects.equals(memoryReadFailures.get(key), generation)) {
+                    return database.recordTradeTransaction(villagerUuid, playerUuid, itemName, count, amountSpent, now);
+                }
+                memoryCache.put(key, updated);
+                return database.recordTradeTransaction(updated,
+                        itemName,
+                        count, amountSpent, now);
+            }
+        }).exceptionally(error -> {
+            LOGGER.warn("[EconomyCraft-AI] Could not persist completed trade memory: {}", error.getMessage());
+            return null;
+        });
     }
 
     /**
