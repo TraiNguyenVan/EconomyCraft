@@ -66,10 +66,10 @@ branch_prefix: ""
 # Custom commit message for git init
 init_commit_message: "[Spec Kit] Initial commit"
 
-# Commit message style for auto-commit hooks: "fixed" (default) uses the
-# messages below; "conventional" asks the agent to generate a Conventional
-# Commit message (e.g. "feat: add OAuth spec") from the diff instead.
-commit_style: fixed
+# Commit message style for auto-commit hooks: "conventional" requires the agent
+# to generate a Conventional Commit message (e.g. "feat(spec): add OAuth spec")
+# from the changes. Use "fixed" only when a static per-command message is wanted.
+commit_style: conventional
 
 # Auto-commit per command (all disabled by default)
 # Example: enable auto-commit after specify
