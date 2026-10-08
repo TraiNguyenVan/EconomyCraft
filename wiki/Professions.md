@@ -1,57 +1,56 @@
-# Chi tiết Nghề nghiệp (Professions)
+# Professions
 
-Hệ thống nghề nghiệp trong EconomyCraft cho phép người chơi rèn luyện kỹ năng qua các hoạt động sinh tồn thực tế và nhận các đặc quyền tương ứng.
+EconomyCraft professions let players develop skills through normal survival activities and earn corresponding perks.
 
-Chọn nghề bằng lệnh `/job` (hoặc `/eco job`), hoặc mở menu `/eco` rồi bấm nút **Tags**. Xem [Hướng dẫn chọn Tag](Chon-tag) để biết thêm về thời gian khóa 30 giờ.
+Choose a profession with `/job` or `/eco job`, or open `/eco` and select **Tags**. See [Choosing a Party and Profession](Choosing-a-Party-and-Profession) for details about the 30-hour lockout.
 
-## Cơ chế Thăng cấp & Lụt nghề
+## Progression and rust
 
-- **Cấp độ cơ bản:** Khi vừa chọn nghề, bạn ở cấp độ **Học nghề**. Hoàn thành đủ chỉ tiêu đề ra sẽ được thăng cấp lên **Thợ thầy**.
-- **Đổi nghề:** Mỗi khi đổi nghề, tiến độ của nghề cũ sẽ bị đặt lại về 0.
-- **Trạng thái "Lụt nghề":** Nếu bạn từng đạt cấp Thợ thầy của một nghề trong quá khứ, sau đó chuyển sang nghề khác rồi quay lại nghề cũ, bạn sẽ bị trạng thái **Lụt nghề** trong **45 phút online**.
-  - Trong thời gian Lụt nghề, hiệu lực các buff của nghề chỉ đạt **50%**.
-  - Sau khi tích lũy đủ 45 phút online, bạn sẽ tự động phục hồi về cấp **Thợ thầy**.
-
----
-
-## 1. Builder (Thợ xây)
-- **Điều kiện lên Thợ thầy:** Đặt đủ 1,000 block xây dựng (gỗ, đá, kính, tường, hàng rào, đất, thạch anh...).
-- **Kỹ năng:**
-  - **Thành thạo:** Tăng tầm với (reach) khi tương tác và đặt block: thêm +1 block (Học nghề) và +2 block (Thợ thầy) so với khoảng cách mặc định 4.5 block.
-  - **Sửa lỗi:** Khi đạt Thợ thầy, nhận ngay hiệu ứng **Haste I** trong quá trình đào bới đá, cobblestone, đất và các block xây dựng.
+- **Starting level:** A newly chosen profession starts at **Apprentice**. Meet its requirements to advance to **Master**.
+- **Changing professions:** Progress in the previous profession resets to zero whenever you switch professions.
+- **Rust:** If you reached Master in a profession, switched to another profession, and later returned, you enter the **Rust** state for **45 minutes of online time**.
+  - While Rust is active, profession buffs are only **50% effective**.
+  - After 45 minutes of accumulated online time, you automatically regain **Master** level.
 
 ---
 
-## 2. Farmer (Nông dân)
-- **Điều kiện lên Thợ thầy:** Đạt đủ 300 lượt thao tác nông nghiệp (Trồng cây, gặt cây chín, cho gia súc ăn, hoặc nhân giống tạo con non).
-- **Kỹ năng:**
-  - **Tươi tốt:** Mỗi 4 phút, hệ thống tự động quét bán kính 24 block quanh bạn; mỗi cây trồng có tỉ lệ 10% (Học nghề) hoặc 20% (Thợ thầy) nhận được một lần thúc đẩy sinh trưởng tự nhiên (như dùng bột xương).
-  - **Chăm sóc:** Thời gian chờ hồi phục để phối giống lần sau của gia súc giảm 10% (Học nghề) / 20% (Thợ thầy). Con non sinh ra phát triển nhanh hơn 15% (Học nghề) / 30% (Thợ thầy).
-  - **Khéo léo:** Khi chế tạo hoặc nấu chín đồ ăn, có 1% (Học nghề) hoặc 5% (Thợ thầy) cơ hội nhận thêm +2 sản phẩm cùng loại.
+## 1. Builder
+- **Requirement for Master:** Place 1,000 building blocks, such as wood, stone, glass, walls, fences, dirt, or quartz.
+- **Skills:**
+  - **Proficiency:** Increases vanilla block-interaction reach by +1 block at Apprentice and +2 blocks at Master, over the default 4.5 blocks. This helps with placing blocks and interacting with chests, signs, and item frames; the bonus is not limited to building.
+  - **Fixer:** At Master, gain **Haste I** while mining stone, cobblestone, dirt, and building blocks.
 
 ---
 
-## 3. Miner (Thợ mỏ)
-- **Điều kiện lên Thợ thầy:** Đào đủ 270 quặng các loại (Quặng Kim cương và Quặng Vàng được tính gấp đôi: 1 quặng = 2 điểm).
-- **Kỹ năng:**
-  - **Lanh lợi:** Nhận ngay hiệu ứng **Haste II** trong lúc đào các loại đá (stone, deepslate, tuff, netherrack) và toàn bộ các loại quặng.
-  - **Khéo tay:** Khi khai thác quặng, có 5% (Học nghề) hoặc 15% (Thợ thầy) cơ hội nhận được gấp đôi lượng quặng rơi ra.
-  - **Bảo hộ lao động:** Đạt Thợ thầy, khi bạn vô tình chạm vào dung nham (lava), bạn sẽ nhận ngay hiệu ứng **Hồi máu II (Regeneration II)** trong 4 giây. Thời gian hồi chiêu: 5 phút.
+## 2. Farmer
+- **Requirement for Master:** Complete 300 farming actions, such as planting crops, harvesting mature crops, feeding animals, or breeding animals.
+- **Skills:**
+  - **Lush Growth:** Every 4 minutes, the system scans a 24-block radius around you. Each crop has a 10% chance at Apprentice or 20% chance at Master to receive a natural growth boost, similar to bone meal.
+  - **Care:** Reduces the time before livestock can breed again by 10% at Apprentice or 20% at Master. Offspring grow 15% faster at Apprentice or 30% faster at Master.
+  - **Craftiness:** When crafting or cooking food, there is a 1% chance at Apprentice or 5% chance at Master to receive 2 extra items of the same type.
 
 ---
 
-## 4. Merchant (Thương nhân)
-- **Điều kiện lên Thợ thầy:** Hoàn thành đồng thời hai mục tiêu:
-  - Giao dịch với dân làng (Villager) đủ 50 lần (giao dịch que gỗ / stick không được tính; mỗi dân làng chỉ đóng góp tối đa 20 lượt giao dịch).
-  - Mua sắm thành công trên chợ `/ah` đủ 5 lần.
-- **Kỹ năng:**
-  - **Lưỡi không xương:** Giảm **thuế** trên các giao dịch của bạn: giao dịch với dân làng có nghề nghiệp và mua sắm trên chợ `/ah`. Mức giảm là 5% (Học nghề) và 15% (Thợ thầy) trên số thuế phải trả.
-  - Lưu ý: đây là giảm **thuế**, không phải giảm giá vật phẩm. Bạn vẫn trả đầy đủ giá hàng; số thuế bị giảm mới là phần được giảm.
+## 3. Miner
+- **Requirement for Master:** Mine 270 ores. Diamond Ore and Gold Ore count twice: one ore gives 2 points.
+- **Skills:**
+  - **Agility:** Gain **Haste II** while mining stone, deepslate, tuff, netherrack, and all ores.
+  - **Handy:** When mining ores, there is a 5% chance at Apprentice or 15% chance at Master to receive twice the ore drops.
+  - **Safety Gear:** At Master, accidentally touching lava grants **Regeneration II** for 4 seconds. Cooldown: 5 minutes.
 
 ---
 
-## 5. Soldier (Chiến binh)
-- **Điều kiện lên Thợ thầy:** Tiêu diệt đủ 100 quái vật thù địch.
-- **Kỹ năng:**
-  - **Sắt được tôi thế đấy:** Giảm 5% sát thương nhận vào và tăng 5% sát thương gây ra ở mức Học nghề. Lên Thợ thầy tăng cả hai hiệu ứng lên **±15%**.
-  - **Andrenaline:** Đạt Thợ thầy, khi bạn trúng phải hiệu ứng bất lợi (hiệu ứng xấu), kỹ năng sẽ tự động kích hoạt: giảm một nửa thời gian của toàn bộ hiệu ứng xấu hiện có và các hiệu ứng xấu nhận thêm trong 4 giây tiếp theo. Sau 4 giây, kỹ năng bước vào thời gian hồi chiêu 5 phút.
+## 4. Merchant
+- **Requirement for Master:** Complete both objectives:
+  - Trade with villagers 50 times. Stick trades do not count, and each villager can contribute at most 20 trades.
+  - Complete 5 purchases on the `/ah` auction house.
+- **Skills:**
+  - **Silver Tongue:** Reduces the cost of trades with employed villagers and reduces transaction tax on taxable player payments, tolls, auction purchases, and order fulfillment. Its configured rate is 5% at Apprentice or 15% at Master; Rust halves the profession effect.
+
+---
+
+## 5. Soldier
+- **Requirement for Master:** Kill 100 hostile mobs.
+- **Skills:**
+  - **Tempered Steel:** At Apprentice, take 5% less damage and deal 5% more damage. At Master, both effects increase to **±15%**.
+  - **Adrenaline:** At Master, receiving a harmful effect automatically activates this skill. It halves the duration of all current harmful effects and any additional harmful effects received during the next 4 seconds. After those 4 seconds, the skill enters a 5-minute cooldown.

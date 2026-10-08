@@ -3,7 +3,7 @@
 A server-side economy for Fabric and NeoForge.
 Requires Architectury API.
 
-> **Note:** This repository is an enhanced fork of [PhilipB06/EconomyCraft](https://github.com/PhilipB06/EconomyCraft), adding dynamic pricing, LLM-powered villager economic gossip, tolls, player order books, and faction economic integrations.
+> **Note:** This repository is an enhanced fork of [PhilipB06/EconomyCraft](https://github.com/PhilipB06/EconomyCraft), adding dynamic pricing, LLM-powered private villager dialogue, tolls, player order books, and faction economic integrations.
 
 ## Supported versions
 
@@ -170,9 +170,7 @@ Every screen above also has a command. The player-facing ones are on the main me
 | `/eco reload` | Re-reads `config.json` and `prices.json` from disk. |
 | `/eco motd` | Sends the join message to you; from the console it prints the configured lines. |
 | `/eco import` | Moves balances, listings and prices from an older shared folder into this world. |
-| `/eco gossip status` | Whether the gossip provider is reachable and when it last ran. |
-| `/eco gossip refresh` | Regenerates the gossip pool now. |
-| `/eco gossip test` | Sends one test generation. |
+| `/eco gossip status` | Whether the dialogue provider is reachable and whether its circuit breaker is open. |
 | `/eco gossip dialogue [prof]` | Sends one line of villager dialogue, optionally for a profession. |
 | `/eco gossip reload` | Re-reads the gossip configuration. |
 | `/eco toll` | Toll management: `create`, `set`, `transfer`, `info`, `remove`. |
@@ -264,7 +262,7 @@ appear until first use.
 | `cooldowns.json` | Wall-clock cooldowns. |
 | `parties.json` | Party choices and their lockouts. |
 | `professions.json` | Profession, level and rust state. |
-| `villagers.db` | Generated villagers and their gossip and dialogue. |
+| `villagers.db` | Generated villagers, their names and traits, and their memories of your visits and trades. |
 
 ### Import and export
 
@@ -274,7 +272,7 @@ appear until first use.
 
 The rest are deliberately excluded, because they are per-player progression rather than economy, and importing
 them would hand every player a fresh party and profession on migration. That covers `online_time.json`,
-`cooldowns.json`, `parties.json` and `professions.json`, along with the quest, toll, gossip and fiscal state.
+`cooldowns.json`, `parties.json` and `professions.json`, along with the quest, toll and fiscal state.
 Copy those by hand if you mean to move them; deleting the shared copy also destroys the source server's tag
 state.
 
@@ -340,7 +338,7 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 | `factions.monarchy.own_claim_damage_multiplier` | `1.15` | `Phép vua thua lẹ làng` — damage dealt and resistance inside your own claim. Needs ShopGuard. |
 | `factions.selection_lockout_hours` | `30` | How long a party choice holds. Independent of the profession lockout. `0` = off. |
 | `gemini_gossip.anonymize_players` | `true` | Replace real player names with archetypes before anything is sent to the provider. |
-| `gemini_gossip.api_key` | `""` | API key for the provider. **Empty by default; gossip does nothing until this is set.** |
+| `gemini_gossip.api_key` | `""` | API key for the provider. **Empty by default; villagers stay silent until this is set.** |
 | `gemini_gossip.base_url` | `"https://generativelanguage.googleapis.com"` | Provider base URL. |
 | `gemini_gossip.cooldown_minutes` | `3` | Minimum gap between two generations. Clamped to 1-60. |
 | `gemini_gossip.dialogue_system_instruction` | `"Dialogue Instructions:
@@ -353,14 +351,9 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
      "dialogue": "<your concise line>",
      "sentiment_delta": <-2 to 5 integer>
    }"` | Prompt telling the model to write one villager's line. Edit to change the tone. |
-| `gemini_gossip.enabled` | `true` | Master switch for LLM villager gossip. Has no effect without `api_key`. |
+| `gemini_gossip.enabled` | `true` | Master switch for LLM villager dialogue. Has no effect without `api_key`. |
 | `gemini_gossip.model` | `"gemini-3.8-flash"` | Model identifier. Shipped as `gemini-3.8-flash`. |
-| `gemini_gossip.pool_size_per_category` | `3` | Villagers generated per profession category. Clamped to 3-10. |
-| `gemini_gossip.private_chat_chance` | `0.5` | Chance of a line sent privately to the player. Clamped to 0.0-1.0. |
-| `gemini_gossip.public_chat` | `false` | **Disabled by default.** Let villagers speak in public chat. |
-| `gemini_gossip.public_chat_chance` | `0.25` | Chance of a public line, when public chat is on. Clamped to 0.0-1.0. |
-| `gemini_gossip.refresh_interval_minutes` | `20` | How often the gossip pool is regenerated. Clamped to 5-1440. |
-| `gemini_gossip.system_instruction` | `"You are a witty, satirical economic gossip for Minecraft villagers on an economy server. Based on the provided transaction summary, write 2-3 short, exaggerated gossip lines (1 sentence each) for each villager profession. Villagers have quirky mannerisms: occasionally mutter, sigh, or hum (e.g. 'Hmm...', 'Hrmm...', 'Huh?', 'Haah...'), but vary how lines begin and do NOT start every line with 'Hrmm...' — many lines should begin directly. Always refer to money in dollars ('$'). Never mention real player usernames; use the given archetypes."` | Prompt telling the model to write the gossip pool. Edit to change the tone. |
+| `gemini_gossip.private_chat_chance` | `0.5` | Chance that a villager says something when you open its trade interface. The line is sent **only to you**. Clamped to 0.0-1.0. |
 | `gemini_gossip.temperature` | `0.85` | Sampling temperature. Clamped to 0.0-2.0. |
 | `max_active_auctions_per_player` | `0` | Most active auctions a player can have at once. `0` = unlimited. Overridable per player. |
 | `max_active_orders_per_player` | `0` | Most open orders a player can have at once. `0` = unlimited. Overridable per player. |
@@ -621,13 +614,16 @@ weekly mint, and whatever budget is left unspent simply never mints.
 
 #### `gemini_gossip`
 
-LLM-written villager economic gossip and dialogue. **This section sends economy data to a third-party API.**
-`gemini_gossip.api_key` ships empty, so nothing is sent and nothing is generated until you set it.
+LLM-written villager dialogue. When you open a villager's trade interface it may say one line to **you and
+only you** — villager speech is never broadcast to other players. Each line is built from that villager's
+own personality, what it currently sells, and its memory of your visits and trades. **This section sends
+economy data to a third-party API.** `gemini_gossip.api_key` ships empty, so nothing is sent and nothing is
+generated until you set it.
 
 | Key | Default | Description |
 |---|---|---|
 | `gemini_gossip.anonymize_players` | `true` | Replace real player names with archetypes before anything is sent to the provider. |
-| `gemini_gossip.api_key` | `""` | API key for the provider. **Empty by default; gossip does nothing until this is set.** |
+| `gemini_gossip.api_key` | `""` | API key for the provider. **Empty by default; villagers stay silent until this is set.** |
 | `gemini_gossip.base_url` | `"https://generativelanguage.googleapis.com"` | Provider base URL. |
 | `gemini_gossip.cooldown_minutes` | `3` | Minimum gap between two generations. Clamped to 1-60. |
 | `gemini_gossip.dialogue_system_instruction` | `"Dialogue Instructions:
@@ -640,14 +636,9 @@ LLM-written villager economic gossip and dialogue. **This section sends economy 
      "dialogue": "<your concise line>",
      "sentiment_delta": <-2 to 5 integer>
    }"` | Prompt telling the model to write one villager's line. Edit to change the tone. |
-| `gemini_gossip.enabled` | `true` | Master switch for LLM villager gossip. Has no effect without `api_key`. |
+| `gemini_gossip.enabled` | `true` | Master switch for LLM villager dialogue. Has no effect without `api_key`. |
 | `gemini_gossip.model` | `"gemini-3.8-flash"` | Model identifier. Shipped as `gemini-3.8-flash`. |
-| `gemini_gossip.pool_size_per_category` | `3` | Villagers generated per profession category. Clamped to 3-10. |
-| `gemini_gossip.private_chat_chance` | `0.5` | Chance of a line sent privately to the player. Clamped to 0.0-1.0. |
-| `gemini_gossip.public_chat` | `false` | **Disabled by default.** Let villagers speak in public chat. |
-| `gemini_gossip.public_chat_chance` | `0.25` | Chance of a public line, when public chat is on. Clamped to 0.0-1.0. |
-| `gemini_gossip.refresh_interval_minutes` | `20` | How often the gossip pool is regenerated. Clamped to 5-1440. |
-| `gemini_gossip.system_instruction` | `"You are a witty, satirical economic gossip for Minecraft villagers on an economy server. Based on the provided transaction summary, write 2-3 short, exaggerated gossip lines (1 sentence each) for each villager profession. Villagers have quirky mannerisms: occasionally mutter, sigh, or hum (e.g. 'Hmm...', 'Hrmm...', 'Huh?', 'Haah...'), but vary how lines begin and do NOT start every line with 'Hrmm...' — many lines should begin directly. Always refer to money in dollars ('$'). Never mention real player usernames; use the given archetypes."` | Prompt telling the model to write the gossip pool. Edit to change the tone. |
+| `gemini_gossip.private_chat_chance` | `0.5` | Chance that a villager says something when you open its trade interface. The line is sent **only to you**. Clamped to 0.0-1.0. |
 | `gemini_gossip.temperature` | `0.85` | Sampling temperature. Clamped to 0.0-2.0. |
 
 #### `motd`

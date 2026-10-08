@@ -18,40 +18,36 @@ public final class VillagerDialoguePromptBuilder {
             VillagerProfile profile,
             PlayerMemory memory,
             String playerArchetype,
-            @Nullable List<String> grapevineRumors,
             double inflation
     ) {
-        return buildSystemInstruction(profile, memory, playerArchetype, grapevineRumors, inflation, null, null);
+        return buildSystemInstruction(profile, memory, playerArchetype, inflation, null, null);
     }
 
     public static String buildSystemInstruction(
             VillagerProfile profile,
             PlayerMemory memory,
             String playerArchetype,
-            @Nullable List<String> grapevineRumors,
             double inflation,
             @Nullable String customInstructions
     ) {
-        return buildSystemInstruction(profile, memory, playerArchetype, grapevineRumors, inflation, customInstructions, null);
+        return buildSystemInstruction(profile, memory, playerArchetype, inflation, customInstructions, null);
     }
 
     public static String buildSystemInstruction(
             VillagerProfile profile,
             PlayerMemory memory,
             String playerArchetype,
-            @Nullable List<String> grapevineRumors,
             double inflation,
             @Nullable String customInstructions,
             @Nullable List<String> recentSpokenTopics
     ) {
-        return buildSystemInstruction(profile, memory, playerArchetype, grapevineRumors, inflation, customInstructions, recentSpokenTopics, null, null);
+        return buildSystemInstruction(profile, memory, playerArchetype, inflation, customInstructions, recentSpokenTopics, null, null);
     }
 
     public static String buildSystemInstruction(
             VillagerProfile profile,
             PlayerMemory memory,
             String playerArchetype,
-            @Nullable List<String> grapevineRumors,
             double inflation,
             @Nullable String customInstructions,
             @Nullable List<String> recentSpokenTopics,
@@ -91,13 +87,6 @@ public final class VillagerDialoguePromptBuilder {
             }
         } else if (memory.interactionCount() == 0) {
             sb.append("You have no prior memories with this customer; they are a newcomer to your stall.\n");
-        }
-
-        if (grapevineRumors != null && !grapevineRumors.isEmpty()) {
-            sb.append(String.format(Locale.ROOT, "\nWord from your fellow %ss across the realm:\n", profile.profession()));
-            for (String rumor : grapevineRumors) {
-                sb.append("- ").append(rumor).append("\n");
-            }
         }
 
         if (recentSpokenTopics != null && !recentSpokenTopics.isEmpty()) {

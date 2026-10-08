@@ -30,7 +30,6 @@ import org.slf4j.Logger;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import com.reazip.economycraft.gossip.*;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.Locale;
 
 public final class EconomyCraft {
@@ -41,13 +40,11 @@ public final class EconomyCraft {
     private static volatile MinecraftServer lastServer;
     private static final int EXPIRATION_CHECK_INTERVAL_TICKS = 20 * 60;
 
-    public static final AtomicReference<GossipPool> GOSSIP_POOL =
-            new AtomicReference<>(GossipPool.empty());
     public static final CooldownTracker GOSSIP_COOLDOWN_TRACKER =
             new CooldownTracker();
     public static final com.reazip.economycraft.gossip.RecentSpokenTracker GOSSIP_RECENT_SPOKEN =
             new com.reazip.economycraft.gossip.RecentSpokenTracker(8);
-    private static volatile GossipDigestWorker gossipWorker;
+    private static volatile com.reazip.economycraft.gossip.GossipApiClient gossipApiClient;
     private static volatile com.reazip.economycraft.gossip.storage.VillagerDatabase villagerDatabase;
     private static volatile com.reazip.economycraft.gossip.memory.VillagerMemoryService villagerMemoryService;
 
@@ -72,7 +69,6 @@ public final class EconomyCraft {
 
         // Initialize and register Villager gossip interaction listener
         VillagerGossipListener.init(
-                GOSSIP_POOL,
                 GOSSIP_COOLDOWN_TRACKER,
                 () -> {
                     var cfg = EconomyConfig.get();
@@ -99,15 +95,7 @@ public final class EconomyCraft {
                     villagerMemoryService = null;
                 }
             }
-            if (gossipWorker != null) {
-                try {
-                    gossipWorker.stop();
-                } catch (Exception e) {
-                    LOGGER.warn("[EconomyCraft] Error stopping Villager Gossip AI worker", e);
-                } finally {
-                    gossipWorker = null;
-                }
-            }
+            gossipApiClient = null;
             if (manager != null && lastServer == server) {
                 manager.deactivate();
                 manager.save();
@@ -120,20 +108,16 @@ public final class EconomyCraft {
         TickEvent.SERVER_POST.register(EconomyCraft::onServerTick);
     }
 
-    public static AtomicReference<GossipPool> getGossipPool() {
-        return GOSSIP_POOL;
-    }
-
     public static CooldownTracker getGossipCooldownTracker() {
         return GOSSIP_COOLDOWN_TRACKER;
     }
 
-    public static @Nullable GossipDigestWorker getGossipWorker() {
-        return gossipWorker;
+    public static @Nullable com.reazip.economycraft.gossip.GossipApiClient getGossipApiClient() {
+        return gossipApiClient;
     }
 
     /**
-     * Hot-reloads the AI gossip worker, client, and memory service from disk without restarting the server.
+     * Hot-reloads the AI gossip client and memory service from disk without restarting the server.
      */
     public static synchronized void reloadGossipService(MinecraftServer server) {
         try {
@@ -141,27 +125,11 @@ public final class EconomyCraft {
             var cfg = EconomyConfig.get();
             var config = cfg != null ? cfg.geminiGossip : null;
 
-            if (gossipWorker != null) {
-                try {
-                    gossipWorker.stop();
-                } catch (Exception e) {
-                    LOGGER.warn("[EconomyCraft] Error stopping old gossip worker", e);
-                } finally {
-                    gossipWorker = null;
-                }
-            }
+            gossipApiClient = null;
 
             if (config != null && config.enabled()) {
                 var client = new com.reazip.economycraft.gossip.GossipApiClient(config);
-                gossipWorker = new com.reazip.economycraft.gossip.GossipDigestWorker(
-                        server,
-                        config,
-                        client,
-                        GOSSIP_POOL,
-                        GOSSIP_COOLDOWN_TRACKER,
-                        GOSSIP_RECENT_SPOKEN::getRecentSpoken
-                );
-                gossipWorker.start();
+                gossipApiClient = client;
 
                 if (villagerDatabase == null) {
                     java.nio.file.Path dbPath = com.reazip.economycraft.util.EconomyPaths.dataDir(server).resolve("villagers.db");
@@ -173,7 +141,6 @@ public final class EconomyCraft {
                         villagerDatabase,
                         client,
                         () -> EconomyConfig.get().geminiGossip,
-                        GOSSIP_POOL::get,
                         () -> {
                             var mgr = EconomyCraft.getManager(server);
                             return mgr != null ? mgr.getDynamicPriceMultiplier() : 1.0;
@@ -193,6 +160,7 @@ public final class EconomyCraft {
             } else {
                 com.reazip.economycraft.gossip.VillagerGossipListener.setMemoryService(null);
                 villagerMemoryService = null;
+                gossipApiClient = null;
                 LOGGER.info("[EconomyCraft-AI] Gossip service disabled.");
             }
         } catch (Exception e) {

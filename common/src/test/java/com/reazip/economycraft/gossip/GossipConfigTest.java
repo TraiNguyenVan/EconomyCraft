@@ -24,18 +24,12 @@ class GossipConfigTest {
         assertTrue(config.enabled(), "enabled must default to true");
         assertEquals("", config.apiKey(), "apiKey must default to empty string");
         assertEquals("gemini-3.8-flash", config.model(), "model must default to gemini-3.8-flash");
-        assertEquals(20, config.refreshIntervalMinutes(), "refreshIntervalMinutes must default to 20");
         assertEquals(3, config.cooldownMinutes(), "cooldownMinutes must default to 3");
         assertTrue(config.anonymizePlayers(), "anonymizePlayers must default to true");
         assertEquals(0.85, config.temperature(), 1e-6, "temperature must default to 0.85");
-        assertFalse(config.publicChat(), "publicChat must default to false");
-        assertEquals(0.25, config.publicChatChance(), 1e-6, "publicChatChance must default to 0.25");
         assertEquals(0.5, config.privateChatChance(), 1e-6, "privateChatChance must default to 0.5");
-        assertEquals(GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, config.systemInstruction(),
-                "systemInstruction must default to DEFAULT_SYSTEM_INSTRUCTION");
         assertEquals(GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, config.dialogueSystemInstruction(),
                 "dialogueSystemInstruction must default to DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION");
-        assertEquals(3, config.poolSizePerCategory(), "poolSizePerCategory must default to 3");
     }
 
     @Test
@@ -55,16 +49,12 @@ class GossipConfigTest {
                   "enabled": false,
                   "api_key": "AIzaSyCustomKey123",
                   "model": "gemini-1.5-pro",
-                  "refresh_interval_minutes": 60,
                   "cooldown_minutes": 10,
                   "anonymize_players": false,
                   "temperature": 0.4,
-                  "public_chat": true,
-                  "public_chat_chance": 0.15,
                   "private_chat_chance": 0.85,
-                  "system_instruction": "Custom prompt instructions here.",
                   "dialogue_system_instruction": "Custom dialogue rules.",
-                  "pool_size_per_category": 5
+                  "base_url": "https://api.openai.com/v1"
                 }
                 """;
 
@@ -73,16 +63,11 @@ class GossipConfigTest {
         assertFalse(config.enabled());
         assertEquals("AIzaSyCustomKey123", config.apiKey());
         assertEquals("gemini-1.5-pro", config.model());
-        assertEquals(60, config.refreshIntervalMinutes());
         assertEquals(10, config.cooldownMinutes());
         assertFalse(config.anonymizePlayers());
         assertEquals(0.4, config.temperature(), 1e-6);
-        assertTrue(config.publicChat());
-        assertEquals(0.15, config.publicChatChance(), 1e-6);
         assertEquals(0.85, config.privateChatChance(), 1e-6);
-        assertEquals("Custom prompt instructions here.", config.systemInstruction());
         assertEquals("Custom dialogue rules.", config.dialogueSystemInstruction());
-        assertEquals(5, config.poolSizePerCategory());
     }
 
     @Test
@@ -90,8 +75,7 @@ class GossipConfigTest {
     void partialJsonDeserializationPreservesDefaults() {
         String json = """
                 {
-                  "api_key": "my-secret-key",
-                  "refresh_interval_minutes": 45
+                  "api_key": "my-secret-key"
                 }
                 """;
 
@@ -100,30 +84,10 @@ class GossipConfigTest {
         assertTrue(config.enabled(), "omitted enabled must remain true");
         assertEquals("my-secret-key", config.apiKey());
         assertEquals("gemini-3.8-flash", config.model(), "omitted model must remain default");
-        assertEquals(45, config.refreshIntervalMinutes());
         assertEquals(3, config.cooldownMinutes(), "omitted cooldown must remain default");
         assertTrue(config.anonymizePlayers(), "omitted anonymizePlayers must remain true");
         assertEquals(0.85, config.temperature(), 1e-6);
-        assertFalse(config.publicChat());
-    }
-
-    @Test
-    @DisplayName("refresh_interval_minutes clamps to bounds [5, 1440]")
-    void clampingRefreshIntervalMinutes() {
-        GossipConfig belowMin = GSON.fromJson("{\"refresh_interval_minutes\": 2}", GossipConfig.class);
-        assertEquals(5, belowMin.refreshIntervalMinutes(), "values below 5 must clamp to 5");
-
-        GossipConfig negative = GSON.fromJson("{\"refresh_interval_minutes\": -10}", GossipConfig.class);
-        assertEquals(5, negative.refreshIntervalMinutes(), "negative values must clamp to 5");
-
-        GossipConfig exactMin = GSON.fromJson("{\"refresh_interval_minutes\": 5}", GossipConfig.class);
-        assertEquals(5, exactMin.refreshIntervalMinutes());
-
-        GossipConfig exactMax = GSON.fromJson("{\"refresh_interval_minutes\": 1440}", GossipConfig.class);
-        assertEquals(1440, exactMax.refreshIntervalMinutes());
-
-        GossipConfig aboveMax = GSON.fromJson("{\"refresh_interval_minutes\": 3000}", GossipConfig.class);
-        assertEquals(1440, aboveMax.refreshIntervalMinutes(), "values above 1440 must clamp to 1440");
+        assertEquals(0.5, config.privateChatChance(), 1e-6);
     }
 
     @Test
@@ -160,39 +124,16 @@ class GossipConfigTest {
         GossipConfig aboveMax = GSON.fromJson("{\"temperature\": 4.5}", GossipConfig.class);
         assertEquals(2.0, aboveMax.temperature(), 1e-6, "temperatures above 2.0 must clamp to 2.0");
     }
-
     @Test
-    @DisplayName("pool_size_per_category clamps to bounds [3, 10]")
-    void clampingPoolSizePerCategory() {
-        GossipConfig belowMin = GSON.fromJson("{\"pool_size_per_category\": 1}", GossipConfig.class);
-        assertEquals(3, belowMin.poolSizePerCategory(), "values below 3 must clamp to 3");
-
-        GossipConfig negative = GSON.fromJson("{\"pool_size_per_category\": -5}", GossipConfig.class);
-        assertEquals(3, negative.poolSizePerCategory(), "negative values must clamp to 3");
-
-        GossipConfig exactMin = GSON.fromJson("{\"pool_size_per_category\": 3}", GossipConfig.class);
-        assertEquals(3, exactMin.poolSizePerCategory());
-
-        GossipConfig exactMax = GSON.fromJson("{\"pool_size_per_category\": 10}", GossipConfig.class);
-        assertEquals(10, exactMax.poolSizePerCategory());
-
-        GossipConfig aboveMax = GSON.fromJson("{\"pool_size_per_category\": 25}", GossipConfig.class);
-        assertEquals(10, aboveMax.poolSizePerCategory(), "values above 10 must clamp to 10");
-    }
-
-    @Test
-    @DisplayName("public_chat_chance and private_chat_chance clamp to bounds [0.0, 1.0]")
+    @DisplayName("private_chat_chance clamps to bounds [0.0, 1.0]")
     void clampingChances() {
-        GossipConfig below = GSON.fromJson("{\"public_chat_chance\": -0.5, \"private_chat_chance\": -0.1}", GossipConfig.class);
-        assertEquals(0.0, below.publicChatChance(), 1e-6);
+        GossipConfig below = GSON.fromJson("{\"private_chat_chance\": -0.1}", GossipConfig.class);
         assertEquals(0.0, below.privateChatChance(), 1e-6);
 
-        GossipConfig exact = GSON.fromJson("{\"public_chat_chance\": 0.0, \"private_chat_chance\": 1.0}", GossipConfig.class);
-        assertEquals(0.0, exact.publicChatChance(), 1e-6);
+        GossipConfig exact = GSON.fromJson("{\"private_chat_chance\": 1.0}", GossipConfig.class);
         assertEquals(1.0, exact.privateChatChance(), 1e-6);
 
-        GossipConfig above = GSON.fromJson("{\"public_chat_chance\": 2.5, \"private_chat_chance\": 1.1}", GossipConfig.class);
-        assertEquals(1.0, above.publicChatChance(), 1e-6);
+        GossipConfig above = GSON.fromJson("{\"private_chat_chance\": 1.1}", GossipConfig.class);
         assertEquals(1.0, above.privateChatChance(), 1e-6);
     }
 
@@ -205,7 +146,8 @@ class GossipConfigTest {
         GossipConfig blankModel = GSON.fromJson("{\"model\": \"   \"}", GossipConfig.class);
         assertEquals("gemini-3.8-flash", blankModel.model());
 
-        GossipConfig manualNull = new GossipConfig(true, "", null, 20, 3, true, 0.85, false);
+        GossipConfig manualNull = new GossipConfig(true, "", null, 3, true, 0.85, 0.5,
+                GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, GossipConfig.DEFAULT_BASE_URL);
         assertEquals("gemini-3.8-flash", manualNull.model());
     }
 
@@ -215,14 +157,16 @@ class GossipConfigTest {
         GossipConfig withSpaces = GSON.fromJson("{\"api_key\": \"  padded-key  \"}", GossipConfig.class);
         assertEquals("padded-key", withSpaces.apiKey());
 
-        GossipConfig manualNull = new GossipConfig(true, null, "gemini-3.8-flash", 20, 3, true, 0.85, false);
+        GossipConfig manualNull = new GossipConfig(true, null, "gemini-3.8-flash", 3, true, 0.85, 0.5,
+                GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, GossipConfig.DEFAULT_BASE_URL);
         assertEquals("", manualNull.apiKey());
     }
 
     @Test
     @DisplayName("getEffectiveApiKey prioritizes configured apiKey over environment variable")
     void getEffectiveApiKeyPrioritizesConfiguredKey() {
-        GossipConfig config = new GossipConfig(true, "configured-key", "gemini-3.8-flash", 20, 3, true, 0.85, false);
+        GossipConfig config = new GossipConfig(true, "configured-key", "gemini-3.8-flash", 3, true, 0.85, 0.5,
+                GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, GossipConfig.DEFAULT_BASE_URL);
         Map<String, String> env = Map.of("GEMINI_API_KEY", "env-key");
 
         assertEquals("configured-key", config.getEffectiveApiKey(env::get));
@@ -254,10 +198,11 @@ class GossipConfigTest {
                 "roundtrip-key",
                 "gemini-1.5-pro",
                 40,
-                8,
                 false,
                 1.2,
-                true
+                0.9,
+                GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION,
+                "https://api.openai.com/v1"
         );
 
         String json = GSON.toJson(original);
@@ -265,12 +210,8 @@ class GossipConfigTest {
 
         assertEquals(original, deserialized);
         assertTrue(json.contains("\"api_key\""));
-        assertTrue(json.contains("\"refresh_interval_minutes\""));
         assertTrue(json.contains("\"cooldown_minutes\""));
         assertTrue(json.contains("\"anonymize_players\""));
-        assertTrue(json.contains("\"public_chat\""));
-        assertTrue(json.contains("\"system_instruction\""));
-        assertTrue(json.contains("\"pool_size_per_category\""));
         assertTrue(json.contains("\"base_url\""));
     }
 
@@ -278,37 +219,14 @@ class GossipConfigTest {
     @DisplayName("getEffectiveApiKey falls back to OPENAI_API_KEY env var when isOpenAiCompatible is true")
     void openAiApiKeyFallback() {
         GossipConfig config = new GossipConfig(
-                true, "", "gpt-4o", 20, 3, true, 0.85, false,
-                GossipConfig.DEFAULT_SYSTEM_INSTRUCTION, 3, "https://api.openai.com/v1"
+                true, "", "gpt-4o", 3, true, 0.85, 0.5,
+                GossipConfig.DEFAULT_DIALOGUE_SYSTEM_INSTRUCTION, "https://api.openai.com/v1"
         );
         assertTrue(config.isOpenAiCompatible());
 
         Map<String, String> env = Map.of("OPENAI_API_KEY", "sk-secret-env-key");
         assertEquals("sk-secret-env-key", config.getEffectiveApiKey(env::get));
     }
-
-    @Test
-    @DisplayName("clamp is idempotent")
-    void clampIsIdempotent() {
-        GossipConfig config = new GossipConfig(
-                true,
-                "some-key",
-                "gemini-3.8-flash",
-                9999, // out of range
-                9999, // out of range
-                true,
-                9.9,  // out of range
-                false
-        );
-
-        assertEquals(1440, config.refreshIntervalMinutes());
-        assertEquals(60, config.cooldownMinutes());
-        assertEquals(2.0, config.temperature(), 1e-6);
-
-        GossipConfig secondClamp = config.clamped();
-        assertEquals(config, secondClamp, "clamping twice must yield identical values");
-    }
-
     @Test
     @DisplayName("Unknown JSON keys are ignored safely without errors")
     void unknownKeysIgnored() {

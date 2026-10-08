@@ -53,10 +53,8 @@ import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxQuote;
 import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.PermissionCompat;
-import com.reazip.economycraft.gossip.GossipCategory;
 import com.reazip.economycraft.gossip.VillagerGossipListener;
 import com.reazip.economycraft.util.TimeFormat;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.item.ItemStack;
 
 import static net.minecraft.commands.Commands.argument;
@@ -1366,28 +1364,28 @@ public final class EconomyCommands {
         return builder.buildFuture();
     }
 
+    /**
+     * Profession names offered as tab-completion for {@code /eco gossip dialogue [profession]}.
+     * These are plain profession strings, matching {@code VillagerProfile.profession()}.
+     */
+    private static final List<String> VILLAGER_PROFESSIONS = List.of(
+            "farmer", "fisherman", "shepherd", "fletcher",
+            "armorer", "weaponsmith", "toolsmith",
+            "cleric", "librarian", "cartographer", "nitwit",
+            "butcher", "leatherworker", "mason", "none"
+    );
+
     private static LiteralArgumentBuilder<CommandSourceStack> buildGossip() {
         LiteralArgumentBuilder<CommandSourceStack> root = literal("gossip");
 
         root.executes(ctx -> showGossipStatus(ctx.getSource()));
         root.then(literal("status").executes(ctx -> showGossipStatus(ctx.getSource())));
-        root.then(literal("refresh").executes(ctx -> refreshGossip(ctx.getSource())));
-        root.then(literal("test")
-                .executes(ctx -> testGossip(ctx.getSource(), null))
-                .then(argument("category", StringArgumentType.word())
-                        .suggests((ctx, builder) -> {
-                            for (var cat : GossipCategory.values()) {
-                                builder.suggest(cat.name().toLowerCase(Locale.ROOT));
-                            }
-                            return builder.buildFuture();
-                        })
-                        .executes(ctx -> testGossip(ctx.getSource(), StringArgumentType.getString(ctx, "category")))));
         root.then(literal("dialogue")
                 .executes(ctx -> testIndividualDialogue(ctx.getSource(), "farmer"))
                 .then(argument("profession", StringArgumentType.word())
                         .suggests((ctx, builder) -> {
-                            for (var cat : GossipCategory.values()) {
-                                builder.suggest(cat.name().toLowerCase(Locale.ROOT));
+                            for (String profession : VILLAGER_PROFESSIONS) {
+                                builder.suggest(profession);
                             }
                             return builder.buildFuture();
                         })
@@ -1481,9 +1479,8 @@ public final class EconomyCommands {
             return 1;
         }
 
-        var pool = EconomyCraft.GOSSIP_POOL.get();
-        var worker = EconomyCraft.getGossipWorker();
-        boolean circuitOpen = worker != null && worker.getApiClient().isCircuitOpen();
+        var client = EconomyCraft.getGossipApiClient();
+        boolean circuitOpen = client != null && client.isCircuitOpen();
 
         reply(source, tryGetPlayer(source), Component.literal("=== EconomyCraft AI Villager Gossip ===").withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
         reply(source, tryGetPlayer(source), Component.literal("• Model: ").withStyle(ChatFormatting.GRAY)
@@ -1491,82 +1488,20 @@ public final class EconomyCommands {
                 .append(Component.literal(" (OpenAI-compat: " + gossipCfg.isOpenAiCompatible() + ")").withStyle(ChatFormatting.DARK_GRAY)), false);
         reply(source, tryGetPlayer(source), Component.literal("• Base URL: ").withStyle(ChatFormatting.GRAY)
                 .append(Component.literal(gossipCfg.baseUrl()).withStyle(ChatFormatting.WHITE)), false);
-        reply(source, tryGetPlayer(source), Component.literal("• Refresh Interval: ").withStyle(ChatFormatting.GRAY)
-                .append(Component.literal(gossipCfg.refreshIntervalMinutes() + "m").withStyle(ChatFormatting.WHITE))
-                .append(Component.literal(" | Cooldown: " + gossipCfg.cooldownMinutes() + "m").withStyle(ChatFormatting.DARK_GRAY)), false);
+        reply(source, tryGetPlayer(source), Component.literal("• Cooldown: ").withStyle(ChatFormatting.GRAY)
+                .append(Component.literal(gossipCfg.cooldownMinutes() + "m").withStyle(ChatFormatting.WHITE)), false);
         reply(source, tryGetPlayer(source), Component.literal("• Circuit Breaker: ").withStyle(ChatFormatting.GRAY)
                 .append(circuitOpen ? Component.literal("OPEN (30m pause)").withStyle(ChatFormatting.RED) : Component.literal("CLOSED (operational)").withStyle(ChatFormatting.GREEN)), false);
-
-        int totalRumors = (pool != null) ? pool.totalRumors() : 0;
-        int totalCats = (pool != null) ? pool.rumorsByCategory().size() : 0;
-        reply(source, tryGetPlayer(source), Component.literal("• Active Rumors: ").withStyle(ChatFormatting.GRAY)
-                .append(Component.literal(totalRumors + " rumor(s) across " + totalCats + " category(ies)").withStyle(totalRumors > 0 ? ChatFormatting.GREEN : ChatFormatting.YELLOW)), false);
-
-        if (pool != null && !pool.isEmpty()) {
-            StringBuilder sb = new StringBuilder("• Categories: ");
-            for (var entry : pool.rumorsByCategory().entrySet()) {
-                sb.append(entry.getKey().name().toLowerCase(Locale.ROOT)).append(" (").append(entry.getValue().size()).append(") ");
-            }
-            reply(source, tryGetPlayer(source), Component.literal(sb.toString().trim()).withStyle(ChatFormatting.DARK_AQUA), false);
-        }
+        reply(source, tryGetPlayer(source), Component.literal("• Delivery: ").withStyle(ChatFormatting.GRAY)
+                .append(Component.literal("private only (never broadcast)").withStyle(ChatFormatting.WHITE)), false);
 
         return 1;
-    }
-
-    private static int refreshGossip(CommandSourceStack source) {
-        var worker = EconomyCraft.getGossipWorker();
-        if (worker == null) {
-            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Worker not initialized (is gossip enabled in config?)").withStyle(ChatFormatting.RED), false);
-            return 0;
-        }
-
-        reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Requesting fresh gossip digest from AI provider...").withStyle(ChatFormatting.YELLOW), false);
-        worker.triggerManualRefresh().whenComplete((success, ex) -> {
-            var srv = source.getServer();
-            srv.execute(() -> {
-                if (ex != null || !Boolean.TRUE.equals(success)) {
-                    reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Failed to refresh gossip pool. See server console logs.").withStyle(ChatFormatting.RED), false);
-                } else {
-                    var pool = EconomyCraft.GOSSIP_POOL.get();
-                    int count = pool != null ? pool.totalRumors() : 0;
-                    reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Gossip refreshed successfully! " + count + " rumor(s) currently cached.").withStyle(ChatFormatting.GREEN), false);
-                }
-            });
-        });
-        return 1;
-    }
-
-    private static int testGossip(CommandSourceStack source, @Nullable String categoryName) {
-        var pool = EconomyCraft.GOSSIP_POOL.get();
-        if (pool == null || pool.isEmpty()) {
-            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Rumor pool is currently empty. Try '/eco gossip refresh' first.").withStyle(ChatFormatting.YELLOW), false);
-            return 0;
-        }
-
-        GossipCategory cat = GossipCategory.GENERAL;
-        if (categoryName != null && !categoryName.isBlank()) {
-            try {
-                cat = GossipCategory.valueOf(categoryName.toUpperCase(Locale.ROOT));
-            } catch (IllegalArgumentException ignored) {
-                reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Unknown category: " + categoryName + ". Using GENERAL.").withStyle(ChatFormatting.GRAY), false);
-            }
-        }
-
-        String rumor = pool.getRandomRumor(cat, RandomSource.create());
-        if (rumor != null) {
-            Component formatted = VillagerGossipListener.formatRumor(null, "[" + cat.name() + "] " + rumor);
-            reply(source, tryGetPlayer(source), formatted, false);
-            return 1;
-        } else {
-            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] No rumor available for " + cat.name()).withStyle(ChatFormatting.RED), false);
-            return 0;
-        }
     }
 
     private static int testIndividualDialogue(CommandSourceStack source, String professionName) {
-        var worker = EconomyCraft.getGossipWorker();
-        if (worker == null) {
-            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Gossip worker not active.").withStyle(ChatFormatting.RED), false);
+        var client = EconomyCraft.getGossipApiClient();
+        if (client == null) {
+            reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Gossip client not active (is gossip enabled in config?)").withStyle(ChatFormatting.RED), false);
             return 0;
         }
 
@@ -1577,15 +1512,6 @@ public final class EconomyCommands {
         var profile = com.reazip.economycraft.gossip.identity.VillagerSeeder.createSeededProfile(fakeVillagerId, prof, "plains", System.currentTimeMillis());
         var memory = new com.reazip.economycraft.gossip.storage.PlayerMemory(fakeVillagerId, fakePlayerId, 10, 2, 250L, System.currentTimeMillis(), List.of("Traded wheat for emeralds yesterday", "Asked about tool repairs"));
 
-        GossipCategory cat;
-        try {
-            cat = GossipCategory.valueOf(prof.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            cat = GossipCategory.GENERAL;
-        }
-
-        var pool = EconomyCraft.GOSSIP_POOL.get();
-        List<String> grapevine = (pool != null) ? pool.getRumors(cat) : List.of();
         double inflation = 7.5;
         try {
             var manager = EconomyCraft.getManager(source.getServer());
@@ -1596,7 +1522,7 @@ public final class EconomyCommands {
 
         reply(source, tryGetPlayer(source), Component.literal("[EconomyCraft-AI] Generating dialogue for " + profile.name() + " (" + prof + ")...").withStyle(ChatFormatting.YELLOW), false);
 
-        worker.getApiClient().generateIndividualDialogue(profile, memory, "Wealthy Merchant", grapevine, inflation)
+        client.generateIndividualDialogue(profile, memory, "Wealthy Merchant", inflation)
                 .whenComplete((optRes, ex) -> {
                     source.getServer().execute(() -> {
                         if (ex != null || optRes == null || optRes.isEmpty()) {
