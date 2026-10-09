@@ -52,6 +52,18 @@ Some configuration sections are file-only. Edit `config/economycraft/config.json
 | `/eco toll remove` | Remove your toll from the targeted block. |
 | `/eco tag <player>` | View a player's tags (admin permission required). |
 
+### Login MOTD
+
+Configure the login message in `motd.blocks` in `config/economycraft/config.json`. Each block has a `lines` array
+and a `next_delay_seconds` wait before the following block. `motd.delay_ticks` still controls the wait before
+the first block. The per-block wait defaults to 30 seconds and is clamped to 0-3600; zero sends the next block
+on the following server tick, and the final block's wait is unused. A login sequence ends after its last block.
+
+Existing `motd.lines` configurations are automatically migrated to a single block before bundled defaults are
+merged. If both `lines` and `blocks` are present, `blocks` takes precedence and the old field is ignored. Use
+`/eco reload` after editing the file; this cancels any in-progress sequence. `/eco motd` previews all blocks at
+once, separated in chat, without waiting for their configured intervals.
+
 `/eco import` is available only when the server has importable shared-folder data. The player commands and `/eco` subcommands are listed on the relevant gameplay pages. Standalone admin command aliases are off by default and can be enabled in configuration.
 
 ## Permissions and optional integrations

@@ -1547,9 +1547,18 @@ public final class EconomyCommands {
             com.reazip.economycraft.motd.MotdService.sendMotd(player);
         } else {
             var cfg = EconomyConfig.get().motd;
-            if (cfg != null && cfg.lines != null) {
-                for (String line : cfg.lines) {
-                    source.sendSuccess(() -> com.reazip.economycraft.motd.MotdFormatter.formatLine(line), false);
+            if (cfg != null && cfg.blocks != null) {
+                for (int i = 0; i < cfg.blocks.size(); i++) {
+                    if (i > 0) {
+                        int blockNumber = i + 1;
+                        source.sendSuccess(() -> Component.literal("──── MOTD block " + blockNumber + " ────")
+                                .withStyle(ChatFormatting.DARK_GRAY), false);
+                    }
+                    var block = cfg.blocks.get(i);
+                    if (block == null || block.lines == null) continue;
+                    for (String line : block.lines) {
+                        source.sendSuccess(() -> com.reazip.economycraft.motd.MotdFormatter.formatLine(line), false);
+                    }
                 }
             }
         }
