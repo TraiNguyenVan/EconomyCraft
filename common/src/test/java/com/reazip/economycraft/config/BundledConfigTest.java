@@ -141,6 +141,21 @@ class BundledConfigTest {
                 compare(value, jsonValue.getAsJsonObject(), childPath, problems);
                 continue;
             }
+            if (value instanceof List<?> list && !list.isEmpty() && isSection(list.get(0))) {
+                if (!jsonValue.isJsonArray() || jsonValue.getAsJsonArray().size() != list.size()) {
+                    problems.add(childPath + " list size or shape differs from EconomyConfig");
+                    continue;
+                }
+                for (int i = 0; i < list.size(); i++) {
+                    JsonElement item = jsonValue.getAsJsonArray().get(i);
+                    if (!item.isJsonObject()) {
+                        problems.add(childPath + "[" + i + "] is not an object in config.json");
+                    } else {
+                        compare(list.get(i), item.getAsJsonObject(), childPath + "[" + i + "]", problems);
+                    }
+                }
+                continue;
+            }
             if (!matches(value, jsonValue)) {
                 problems.add(childPath + " is " + jsonValue + " in the file but loads as " + describe(value)
                         + " — either the default disagrees with the code, or its own validation rewrites it");

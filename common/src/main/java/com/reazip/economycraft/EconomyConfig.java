@@ -6,6 +6,7 @@ import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.config.FactionsSection;
 import com.reazip.economycraft.config.ProfessionsSection;
 import com.reazip.economycraft.config.QuestsSection;
+import com.reazip.economycraft.config.MotdBlock;
 import com.reazip.economycraft.gossip.GossipConfig;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.server.MinecraftServer;
@@ -324,17 +325,40 @@ public class EconomyConfig {
             throw new IllegalStateException("[EconomyCraft] Failed to read/parse user config.json for merge at " + file, ex);
         }
 
+        boolean migratedMotd = migrateMotd(userRoot);
         boolean migratedShopSettings = migrateShopSettings(userRoot, defaults);
         int[] added = new int[]{0};
         addMissingRecursive(userRoot, defaults, added);
 
-        if (migratedShopSettings || added[0] > 0) {
+        if (migratedMotd || migratedShopSettings || added[0] > 0) {
             try {
                 Files.writeString(file, GSON.toJson(userRoot), StandardCharsets.UTF_8);
             } catch (IOException ex) {
                 throw new IllegalStateException("[EconomyCraft] Failed to write merged config.json at " + file, ex);
             }
         }
+    }
+
+    /** Converts the former flat line list before defaults can add the new blocks key. */
+    private static boolean migrateMotd(JsonObject root) {
+        JsonElement motdElement = root.get("motd");
+        if (motdElement == null || !motdElement.isJsonObject()) return false;
+        JsonObject motd = motdElement.getAsJsonObject();
+        JsonElement legacyLines = motd.remove("lines");
+        if (legacyLines == null) return false;
+
+        if (!motd.has("blocks")) {
+            JsonObject block = new JsonObject();
+            block.add("lines", legacyLines.deepCopy());
+            block.addProperty("next_delay_seconds", MotdBlock.DEFAULT_NEXT_DELAY_SECONDS);
+            com.google.gson.JsonArray blocks = new com.google.gson.JsonArray();
+            blocks.add(block);
+            motd.add("blocks", blocks);
+            LOGGER.info("[EconomyCraft] Migrated motd.lines to a single motd.blocks entry.");
+        } else {
+            LOGGER.warn("[EconomyCraft] Both motd.blocks and legacy motd.lines are present; using motd.blocks and ignoring motd.lines.");
+        }
+        return true;
     }
 
     private static boolean migrateShopSettings(JsonObject target, JsonObject defaults) {

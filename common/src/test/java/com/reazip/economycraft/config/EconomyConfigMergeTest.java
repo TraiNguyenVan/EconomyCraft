@@ -177,6 +177,34 @@ class EconomyConfigMergeTest {
         assertEquals("minecraft:dirt", blocks.get(0).getAsString());
     }
 
+    @Test
+    void legacyMotdLinesMigrateToOneBlockBeforeDefaultsMerge() {
+        givenUserConfig("""
+                {"motd":{"enabled":true,"delay_ticks":40,"lines":["&6Hello","second line"]}}
+                """);
+
+        JsonObject merged = loadAndReadBack();
+        JsonObject motd = merged.getAsJsonObject("motd");
+        assertFalse(motd.has("lines"));
+        assertEquals(1, motd.getAsJsonArray("blocks").size());
+        JsonObject block = motd.getAsJsonArray("blocks").get(0).getAsJsonObject();
+        assertEquals("&6Hello", block.getAsJsonArray("lines").get(0).getAsString());
+        assertEquals("second line", block.getAsJsonArray("lines").get(1).getAsString());
+        assertEquals(30, block.get("next_delay_seconds").getAsInt());
+    }
+
+    @Test
+    void motdBlocksTakePrecedenceOverLegacyLines() {
+        givenUserConfig("""
+                {"motd":{"blocks":[{"lines":["new"]}],"lines":["old"]}}
+                """);
+
+        JsonObject motd = loadAndReadBack().getAsJsonObject("motd");
+        assertFalse(motd.has("lines"));
+        assertEquals("new", motd.getAsJsonArray("blocks").get(0).getAsJsonObject()
+                .getAsJsonArray("lines").get(0).getAsString());
+    }
+
     // --- idempotence ---
 
     @Test

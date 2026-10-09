@@ -55,14 +55,20 @@ public final class MotdFormatter {
      */
     public static String resolvePlaceholders(String raw, ServerPlayer player) {
         if (raw == null) return "";
-        String playerName = com.reazip.economycraft.util.IdentityCompat.of(player).name();
-        int onlineCount = player.level().getServer().getPlayerCount();
-        String serverName = player.level().getServer().getServerModName();
+        boolean needsPlayer = raw.contains("{player}") || raw.contains("%player%");
+        boolean needsOnline = raw.contains("{online}") || raw.contains("%online%");
+        boolean needsServer = raw.contains("{server}") || raw.contains("%server%");
+        if (!needsPlayer && !needsOnline && !needsServer) return raw;
+
+        String playerName = needsPlayer ? com.reazip.economycraft.util.IdentityCompat.of(player).name() : "";
+        var server = needsOnline || needsServer ? player.level().getServer() : null;
+        String onlineCount = needsOnline ? String.valueOf(server.getPlayerCount()) : "";
+        String serverName = needsServer ? server.getServerModName() : "";
 
         return raw.replace("{player}", playerName)
                 .replace("%player%", playerName)
-                .replace("{online}", String.valueOf(onlineCount))
-                .replace("%online%", String.valueOf(onlineCount))
+                .replace("{online}", onlineCount)
+                .replace("%online%", onlineCount)
                 .replace("{server}", serverName)
                 .replace("%server%", serverName);
     }

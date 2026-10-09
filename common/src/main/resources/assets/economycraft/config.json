@@ -248,11 +248,16 @@
   "motd": {
     "enabled": true,
     "delay_ticks": 40,
-    "lines": [
-      "&8&m----------------------------------------",
-      "&6Hello &e{player}&6!",
-      "&7If you want to share any ideas, create an issue at: &bhttps://github.com/TraiNguyenVan/EconomyCraft/issues",
-      "&8&m----------------------------------------"
+    "blocks": [
+      {
+        "lines": [
+          "&8&m----------------------------------------",
+          "&6Hello &e{player}&6!",
+          "&7If you want to share any ideas, create an issue at: &bhttps://github.com/TraiNguyenVan/EconomyCraft/issues",
+          "&8&m----------------------------------------"
+        ],
+        "next_delay_seconds": 30
+      }
     ]
   }
 }

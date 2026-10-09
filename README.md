@@ -127,6 +127,12 @@ The `factions`, `professions`, `quests`, `gemini_gossip` and `motd` sections are
 `config.json` and press **Reload from disk**. Every key and its shipped default is in
 [`config.json`](#configjson).
 
+The login MOTD uses ordered `motd.blocks`. `motd.delay_ticks` delays the first block after joining; each
+block's `next_delay_seconds` delays only its successor, and the sequence ends after the final block. A zero
+second wait sends the next block on the following server tick. Waits are clamped to 0-3600 seconds. Existing
+`motd.lines` arrays are migrated to a single block on load; if both keys are present, `blocks` wins. `/eco motd`
+previews all blocks immediately with separators, without waiting. Reloading cancels any in-progress login sequence.
+
 ### Server Quests
 
 The server-funded bounty board, behind the same node as Settings. It switches the board and the buyback market
@@ -168,7 +174,7 @@ Every screen above also has a command. The player-facing ones are on the main me
 |---|---|
 | `/eco admin` | Opens the Admin menu. |
 | `/eco reload` | Re-reads `config.json` and `prices.json` from disk. |
-| `/eco motd` | Sends the join message to you; from the console it prints the configured lines. |
+| `/eco motd` | Immediately previews every configured login MOTD block, separated for clarity. |
 | `/eco import` | Moves balances, listings and prices from an older shared folder into this world. |
 | `/eco gossip status` | Whether the dialogue provider is reachable and whether its circuit breaker is open. |
 | `/eco gossip dialogue [prof]` | Sends one line of villager dialogue, optionally for a profession. |
@@ -360,7 +366,7 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 | `max_active_tolls_per_player` | `10` | Most tolls a player can have placed at once. `0` = unlimited. |
 | `motd.delay_ticks` | `40` | Ticks after joining before the message appears (`40` = 2 seconds). Clamped to 0-1200. |
 | `motd.enabled` | `true` | Send the join message on login. |
-| `motd.lines` | `4 entries` | Message lines. `{player}` is replaced with the player's name; `&` colour codes are supported. |
+| `motd.blocks` | One block | Ordered message blocks. Each has `lines` and `next_delay_seconds` (default `30`, clamped to 0-3600); the final block's delay is unused. Legacy `motd.lines` is migrated to one block. |
 | `order_expiration_hours` | `168` | Hours before an unfulfilled order expires and its escrow is refunded. `0` disables expiration. |
 | `orders_enabled` | `true` | Enable the orders board. Deliveries still work either way. |
 | `professions.builder.building_blocks` | `33 entries` | The building blocks a Builder counts towards level, and the base of the Haste trigger set. Tags and ids. |
@@ -643,13 +649,19 @@ generated until you set it.
 
 #### `motd`
 
-The message sent to a player when they join.
+The ordered message blocks sent to a player when they join. Formatting codes, player placeholders and clickable
+URLs work in each line. Existing `motd.lines` arrays are automatically migrated to one block before defaults are
+merged. If both legacy `lines` and `blocks` are present, `blocks` is used and `lines` is discarded.
 
 | Key | Default | Description |
 |---|---|---|
 | `motd.delay_ticks` | `40` | Ticks after joining before the message appears (`40` = 2 seconds). Clamped to 0-1200. |
 | `motd.enabled` | `true` | Send the join message on login. |
-| `motd.lines` | `4 entries` | Message lines. `{player}` is replaced with the player's name; `&` colour codes are supported. |
+| `motd.blocks` | One block | Ordered message blocks, each with formatted `lines` and a `next_delay_seconds` wait before its successor. The wait defaults to 30 seconds and is clamped to 0-3600; the final block's wait is unused. Existing `motd.lines` is migrated to one block. |
+
+`motd.delay_ticks` applies before block one. Each `next_delay_seconds` applies after its block and before the next;
+zero advances on the next server tick, and the last block's value is ignored. `/eco motd` immediately previews all
+blocks with separators. `/eco reload` cancels sequences already in progress.
 
 ### `webhook.json`
 

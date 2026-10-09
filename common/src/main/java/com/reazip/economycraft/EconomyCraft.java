@@ -312,6 +312,7 @@ public final class EconomyCraft {
 
     public static void reloadFromDisk(MinecraftServer server) {
         synchronized (MANAGER_LOCK) {
+            com.reazip.economycraft.motd.MotdService.clearPending();
             if (manager != null && lastServer == server) {
                 manager.detach();
             }
