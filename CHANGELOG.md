@@ -5,6 +5,20 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Single-file SQLite persistence (`economycraft.db`)
+
+Everything under `config/economycraft/data/` now lives in one SQLite file, `economycraft.db`. Each
+legacy JSON document (balances, auctions, orders, quests, tolls, …) is one row in a `documents`
+table carrying the exact same Gson payload the file used to hold; villager gossip memory, already
+relational, keeps its three tables in the same file instead of a separate `villagers.db`. Writes are
+synchronous on the server thread. In-memory behavior is unchanged — only the durability layer moved.
+
+**Your data needs no edit.** On first boot every legacy `*.json` document and `villagers.db` is
+imported exactly once (empty-table guard), then archived under `data/_migrated-json/` — never
+deleted, so a failed boot can always be reconstructed by hand. `/eco import` carries
+`economycraft.db` like any other data file, and old shared folders full of JSON still import: the
+legacy files are picked up on boot.
+
 ### Public villager gossip removed; dialogue is private only
 
 Villager speech is now delivered **only** to the player who opened the trade interface, under every
