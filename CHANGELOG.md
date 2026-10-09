@@ -17,7 +17,9 @@ synchronous on the server thread. In-memory behavior is unchanged — only the d
 imported exactly once (empty-table guard), then archived under `data/_migrated-json/` — never
 deleted, so a failed boot can always be reconstructed by hand. `/eco import` carries
 `economycraft.db` like any other data file, and old shared folders full of JSON still import: the
-legacy files are picked up on boot.
+legacy files are picked up on boot. This change sits atop the quest-engine market build, so its
+quest fields (`backfillKeys`, `lastPeriodKeys`, `autoMarketBlacklist`, `recentPurchases`,
+`unsoldExpiries`) persist like all the rest.
 
 ### Public villager gossip removed; dialogue is private only
 
