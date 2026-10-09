@@ -47,7 +47,12 @@ public final class EconomyPaths {
             "orders.json",
             "notifications.json",
             "player_activity.json",
-            "player_names.json"
+            "player_names.json",
+            // The single SQLite file that now holds every document above (plus tolls, quests,
+            // parties, professions, cooldowns, online time, fiscal state and villager memory).
+            // Carried by /eco import like any other data file; legacy JSON names stay listed so
+            // old shared folders still copy across and are imported on boot.
+            "economycraft.db"
     );
 
     public static Path configDir(MinecraftServer server) {

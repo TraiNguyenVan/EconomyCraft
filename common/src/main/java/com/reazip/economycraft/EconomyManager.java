@@ -13,6 +13,8 @@ import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.quests.QuestStock;
 import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.faction.FactionEffects;
 import com.reazip.economycraft.faction.FactionFiscalPass;
@@ -30,7 +32,6 @@ import com.reazip.economycraft.profession.ProfessionEffects;
 import com.reazip.economycraft.tag.TagDisplayService;
 import com.reazip.economycraft.time.CooldownService;
 import com.reazip.economycraft.time.OnlineTimeService;
-import com.reazip.economycraft.util.AsyncFileWriter;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.ProfileCompat;
@@ -49,10 +50,8 @@ import net.minecraft.world.scores.criteria.ObjectiveCriteria;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
-import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -98,6 +97,7 @@ public class EconomyManager {
     });
 
     private final MinecraftServer server;
+    private final EconomyDatabase database;
     private final Path file;
     private final Path dailyFile;
     private final Path dailySellFile;
@@ -159,6 +159,22 @@ public class EconomyManager {
         this.balanceEvents = BalanceEventDispatcher.forServer(server);
         Path dataDir = EconomyPaths.dataDir(server);
 
+        // The one SQLite file behind every document below. Legacy JSON files and villagers.db are
+        // imported exactly once on first boot, then archived — from here on the database is truth.
+        EconomyDatabase database = new EconomyDatabase(dataDir.resolve(EconomyDatabase.DB_FILE_NAME));
+        try {
+            database.initialize();
+            int imported = database.importLegacy(dataDir);
+            int villagers = database.importVillagers(dataDir);
+            if (imported > 0 || villagers > 0) {
+                LOGGER.info("[EconomyCraft] SQLite migration: {} document(s) and {} villager row(s) consolidated into {}",
+                        imported, villagers, EconomyDatabase.DB_FILE_NAME);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to open EconomyCraft database at " + dataDir, e);
+        }
+        this.database = database;
+
         this.file = dataDir.resolve("balances.json");
         this.dailyFile = dataDir.resolve("daily.json");
         this.dailySellFile = dataDir.resolve("daily_sells.json");
@@ -187,27 +203,27 @@ public class EconomyManager {
                 transactionLogger::onTransfer
         );
 
-        this.deliveries = new DeliveryManager(server);
-        this.auctions = new AuctionManager(server, deliveries);
-        this.orders = new OrderManager(server, deliveries);
-        this.quests = new QuestManager(server);
-        this.questStock = new QuestStock(server);
-        this.notifications = new NotificationManager(server);
-        this.negotiations = new NegotiationStore(dataDir.resolve("negotiations.json"));
+        this.deliveries = new DeliveryManager(server, database);
+        this.auctions = new AuctionManager(server, deliveries, database);
+        this.orders = new OrderManager(server, deliveries, database);
+        this.quests = new QuestManager(server, database);
+        this.questStock = new QuestStock(server, database);
+        this.notifications = new NotificationManager(server, database);
+        this.negotiations = new NegotiationStore(database, dataDir.resolve("negotiations.json"));
         this.prices = new PriceRegistry(server);
-        this.dynamicPrices = new DynamicPriceEngine(dataDir);
+        this.dynamicPrices = new DynamicPriceEngine(database, dataDir);
         dynamicPrices.refresh(server, balances);
-        this.fiscalPass = new FiscalPass(this, dataDir);
+        this.fiscalPass = new FiscalPass(this, database, dataDir);
 
         // Phase 2. Built after EconomyConfig is loaded (SERVER_STARTING) so BlockTags can read the
         // professions section, and after the economy files so a config problem cannot leave a half-built
         // manager behind.
-        this.onlineTime = new OnlineTimeService(dataDir.resolve("online_time.json"));
-        this.cooldowns = new CooldownService(dataDir.resolve("cooldowns.json"));
-        this.factions = new FactionStore(dataDir.resolve("parties.json"));
-        this.professions = new ProfessionStore(dataDir.resolve("professions.json"));
+        this.onlineTime = new OnlineTimeService(database, dataDir.resolve("online_time.json"));
+        this.cooldowns = new CooldownService(database, dataDir.resolve("cooldowns.json"));
+        this.factions = new FactionStore(database, dataDir.resolve("parties.json"));
+        this.professions = new ProfessionStore(database, dataDir.resolve("professions.json"));
         this.blockTags = BlockTags.fromConfig(EconomyConfig.get().professions);
-        this.factionFiscalPass = new FactionFiscalPass(this, dataDir);
+        this.factionFiscalPass = new FactionFiscalPass(this, database, dataDir);
         // The display service reads the two stores above and nothing else, so it is built last and holds them by
         // reference: every later phase that changes a selection or a level calls tagDisplay().refresh(...) and the
         // tab row and the nametag prefix move together.
@@ -239,9 +255,25 @@ public class EconomyManager {
         return server;
     }
 
+    /** The single SQLite database behind every persistent document. */
+    public EconomyDatabase getDatabase() {
+        return database;
+    }
+
+    /** Releases the database connection. Called on server stop and on reload-from-disk. */
+    public void closeDatabase() {
+        try {
+            save();
+        } catch (RuntimeException e) {
+            LOGGER.error("[EconomyCraft] Failed to save before closing the database", e);
+        }
+        database.close();
+    }
+
     public void detach() {
         teardownObjective(server.getScoreboard());
         deactivate();
+        closeDatabase();
     }
 
     public void deactivate() {
@@ -262,13 +294,13 @@ public class EconomyManager {
     }
 
     private void loadPlayerNames() {
+        String json = Documents.read(database, playerNamesFile, "player_names.json");
+        if (json == null) return;
         try {
-            if (Files.exists(playerNamesFile)) {
-                Map<UUID, String> loaded = GSON.fromJson(Files.readString(playerNamesFile), PLAYER_NAMES_TYPE);
-                if (loaded != null) loaded.forEach((id, name) -> {
-                    if (id != null && name != null && !name.isBlank()) playerNames.put(id, name);
-                });
-            }
+            Map<UUID, String> loaded = GSON.fromJson(json, PLAYER_NAMES_TYPE);
+            if (loaded != null) loaded.forEach((id, name) -> {
+                if (id != null && name != null && !name.isBlank()) playerNames.put(id, name);
+            });
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to load cached player names", e);
         }
@@ -277,7 +309,7 @@ public class EconomyManager {
     public void rememberPlayerName(UUID id, String name) {
         if (id == null || name == null || name.isBlank()) return;
         String previous = playerNames.put(id, name);
-        if (!name.equals(previous)) AsyncFileWriter.writeAsync(playerNamesFile, GSON.toJson(playerNames));
+        if (!name.equals(previous)) Documents.write(database, playerNamesFile, "player_names.json", GSON.toJson(playerNames));
     }
 
     private static @Nullable String resolveLocalName(MinecraftServer server, UUID id) {
@@ -515,27 +547,26 @@ public class EconomyManager {
     }
 
     public void load() {
-        if (Files.exists(file)) {
-            try {
-                String json = Files.readString(file);
-                Map<UUID, Double> map = GSON.fromJson(json, new TypeToken<Map<UUID, Double>>(){}.getType());
-                if (map != null) {
-                    for (Map.Entry<UUID, Double> e : map.entrySet()) {
-                        if (e.getValue() == null) continue;
-                        balances.put(e.getKey(), clamp(e.getValue().longValue()));
-                    }
+        String json = Documents.read(database, file, "balances.json");
+        if (json == null) return;
+        try {
+            Map<UUID, Double> map = GSON.fromJson(json, new TypeToken<Map<UUID, Double>>(){}.getType());
+            if (map != null) {
+                for (Map.Entry<UUID, Double> e : map.entrySet()) {
+                    if (e.getValue() == null) continue;
+                    balances.put(e.getKey(), clamp(e.getValue().longValue()));
                 }
-            } catch (IOException ex) {
-                LOGGER.error("[EconomyCraft] Failed to load {}", file, ex);
             }
+        } catch (Exception ex) {
+            LOGGER.error("[EconomyCraft] Failed to load {}", file, ex);
         }
     }
 
     public void save() {
-        AsyncFileWriter.writeAsync(file, GSON.toJson(new HashMap<>(balances), TYPE));
-        UuidLongMapStore.persist(dailyFile, lastDaily);
-        AsyncFileWriter.writeAsync(dailySellFile, GSON.toJson(new HashMap<>(dailySells), DAILY_SELL_TYPE));
-        AsyncFileWriter.writeAsync(statsFile, GSON.toJson(new HashMap<>(stats), STATS_TYPE));
+        Documents.write(database, file, "balances.json", GSON.toJson(new HashMap<>(balances), TYPE));
+        UuidLongMapStore.persist(database, dailyFile, "daily.json", lastDaily);
+        Documents.write(database, dailySellFile, "daily_sells.json", GSON.toJson(new HashMap<>(dailySells), DAILY_SELL_TYPE));
+        Documents.write(database, statsFile, "stats.json", GSON.toJson(new HashMap<>(stats), STATS_TYPE));
         dynamicPrices.flush();
         onlineTime.flush();
         cooldowns.flush();
@@ -546,18 +577,17 @@ public class EconomyManager {
     }
 
     private void loadDaily() {
-        UuidLongMapStore.load(dailyFile, lastDaily);
+        UuidLongMapStore.load(database, dailyFile, "daily.json", lastDaily);
     }
 
     private void loadStats() {
-        if (Files.exists(statsFile)) {
-            try {
-                String json = Files.readString(statsFile);
-                Map<UUID, PlayerStats> map = GSON.fromJson(json, STATS_TYPE);
-                if (map != null) stats.putAll(map);
-            } catch (IOException ex) {
-                LOGGER.error("[EconomyCraft] Failed to load {}", statsFile, ex);
-            }
+        String json = Documents.read(database, statsFile, "stats.json");
+        if (json == null) return;
+        try {
+            Map<UUID, PlayerStats> map = GSON.fromJson(json, STATS_TYPE);
+            if (map != null) stats.putAll(map);
+        } catch (Exception ex) {
+            LOGGER.error("[EconomyCraft] Failed to load {}", statsFile, ex);
         }
     }
 
@@ -580,14 +610,13 @@ public class EconomyManager {
     }
 
     private void loadDailySells() {
-        if (Files.exists(dailySellFile)) {
-            try {
-                String json = Files.readString(dailySellFile);
-                Map<UUID, DailySellData> map = GSON.fromJson(json, DAILY_SELL_TYPE);
-                if (map != null) dailySells.putAll(map);
-            } catch (IOException ex) {
-                LOGGER.error("[EconomyCraft] Failed to load {}", dailySellFile, ex);
-            }
+        String json = Documents.read(database, dailySellFile, "daily_sells.json");
+        if (json == null) return;
+        try {
+            Map<UUID, DailySellData> map = GSON.fromJson(json, DAILY_SELL_TYPE);
+            if (map != null) dailySells.putAll(map);
+        } catch (Exception ex) {
+            LOGGER.error("[EconomyCraft] Failed to load {}", dailySellFile, ex);
         }
     }
 

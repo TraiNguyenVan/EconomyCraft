@@ -4,10 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
-import com.reazip.economycraft.util.AsyncFileWriter;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import org.slf4j.Logger;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -40,9 +40,16 @@ public final class NegotiationStore {
     public record Offer(Kind kind, int targetId, UUID proposer, long price, long createdAt) {}
 
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<String, Offer> offers = new ConcurrentHashMap<>();
 
     public NegotiationStore(Path file) {
+        this(null, file);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public NegotiationStore(EconomyDatabase db, Path file) {
+        this.db = db;
         this.file = file;
         load();
     }
@@ -143,13 +150,13 @@ public final class NegotiationStore {
             obj.addProperty("createdAt", offer.createdAt());
             arr.add(obj);
         }
-        AsyncFileWriter.writeAsync(file, GSON.toJson(arr));
+        Documents.write(db, file, "negotiations.json", GSON.toJson(arr));
     }
 
     private void load() {
-        if (!Files.exists(file)) return;
+        String json = Documents.read(db, file, "negotiations.json");
+        if (json == null) return;
         try {
-            String json = Files.readString(file);
             JsonArray arr = GSON.fromJson(json, JsonArray.class);
             if (arr == null) return;
             for (var el : arr) {

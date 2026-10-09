@@ -7,15 +7,13 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,11 +34,18 @@ public final class FiscalPass {
 
     private final EconomyManager eco;
     private final Path file;
+    private final EconomyDatabase db;
     private long lastFiscalDay = -1L;
     private boolean loaded = false;
 
     public FiscalPass(EconomyManager eco, Path dataDir) {
+        this(eco, null, dataDir);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public FiscalPass(EconomyManager eco, EconomyDatabase db, Path dataDir) {
         this.eco = eco;
+        this.db = db;
         this.file = dataDir.resolve("fiscal.json");
     }
 
@@ -191,10 +196,11 @@ public final class FiscalPass {
         if (loaded) return;
         loaded = true;
 
-        if (!Files.exists(file)) return;
+        String json = Documents.read(db, file, "fiscal.json");
+        if (json == null) return;
 
         try {
-            State state = GSON.fromJson(Files.readString(file, StandardCharsets.UTF_8), State.class);
+            State state = GSON.fromJson(json, State.class);
             if (state != null) lastFiscalDay = state.lastFiscalDay;
         } catch (Exception e) {
             LOGGER.warn("[EconomyCraft] Could not read {}; the first fiscal pass after this will be skipped.", file, e);
@@ -202,14 +208,7 @@ public final class FiscalPass {
     }
 
     private void save() {
-        try {
-            Files.writeString(file, GSON.toJson(new State(lastFiscalDay)),
-                    StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
-        } catch (IOException e) {
-            LOGGER.error("[EconomyCraft] Failed to write {}", file, e);
-        }
+        Documents.write(db, file, "fiscal.json", GSON.toJson(new State(lastFiscalDay)));
     }
 
     private static final class State {

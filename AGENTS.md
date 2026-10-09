@@ -28,8 +28,10 @@ vanilla client: no client mod, custom packets, or registered `MenuType`. UI uses
   exception (`shopguard:`). `MutationSource` validates the namespace, reason, and single colon.
 - **Tuning:** put rates, thresholds, weights, durations and colours in `EconomyConfig`; new numeric keys use
   clamp-and-warn validation. Defaults come from `common/src/main/resources/assets/economycraft/config.json`.
-- **Persistence:** use Gson JSON and `AsyncFileWriter`, saving on `SERVER_STOPPING`. Keep synchronous writes
-  only where immediate crash survival is required, as with toll state. Never use NBT for mod state.
+- **Persistence:** one SQLite file (`data/economycraft.db` via `db/EconomyDatabase`) — every legacy
+  JSON document lives as a Gson-payload row in `documents`, villager gossip keeps relational tables in the
+  same file. Writes are synchronous on the server thread; legacy files import once, then archive. Never use
+  NBT for mod state.
 - **Compatibility:** vanilla API differences belong in matching compat forks, not version checks in shared
   logic. Source sets include `main`, `modern`, `legacy121`, `obfuscated` and `unobfuscated`.
 - **Mixins:** Fabric and NeoForge sets intentionally differ. Fabric has toll pressure plate/base plate/hopper

@@ -3,12 +3,12 @@ package com.reazip.economycraft.quests;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
-import com.reazip.economycraft.util.AsyncFileWriter;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -25,9 +25,16 @@ public class QuestStock {
     private static final Gson GSON = new Gson();
 
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<String, Long> stock = new LinkedHashMap<>();
 
     public QuestStock(MinecraftServer server) {
+        this(server, null);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public QuestStock(MinecraftServer server, EconomyDatabase db) {
+        this.db = db;
         this.file = EconomyPaths.dataDir(server).resolve("stock.json");
         load();
     }
@@ -70,9 +77,9 @@ public class QuestStock {
     }
 
     private void load() {
-        if (Files.notExists(file)) return;
+        String json = Documents.read(db, file, "stock.json");
+        if (json == null) return;
         try {
-            String json = Files.readString(file);
             JsonObject root = GSON.fromJson(json, JsonObject.class);
             if (root == null) return;
             for (var entry : root.entrySet()) {
@@ -91,6 +98,6 @@ public class QuestStock {
     public synchronized void save() {
         JsonObject root = new JsonObject();
         for (var entry : stock.entrySet()) root.addProperty(entry.getKey(), entry.getValue());
-        AsyncFileWriter.writeAsync(file, GSON.toJson(root));
+        Documents.write(db, file, "stock.json", GSON.toJson(root));
     }
 }

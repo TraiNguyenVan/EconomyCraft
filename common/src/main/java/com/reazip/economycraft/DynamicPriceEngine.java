@@ -1,6 +1,7 @@
 package com.reazip.economycraft;
 
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.fiscal.FiscalPolicy;
 import com.reazip.economycraft.util.UuidLongMapStore;
 import net.minecraft.server.MinecraftServer;
@@ -22,6 +23,7 @@ public final class DynamicPriceEngine {
     private static final long REFRESH_INTERVAL_MS = TimeUnit.HOURS.toMillis(1);
 
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<UUID, Long> lastActive = new ConcurrentHashMap<>();
     private final AtomicBoolean dirty = new AtomicBoolean(false);
     private volatile double multiplier = 1.0;
@@ -29,8 +31,14 @@ public final class DynamicPriceEngine {
     private volatile long lastRefreshMs = 0L;
 
     public DynamicPriceEngine(Path dataDir) {
+        this(null, dataDir);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public DynamicPriceEngine(EconomyDatabase db, Path dataDir) {
         this.file = dataDir.resolve("player_activity.json");
-        UuidLongMapStore.load(file, lastActive);
+        this.db = db;
+        UuidLongMapStore.load(db, file, "player_activity.json", lastActive);
     }
 
     public double getMultiplier() {
@@ -59,7 +67,7 @@ public final class DynamicPriceEngine {
     }
 
     public void flush() {
-        if (dirty.compareAndSet(true, false)) UuidLongMapStore.persist(file, lastActive);
+        if (dirty.compareAndSet(true, false)) UuidLongMapStore.persist(db, file, "player_activity.json", lastActive);
     }
 
     public void maybeRefresh(MinecraftServer server, Map<UUID, Long> balances) {

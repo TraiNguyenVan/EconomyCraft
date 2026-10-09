@@ -1,6 +1,7 @@
 package com.reazip.economycraft.time;
 
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.UuidLongMapStore;
 import org.slf4j.Logger;
 
@@ -49,6 +50,7 @@ public final class OnlineTimeService {
     public static final long MAX_INTERVAL_MILLIS = 6L * 60L * 60L * 1000L;
 
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<UUID, Long> totalsMillis = new HashMap<>();
     /** Tick at which each currently-online player's current interval began. */
     private final Map<UUID, Long> intervalStartTicks = new HashMap<>();
@@ -60,8 +62,14 @@ public final class OnlineTimeService {
     private int cappedIntervals;
 
     public OnlineTimeService(Path file) {
+        this(null, file);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public OnlineTimeService(EconomyDatabase db, Path file) {
         this.file = file;
-        UuidLongMapStore.load(file, totalsMillis);
+        this.db = db;
+        UuidLongMapStore.load(db, file, "online_time.json", totalsMillis);
         dirty = false;
     }
 
@@ -191,7 +199,7 @@ public final class OnlineTimeService {
     public void flush() {
         if (!dirty) return;
         dirty = false;
-        UuidLongMapStore.persist(file, totalsMillis);
+        UuidLongMapStore.persist(db, file, "online_time.json", totalsMillis);
     }
 
     /** Visible for tests: the tick the service last saw. */

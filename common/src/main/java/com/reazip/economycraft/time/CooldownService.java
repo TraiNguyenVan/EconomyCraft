@@ -4,12 +4,11 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
-import com.reazip.economycraft.util.AsyncFileWriter;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import org.slf4j.Logger;
 
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -38,15 +37,26 @@ public final class CooldownService {
     private static final Type TYPE = new TypeToken<Map<UUID, Map<String, Long>>>() { }.getType();
 
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<UUID, Map<String, Long>> expiries = new HashMap<>();
     private final WallClock clock;
     private boolean dirty;
 
     public CooldownService(Path file) {
-        this(file, WallClock.SYSTEM);
+        this(null, file, WallClock.SYSTEM);
     }
 
     public CooldownService(Path file, WallClock clock) {
+        this(null, file, clock);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public CooldownService(EconomyDatabase db, Path file) {
+        this(db, file, WallClock.SYSTEM);
+    }
+
+    public CooldownService(EconomyDatabase db, Path file, WallClock clock) {
+        this.db = db;
         this.file = file;
         this.clock = clock;
         load();
@@ -133,13 +143,13 @@ public final class CooldownService {
     public void flush() {
         if (!dirty) return;
         dirty = false;
-        AsyncFileWriter.writeAsync(file, GSON.toJson(new HashMap<>(expiries), TYPE));
+        Documents.write(db, file, "cooldowns.json", GSON.toJson(new HashMap<>(expiries), TYPE));
     }
 
     private void load() {
-        if (file == null || Files.notExists(file)) return;
+        String json = Documents.read(db, file, "cooldowns.json");
+        if (json == null) return;
         try {
-            String json = Files.readString(file, StandardCharsets.UTF_8);
             Map<UUID, Map<String, Long>> loaded = GSON.fromJson(json, TYPE);
             if (loaded == null) return;
 

@@ -10,7 +10,8 @@ import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.orders.OrderRequest;
-import com.reazip.economycraft.util.AsyncFileWriter;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -21,7 +22,6 @@ import org.slf4j.Logger;
 
 import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.config.QuestsSection;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -57,6 +57,7 @@ public class QuestManager {
     public static final UUID BOT_UUID = new UUID(0L, 0L);
 
     private final Path file;
+    private final EconomyDatabase db;
     private long weekStartMs;
     private long weekSeed;
     private final List<String> drawnKeys = new ArrayList<>();
@@ -73,6 +74,12 @@ public class QuestManager {
     private boolean postedThisWeek;
 
     public QuestManager(MinecraftServer server) {
+        this(server, null);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public QuestManager(MinecraftServer server, EconomyDatabase db) {
+        this.db = db;
         this.file = EconomyPaths.dataDir(server).resolve("quests.json");
         load();
     }
@@ -548,9 +555,9 @@ public class QuestManager {
     }
 
     private void load() {
-        if (Files.notExists(file)) return;
+        String json = Documents.read(db, file, "quests.json");
+        if (json == null) return;
         try {
-            String json = Files.readString(file);
             JsonObject root = GSON.fromJson(json, JsonObject.class);
             if (root == null) return;
             if (root.has("weekStartMs")) weekStartMs = root.get("weekStartMs").getAsLong();
@@ -634,6 +641,6 @@ public class QuestManager {
         JsonObject expiries = new JsonObject();
         for (var entry : unsoldExpiries.entrySet()) expiries.addProperty(entry.getKey(), entry.getValue());
         root.add("unsoldExpiries", expiries);
-        AsyncFileWriter.writeAsync(file, GSON.toJson(root));
+        Documents.write(db, file, "quests.json", GSON.toJson(root));
     }
 }

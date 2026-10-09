@@ -99,6 +99,7 @@ public final class EconomyCraft {
             if (manager != null && lastServer == server) {
                 manager.deactivate();
                 manager.save();
+                manager.closeDatabase();
             }
             AsyncFileWriter.flush();
         });
@@ -132,7 +133,7 @@ public final class EconomyCraft {
                 gossipApiClient = client;
 
                 if (villagerDatabase == null) {
-                    java.nio.file.Path dbPath = com.reazip.economycraft.util.EconomyPaths.dataDir(server).resolve("villagers.db");
+                    java.nio.file.Path dbPath = com.reazip.economycraft.util.EconomyPaths.dataDir(server).resolve(com.reazip.economycraft.db.EconomyDatabase.DB_FILE_NAME);
                     villagerDatabase = new com.reazip.economycraft.gossip.storage.VillagerDatabase(dbPath);
                     villagerDatabase.initialize();
                 }

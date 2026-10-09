@@ -37,6 +37,7 @@ dependencies {
     minecraft "com.mojang:minecraft:${mcCoord}"
     implementation project(":api")
     implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
+    implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
 
     if (tgt.obfuscated) {
         // 1.21.11 is obfuscated; common compiles against Mojang's official mappings and gets

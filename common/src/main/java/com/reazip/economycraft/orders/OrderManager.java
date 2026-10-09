@@ -6,7 +6,8 @@ import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.DeliveryManager;
 import com.reazip.economycraft.EconomyConfig;
-import com.reazip.economycraft.util.AsyncFileWriter;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.ExpirationUtil;
 import com.reazip.economycraft.util.PlayerLimitOverrides;
@@ -25,6 +26,7 @@ public class OrderManager {
     private static final Gson GSON = new Gson();
     private final MinecraftServer server;
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<Integer, OrderRequest> requests = new ConcurrentHashMap<>();
     private final PlayerLimitOverrides limitOverrides = new PlayerLimitOverrides();
     private final DeliveryManager deliveries;
@@ -32,7 +34,13 @@ public class OrderManager {
     private int nextId = 1;
 
     public OrderManager(MinecraftServer server, DeliveryManager deliveries) {
+        this(server, deliveries, null);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public OrderManager(MinecraftServer server, DeliveryManager deliveries, EconomyDatabase db) {
         this.server = server;
+        this.db = db;
         this.file = EconomyPaths.dataDir(server).resolve("orders.json");
         this.deliveries = deliveries;
         load();
@@ -183,9 +191,9 @@ public class OrderManager {
     }
 
     public void load() {
-        if (Files.exists(file)) {
-            try {
-                String json = Files.readString(file);
+        String json = Documents.read(db, file, "orders.json");
+        if (json == null) return;
+        try {
                 JsonObject root = GSON.fromJson(json, JsonObject.class);
                 if (root == null) return;
 
@@ -221,9 +229,8 @@ public class OrderManager {
                 }
                 limitOverrides.loadFrom(root);
                 if (migrated) save();
-            } catch (Exception ex) {
-                LOGGER.error("[EconomyCraft] Failed to load {}", file, ex);
-            }
+        } catch (Exception ex) {
+            LOGGER.error("[EconomyCraft] Failed to load {}", file, ex);
         }
     }
 
@@ -236,7 +243,7 @@ public class OrderManager {
         }
         root.add("requests", reqArr);
         limitOverrides.saveTo(root);
-        AsyncFileWriter.writeAsync(file, GSON.toJson(root));
+        Documents.write(db, file, "orders.json", GSON.toJson(root));
     }
 
     public void addListener(Runnable run) {

@@ -4,7 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
-import com.reazip.economycraft.util.AsyncFileWriter;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.DeliveryLedger;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.server.MinecraftServer;
@@ -23,10 +24,17 @@ public final class DeliveryManager {
 
     private final MinecraftServer server;
     private final Path file;
+    private final EconomyDatabase db;
     private final DeliveryLedger ledger = new DeliveryLedger();
 
     public DeliveryManager(MinecraftServer server) {
+        this(server, null);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public DeliveryManager(MinecraftServer server, EconomyDatabase db) {
         this.server = server;
+        this.db = db;
         Path dataDir = EconomyPaths.dataDir(server);
         this.file = dataDir.resolve("deliveries.json");
         load(dataDir);
@@ -54,9 +62,9 @@ public final class DeliveryManager {
     }
 
     private void load(Path dataDir) {
-        if (Files.exists(file)) {
+        String json = Documents.read(db, file, "deliveries.json");
+        if (json != null) {
             try {
-                String json = Files.readString(file, StandardCharsets.UTF_8);
                 JsonObject root = GSON.fromJson(json, JsonObject.class);
                 if (root != null) ledger.load(root, server.registryAccess());
             } catch (Exception ex) {
@@ -90,6 +98,6 @@ public final class DeliveryManager {
     }
 
     public void save() {
-        AsyncFileWriter.writeAsync(file, GSON.toJson(ledger.save(server.registryAccess())));
+        Documents.write(db, file, "deliveries.json", GSON.toJson(ledger.save(server.registryAccess())));
     }
 }

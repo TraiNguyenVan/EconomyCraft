@@ -10,16 +10,14 @@ import com.reazip.economycraft.EconomySources;
 import com.reazip.economycraft.api.v1.EconomyCraftApi;
 import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.config.FactionsSection;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,13 +57,20 @@ public final class FactionFiscalPass {
 
     private final EconomyManager eco;
     private final Path file;
+    private final EconomyDatabase db;
     private long lastFiscalDay = -1L;
     private double lastCapitalismRate = 0.05;
     private double lastMonarchyRate = 0.017;
     private boolean loaded = false;
 
     public FactionFiscalPass(EconomyManager eco, Path dataDir) {
+        this(eco, null, dataDir);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public FactionFiscalPass(EconomyManager eco, EconomyDatabase db, Path dataDir) {
         this.eco = eco;
+        this.db = db;
         this.file = dataDir.resolve("faction_fiscal.json");
     }
 
@@ -347,10 +352,11 @@ public final class FactionFiscalPass {
     private void load() {
         if (loaded) return;
         loaded = true;
-        if (!Files.exists(file)) return;
+
+        String json = Documents.read(db, file, "faction_fiscal.json");
+        if (json == null) return;
 
         try {
-            String json = Files.readString(file, StandardCharsets.UTF_8);
             State state = GSON.fromJson(json, State.class);
             if (state != null) {
                 this.lastFiscalDay = state.lastFiscalDay;
@@ -363,16 +369,10 @@ public final class FactionFiscalPass {
     }
 
     private void save() {
-        try {
-            Files.createDirectories(file.getParent());
-            State state = new State();
-            state.lastFiscalDay = this.lastFiscalDay;
-            state.capitalismRate = this.lastCapitalismRate;
-            state.monarchyRate = this.lastMonarchyRate;
-            Files.writeString(file, GSON.toJson(state), StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        } catch (IOException e) {
-            LOGGER.error("[EconomyCraft] Failed to save faction fiscal state to {}", file, e);
-        }
+        State state = new State();
+        state.lastFiscalDay = this.lastFiscalDay;
+        state.capitalismRate = this.lastCapitalismRate;
+        state.monarchyRate = this.lastMonarchyRate;
+        Documents.write(db, file, "faction_fiscal.json", GSON.toJson(state));
     }
 }

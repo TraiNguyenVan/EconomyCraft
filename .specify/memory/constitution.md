@@ -63,16 +63,16 @@ bound in one warning line, and keep the clamped value.
 *Enforced by*: `common/src/main/java/com/reazip/economycraft/EconomyConfig.java`, which auto-merges new keys
 from the bundled default and clamps rather than rejecting.
 
-### VI. Persistence is Gson JSON, never NBT
+### VI. Persistence is one SQLite file, never NBT
 
-State persists as Gson JSON through `AsyncFileWriter`, saved on `LifecycleEvent.SERVER_STOPPING` alongside
-`manager.save()`.
+State persists as Gson payloads in `documents` rows of `data/economycraft.db` through
+`db/EconomyDatabase`, written synchronously on the server thread; villager gossip memory keeps
+relational tables in the same file. Legacy JSON files and `villagers.db` are imported exactly once,
+then archived — the database is the only writer afterwards. Everything is still flushed on
+`LifecycleEvent.SERVER_STOPPING` alongside `manager.save()`.
 
-*Enforced by*: `common/src/main/java/com/reazip/economycraft/util/AsyncFileWriter.java` and
-`common/src/main/java/com/reazip/economycraft/EconomyCraft.java:90`. No NBT is used for mod state.
-
-Reserve **synchronous** writes for state that must survive an immediate crash — as `TollManager.save()` does.
-Everything else is asynchronous.
+*Enforced by*: `common/src/main/java/com/reazip/economycraft/db/EconomyDatabase.java` and
+`common/src/main/java/com/reazip/economycraft/EconomyCraft.java`. No NBT is used for mod state.
 
 ### VII. Cross-version APIs go in a compat fork
 

@@ -3,6 +3,8 @@ package com.reazip.economycraft;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.EconomyPaths;
@@ -16,11 +18,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.ChestType;
 
-import java.io.IOException;
 import java.lang.reflect.Type;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -31,6 +30,7 @@ public final class TollManager {
     private static final Map<MinecraftServer, TollManager> INSTANCES = new WeakHashMap<>();
     private final MinecraftServer server;
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<String, Toll> tolls = new ConcurrentHashMap<>();
     private final Map<String, Long> cooldowns = new ConcurrentHashMap<>();
     private final Map<String, Set<UUID>> pressurePlatePresent = new HashMap<>();
@@ -41,10 +41,20 @@ public final class TollManager {
     }
     private TollManager(MinecraftServer server) {
         this.server = server;
-        file = EconomyPaths.dataDir(server).resolve("tolls.json");
+        Path dataDir = EconomyPaths.dataDir(server);
+        file = dataDir.resolve("tolls.json");
+        EconomyDatabase database = new EconomyDatabase(dataDir.resolve(EconomyDatabase.DB_FILE_NAME));
         try {
-            if (Files.isRegularFile(file)) {
-                Map<String, Toll> read = GSON.fromJson(Files.readString(file), TYPE);
+            database.initialize();
+            database.importLegacy(dataDir);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to open toll storage at " + dataDir, e);
+        }
+        this.db = database;
+        try {
+            String json = Documents.read(db, file, "tolls.json");
+            if (json != null) {
+                Map<String, Toll> read = GSON.fromJson(json, TYPE);
                 if (read != null) tolls.putAll(read);
             }
         } catch (Exception e) { throw new IllegalStateException("Failed to load tolls at " + file, e); }
@@ -241,8 +251,7 @@ public final class TollManager {
         pressurePlateGranted.remove(key);
     }
     private synchronized void save() {
-        try { Files.writeString(file,GSON.toJson(tolls),StandardOpenOption.CREATE,StandardOpenOption.TRUNCATE_EXISTING); }
-        catch(IOException e) { throw new IllegalStateException("Failed to save tolls at "+file,e); }
+        Documents.write(db, file, "tolls.json", GSON.toJson(tolls));
     }
     public static final class Toll {
         public String dimension, owner; public int x,y,z; public long fee;

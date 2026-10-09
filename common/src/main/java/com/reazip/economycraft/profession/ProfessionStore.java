@@ -4,13 +4,12 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.time.WallClock;
-import com.reazip.economycraft.util.AsyncFileWriter;
 import org.slf4j.Logger;
 
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -40,6 +39,7 @@ public final class ProfessionStore {
     private static final Type TYPE = new TypeToken<Map<UUID, ProfessionProgress>>() { }.getType();
 
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<UUID, ProfessionProgress> progressByPlayer = new HashMap<>();
     private final WallClock clock;
     private boolean dirty;
@@ -91,10 +91,20 @@ public final class ProfessionStore {
     }
 
     public ProfessionStore(Path file) {
-        this(file, WallClock.SYSTEM);
+        this(null, file, WallClock.SYSTEM);
     }
 
     public ProfessionStore(Path file, WallClock clock) {
+        this(null, file, clock);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public ProfessionStore(EconomyDatabase db, Path file) {
+        this(db, file, WallClock.SYSTEM);
+    }
+
+    public ProfessionStore(EconomyDatabase db, Path file, WallClock clock) {
+        this.db = db;
         this.file = file;
         this.clock = clock;
         load();
@@ -371,13 +381,13 @@ public final class ProfessionStore {
     public void flush() {
         if (!dirty) return;
         dirty = false;
-        AsyncFileWriter.writeAsync(file, GSON.toJson(new HashMap<>(progressByPlayer), TYPE));
+        Documents.write(db, file, "professions.json", GSON.toJson(new HashMap<>(progressByPlayer), TYPE));
     }
 
     private void load() {
-        if (file == null || Files.notExists(file)) return;
+        String json = Documents.read(db, file, "professions.json");
+        if (json == null) return;
         try {
-            String json = Files.readString(file, StandardCharsets.UTF_8);
             Map<UUID, ProfessionProgress> loaded = GSON.fromJson(json, TYPE);
             if (loaded == null) return;
 

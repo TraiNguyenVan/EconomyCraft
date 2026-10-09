@@ -4,7 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
-import com.reazip.economycraft.util.AsyncFileWriter;
+import com.reazip.economycraft.db.Documents;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -13,8 +14,6 @@ import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 
 import java.lang.reflect.Type;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -31,11 +30,18 @@ public final class NotificationManager {
 
     private final MinecraftServer server;
     private final Path file;
+    private final EconomyDatabase db;
     private final Map<UUID, List<String>> pending = new ConcurrentHashMap<>();
     private final AtomicBoolean dirty = new AtomicBoolean(false);
 
     public NotificationManager(MinecraftServer server) {
+        this(server, null);
+    }
+
+    /** Production constructor: persists to the shared database document instead of the file. */
+    public NotificationManager(MinecraftServer server, EconomyDatabase db) {
         this.server = server;
+        this.db = db;
         this.file = EconomyPaths.dataDir(server).resolve("notifications.json");
         load();
     }
@@ -68,9 +74,9 @@ public final class NotificationManager {
     }
 
     private void load() {
-        if (!Files.exists(file)) return;
+        String json = Documents.read(db, file, "notifications.json");
+        if (json == null) return;
         try {
-            String json = Files.readString(file, StandardCharsets.UTF_8);
             Map<UUID, List<String>> map = GSON.fromJson(json, TYPE);
             if (map != null) {
                 for (var entry : map.entrySet()) {
@@ -85,6 +91,6 @@ public final class NotificationManager {
     }
 
     private void save() {
-        AsyncFileWriter.writeAsync(file, GSON.toJson(new HashMap<>(pending), TYPE));
+        Documents.write(db, file, "notifications.json", GSON.toJson(new HashMap<>(pending), TYPE));
     }
 }
