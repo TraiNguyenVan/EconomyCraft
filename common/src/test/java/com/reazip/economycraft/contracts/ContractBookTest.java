@@ -2,17 +2,15 @@ package com.reazip.economycraft.contracts;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import net.minecraft.network.chat.ClickEvent;
-import net.minecraft.network.chat.Style;
+import com.reazip.economycraft.util.ClickKind;
 
-/** Page-packing for the contract written-book view and its action page. */
+/** Page-packing for the contract written-book view and click routing. */
 class ContractBookTest {
 
     @Test
@@ -59,15 +57,10 @@ class ContractBookTest {
     }
 
     @Test
-    @DisplayName("book action page runs the actions command for the contract")
-    void bookActionPage() {
-        List<String> commands = new ArrayList<>();
-        ContractsUi.buildBookActionPage(5).visit((style, text) -> {
-            if (style.getClickEvent() instanceof ClickEvent.RunCommand run) {
-                commands.add(run.command());
-            }
-            return Optional.empty();
-        }, Style.EMPTY);
-        assertEquals(List.of("/contracts actions 5"), commands);
+    @DisplayName("left-click opens actions, right-click reads")
+    void clickRouting() {
+        assertTrue(ContractsUi.isActionsClick(0, ClickKind.PICKUP));
+        assertFalse(ContractsUi.isActionsClick(1, ClickKind.PICKUP));
+        assertFalse(ContractsUi.isActionsClick(0, ClickKind.QUICK_MOVE));
     }
 }

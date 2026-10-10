@@ -8,7 +8,6 @@ import com.reazip.economycraft.contracts.Contract.Category;
 import com.reazip.economycraft.contracts.Contract.Status;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
-import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
 import com.reazip.economycraft.util.ConfirmUi;
@@ -38,8 +37,8 @@ import java.util.UUID;
 /**
  * Vanilla chest UIs for the contracts subsystem: browsing public postings, an actions
  * screen for requester and contractor, a guided creation flow, and a personal contracts list.
- * Reading a contract auto-opens a written-book view of the terms; a chat button
- * waiting underneath opens the actions-only chest once the book is closed.
+ * Left-clicking a contract jumps straight to the actions-only chest;
+ * right-clicking opens a written-book view of the terms.
  *
  * <p>Every action button revalidates through {@link ContractService} at click time, so a stale
  * open menu can never force a transition the service would refuse. Long text is an anvil-input
@@ -291,7 +290,8 @@ public final class ContractsUi {
         if (c.status != Status.OPEN) {
             lore.add(MenuUiSupport.labeledValue("Status", c.status.label, MenuUiSupport.LABEL_PRIMARY_COLOR));
         }
-        lore.add(MenuUiSupport.hint("Click to view and accept"));
+        lore.add(MenuUiSupport.hint("Left-click for actions"));
+        lore.add(MenuUiSupport.hint("Right-click to read"));
         return MenuUiSupport.button(Items.PAPER, "#" + c.id + " " + c.title, ChatFormatting.GOLD,
                 lore.toArray(new Component[0]));
     }
@@ -441,7 +441,10 @@ public final class ContractsUi {
                 int index = page * gridSlots + slot;
                 if (index < contracts.size()) {
                     EconomySounds.click(clicker);
-                    openDetails(clicker, eco, contracts.get(index).id);
+                    int id = contracts.get(index).id;
+                    // Left-click jumps straight to the actions chest; right-click reads the book.
+                    if (isActionsClick(dragType, kind)) openActions(clicker, eco, id);
+                    else openDetails(clicker, eco, id);
                 }
                 return true;
             }
@@ -572,7 +575,10 @@ public final class ContractsUi {
                 int index = page * gridSlots + slot;
                 if (index < contracts.size()) {
                     EconomySounds.click(clicker);
-                    openDetails(clicker, eco, contracts.get(index).id);
+                    int id = contracts.get(index).id;
+                    // Left-click jumps straight to the actions chest; right-click reads the book.
+                    if (isActionsClick(dragType, kind)) openActions(clicker, eco, id);
+                    else openDetails(clicker, eco, id);
                 }
                 return true;
             }
@@ -836,29 +842,15 @@ public final class ContractsUi {
 
     private static List<Component> buildBookPages(EconomyManager eco, ServerPlayer viewer, Contract c) {
         List<String> text = ContractBook.paginate(buildBookLines(eco, viewer.getUUID(), c));
-        if (text.size() >= ContractBook.MAX_PAGES) text = new ArrayList<>(text.subList(0, ContractBook.MAX_PAGES - 1));
+        if (text.size() >= ContractBook.MAX_PAGES) text = new ArrayList<>(text.subList(0, ContractBook.MAX_PAGES));
         List<Component> pages = new ArrayList<>();
         for (String p : text) pages.add(Component.literal(p));
-        pages.add(buildBookActionPage(c.id));
         return pages;
     }
 
-    /**
-     * Last book page: one tap runs {@code /contracts actions} and the chest opens
-     * immediately. A book link is the only zero-detour handoff — the server gets no
-     * close event for a book screen, so it can never auto-open on Done itself.
-     */
-    static Component buildBookActionPage(int id) {
-        String cmd = "/contracts actions " + id;
-        var ev = ChatCompat.runCommandEvent(cmd);
-        Component link = Component.literal("[Tap here for actions]");
-        link = ev != null
-                ? link.copy().withStyle(
-                        s -> s.withUnderlined(true).withColor(ChatFormatting.GREEN).withClickEvent(ev))
-                : link.copy().withStyle(
-                        s -> s.withUnderlined(true).withColor(ChatFormatting.GREEN)
-                                .withClickEvent(new net.minecraft.network.chat.ClickEvent.SuggestCommand(cmd)));
-        return Component.literal("Done reading?").append(Component.literal("\n")).append(link);
+    /** Left-click on a PICKUP is the mouse button the menu sees as {@code dragType 0}. */
+    static boolean isActionsClick(int dragType, ClickKind kind) {
+        return kind == ClickKind.PICKUP && dragType == 0;
     }
 
     private static List<Component> buildSubjectLore(EconomyManager eco, UUID viewer, Contract c) {
