@@ -2,13 +2,17 @@ package com.reazip.economycraft.contracts;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** Page-packing for the contract written-book view and its actions handoff. */
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Style;
+
+/** Page-packing for the contract written-book view and its action page. */
 class ContractBookTest {
 
     @Test
@@ -55,10 +59,15 @@ class ContractBookTest {
     }
 
     @Test
-    @DisplayName("book handoff names the contract and offers the actions chest")
-    void actionsHandoff() {
-        String text = ContractsUi.handoffMessage(5).getString();
-        assertTrue(text.contains("Contract #5"));
-        assertTrue(text.contains("[View actions]"));
+    @DisplayName("book action page runs the actions command for the contract")
+    void bookActionPage() {
+        List<String> commands = new ArrayList<>();
+        ContractsUi.buildBookActionPage(5).visit((style, text) -> {
+            if (style.getClickEvent() instanceof ClickEvent.RunCommand run) {
+                commands.add(run.command());
+            }
+            return Optional.empty();
+        }, Style.EMPTY);
+        assertEquals(List.of("/contracts actions 5"), commands);
     }
 }

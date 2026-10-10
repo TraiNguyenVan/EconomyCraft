@@ -102,10 +102,6 @@ public final class ContractsUi {
         player.setItemInHand(InteractionHand.MAIN_HAND, held);
         player.inventoryMenu.broadcastChanges();
         EconomySounds.page(player);
-        // shortcut: the server gets no close event for a book screen (openItemGui only
-        // sends ClientboundOpenBookPacket), so the actions chest can't auto-open on Done.
-        // The chat button waits underneath and opens it with one click instead.
-        sendActionsHandoff(player, c.id);
     }
 
     /** Actions screen for one contract: accept / submit / approve / cancel / dispute buttons. */
@@ -835,34 +831,34 @@ public final class ContractsUi {
             lines.add("Dispute: " + c.disputeReason);
         }
         if (c.resolution != null) lines.add("Resolution: " + c.resolution);
-        lines.add("Close this book (Done), then pick an action in the chest.");
         return lines;
     }
 
     private static List<Component> buildBookPages(EconomyManager eco, ServerPlayer viewer, Contract c) {
         List<String> text = ContractBook.paginate(buildBookLines(eco, viewer.getUUID(), c));
-        if (text.size() >= ContractBook.MAX_PAGES) text = new ArrayList<>(text.subList(0, ContractBook.MAX_PAGES));
+        if (text.size() >= ContractBook.MAX_PAGES) text = new ArrayList<>(text.subList(0, ContractBook.MAX_PAGES - 1));
         List<Component> pages = new ArrayList<>();
         for (String p : text) pages.add(Component.literal(p));
+        pages.add(buildBookActionPage(c.id));
         return pages;
     }
 
-    /** One-click handoff waiting in chat for when the player closes the book. */
-    static void sendActionsHandoff(ServerPlayer player, int id) {
-        player.sendSystemMessage(handoffMessage(id));
-    }
-
-    /** The handoff line as a pure value so tests can assert on it without a player. */
-    static Component handoffMessage(int id) {
+    /**
+     * Last book page: one tap runs {@code /contracts actions} and the chest opens
+     * immediately. A book link is the only zero-detour handoff — the server gets no
+     * close event for a book screen, so it can never auto-open on Done itself.
+     */
+    static Component buildBookActionPage(int id) {
         String cmd = "/contracts actions " + id;
-        Component label = Component.literal("[View actions]");
         var ev = ChatCompat.runCommandEvent(cmd);
-        if (ev != null) {
-            label = label.copy().withStyle(
-                    s -> s.withUnderlined(true).withColor(ChatFormatting.GREEN).withClickEvent(ev));
-        }
-        return Component.literal("Contract #" + id + ": close the book (Done), then ")
-                .withStyle(ChatFormatting.YELLOW).append(label);
+        Component link = Component.literal("[Tap here for actions]");
+        link = ev != null
+                ? link.copy().withStyle(
+                        s -> s.withUnderlined(true).withColor(ChatFormatting.GREEN).withClickEvent(ev))
+                : link.copy().withStyle(
+                        s -> s.withUnderlined(true).withColor(ChatFormatting.GREEN)
+                                .withClickEvent(new net.minecraft.network.chat.ClickEvent.SuggestCommand(cmd)));
+        return Component.literal("Done reading?").append(Component.literal("\n")).append(link);
     }
 
     private static List<Component> buildSubjectLore(EconomyManager eco, UUID viewer, Contract c) {
