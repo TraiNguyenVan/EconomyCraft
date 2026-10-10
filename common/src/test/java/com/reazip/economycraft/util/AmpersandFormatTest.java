@@ -14,94 +14,103 @@ import static org.junit.jupiter.api.Assertions.*;
 class AmpersandFormatTest {
 
     @Test
-    @DisplayName("containsCodes correctly identifies format codes")
-    void containsCodesDetection() {
+    @DisplayName("Standalone &x does not format and shows verbatim &x")
+    void standaloneCodesShowVerbatim() {
         assertFalse(AmpersandFormat.containsCodes(null));
         assertFalse(AmpersandFormat.containsCodes(""));
         assertFalse(AmpersandFormat.containsCodes("hello world"));
-        assertFalse(AmpersandFormat.containsCodes("cat & dog")); // standalone &
-        assertFalse(AmpersandFormat.containsCodes("&z unknown")); // unsupported letter
+        assertFalse(AmpersandFormat.containsCodes("cat & dog"));
+        assertFalse(AmpersandFormat.containsCodes("&z unknown"));
 
-        assertTrue(AmpersandFormat.containsCodes("&1hello"));
-        assertTrue(AmpersandFormat.containsCodes("&aGreen"));
-        assertTrue(AmpersandFormat.containsCodes("&lBold"));
-        assertTrue(AmpersandFormat.containsCodes("&sDiamond")); // Bedrock custom
-        assertTrue(AmpersandFormat.containsCodes("&rReset"));
+        // Standalone codes (followed by space or EOL)
+        assertFalse(AmpersandFormat.containsCodes("hello &1 world"));
+        assertFalse(AmpersandFormat.containsCodes("&1 "));
+        assertFalse(AmpersandFormat.containsCodes("&1"));
+        assertFalse(AmpersandFormat.containsCodes("&1&l "));
+        assertFalse(AmpersandFormat.containsCodes("&1&l"));
+
+        // When parsed, standalone codes remain unchanged literals
+        assertEquals("hello &1 world", AmpersandFormat.parse("hello &1 world").getString());
+        assertNull(AmpersandFormat.parse("hello &1 world").getStyle().getColor());
+
+        assertEquals("&1 ", AmpersandFormat.parse("&1 ").getString());
+        assertNull(AmpersandFormat.parse("&1 ").getStyle().getColor());
+
+        assertEquals("&1", AmpersandFormat.parse("&1").getString());
+        assertNull(AmpersandFormat.parse("&1").getStyle().getColor());
+
+        assertEquals("&1&l ", AmpersandFormat.parse("&1&l ").getString());
+        assertNull(AmpersandFormat.parse("&1&l ").getStyle().getColor());
     }
 
     @Test
-    @DisplayName("Bedrock scoping: color applies until space or EOL")
-    void colorUntilSpaceOrEol() {
-        Component comp = AmpersandFormat.parse("&1Hello world");
-        List<Component> parts = comp.toFlatList();
-
-        // Should have "Hello" styled dark blue, followed by " world" with no special color
-        assertEquals("Hello world", comp.getString());
+    @DisplayName("Color persists across spaces until meeting another color or &r")
+    void colorPersistsAcrossSpaces() {
+        Component comp = AmpersandFormat.parse("&1Hello world this is blue");
+        assertEquals("Hello world this is blue", comp.getString());
         assertFalse(comp.getString().contains("&1"));
 
-        // Find part with text "Hello"
-        Component helloPart = parts.stream().filter(c -> "Hello".equals(c.getString())).findFirst().orElseThrow();
-        assertEquals(TextColor.fromLegacyFormat(ChatFormatting.DARK_BLUE), helloPart.getStyle().getColor());
-
-        // Find part with text "world"
-        Component worldPart = parts.stream().filter(c -> "world".equals(c.getString())).findFirst().orElseThrow();
-        assertNull(worldPart.getStyle().getColor(), "Word after space should revert to default color");
+        // The entire component text should have dark blue color
+        assertEquals(TextColor.fromLegacyFormat(ChatFormatting.DARK_BLUE), comp.getStyle().getColor());
     }
 
     @Test
-    @DisplayName("Multiple codes on a word combine (color + bold)")
-    void codeChaining() {
-        Component comp = AmpersandFormat.parse("&1&lBoldBlue normal");
-        assertEquals("BoldBlue normal", comp.getString());
+    @DisplayName("Color switches when meeting another color code")
+    void colorSwitchesOnNewColor() {
+        Component comp = AmpersandFormat.parse("&1Blue text &2Green text");
+        assertEquals("Blue text Green text", comp.getString());
 
-        Component styledPart = comp.toFlatList().stream()
-                .filter(c -> "BoldBlue".equals(c.getString()))
-                .findFirst()
-                .orElseThrow();
+        List<Component> parts = comp.toFlatList();
+        Component bluePart = parts.stream().filter(c -> c.getString().contains("Blue text ")).findFirst().orElseThrow();
+        assertEquals(TextColor.fromLegacyFormat(ChatFormatting.DARK_BLUE), bluePart.getStyle().getColor());
 
-        assertEquals(TextColor.fromLegacyFormat(ChatFormatting.DARK_BLUE), styledPart.getStyle().getColor());
-        assertTrue(styledPart.getStyle().isBold());
+        Component greenPart = parts.stream().filter(c -> c.getString().contains("Green text")).findFirst().orElseThrow();
+        assertEquals(TextColor.fromLegacyFormat(ChatFormatting.DARK_GREEN), greenPart.getStyle().getColor());
+    }
 
-        Component normalPart = comp.toFlatList().stream()
-                .filter(c -> "normal".equals(c.getString()))
-                .findFirst()
-                .orElseThrow();
+    @Test
+    @DisplayName("Formatting resets when meeting &r")
+    void resetCodeStopsColor() {
+        Component comp = AmpersandFormat.parse("&1Blue text &rNormal text");
+        assertEquals("Blue text Normal text", comp.getString());
 
+        List<Component> parts = comp.toFlatList();
+        Component bluePart = parts.stream().filter(c -> c.getString().contains("Blue text ")).findFirst().orElseThrow();
+        assertEquals(TextColor.fromLegacyFormat(ChatFormatting.DARK_BLUE), bluePart.getStyle().getColor());
+
+        Component normalPart = parts.stream().filter(c -> c.getString().contains("Normal text")).findFirst().orElseThrow();
         assertNull(normalPart.getStyle().getColor());
-        assertFalse(normalPart.getStyle().isBold());
     }
 
     @Test
-    @DisplayName("toLegacyString converts codes with §r at space/EOL boundaries")
+    @DisplayName("Code chaining combines color and formatting (&1&l)")
+    void codeChaining() {
+        Component comp = AmpersandFormat.parse("&1&lBold Blue world");
+        assertEquals("Bold Blue world", comp.getString());
+        assertEquals(TextColor.fromLegacyFormat(ChatFormatting.DARK_BLUE), comp.getStyle().getColor());
+        assertTrue(comp.getStyle().isBold());
+    }
+
+    @Test
+    @DisplayName("toLegacyString preserves standalone codes and wraps styled runs")
     void toLegacyStringConversion() {
         assertEquals("", AmpersandFormat.toLegacyString(null));
         assertEquals("", AmpersandFormat.toLegacyString(""));
         assertEquals("plain text", AmpersandFormat.toLegacyString("plain text"));
         assertEquals("cat & dog", AmpersandFormat.toLegacyString("cat & dog"));
+        assertEquals("hello &1 world", AmpersandFormat.toLegacyString("hello &1 world"));
+        assertEquals("&1 ", AmpersandFormat.toLegacyString("&1 "));
 
-        assertEquals("\u00A71Hello\u00A7r world", AmpersandFormat.toLegacyString("&1Hello world"));
-        assertEquals("\u00A71\u00A7lHello\u00A7r world", AmpersandFormat.toLegacyString("&1&lHello world"));
-        assertEquals("\u00A71Hello\u00A7r \u00A72World\u00A7r", AmpersandFormat.toLegacyString("&1Hello &2World"));
-        assertEquals("\u00A7cEnd\u00A7r", AmpersandFormat.toLegacyString("&cEnd"));
+        assertEquals("\u00A71Hello world\u00A7r", AmpersandFormat.toLegacyString("&1Hello world"));
+        assertEquals("\u00A71\u00A7lHello world\u00A7r", AmpersandFormat.toLegacyString("&1&lHello world"));
+        assertEquals("\u00A71Hello \u00A72World\u00A7r", AmpersandFormat.toLegacyString("&1Hello &2World"));
     }
 
     @Test
-    @DisplayName("Bedrock custom materials work (&s diamond, &q emerald)")
+    @DisplayName("Bedrock custom materials work (&s diamond)")
     void bedrockCustomMaterials() {
-        Component comp = AmpersandFormat.parse("&sShiny");
-        assertEquals("Shiny", comp.getString());
-
-        Component part = comp.toFlatList().stream().filter(c -> "Shiny".equals(c.getString())).findFirst().orElseThrow();
-        assertEquals(TextColor.fromRgb(0x2CBAA8), part.getStyle().getColor());
-    }
-
-    @Test
-    @DisplayName("&r resets formatting immediately")
-    void resetCode() {
-        Component comp = AmpersandFormat.parse("&1dark&rplain");
-        assertEquals("darkplain", comp.getString());
-
-        Component plainPart = comp.toFlatList().stream().filter(c -> "plain".equals(c.getString())).findFirst().orElseThrow();
-        assertNull(plainPart.getStyle().getColor());
+        Component comp = AmpersandFormat.parse("&sShiny diamond");
+        assertEquals("Shiny diamond", comp.getString());
+        assertEquals(TextColor.fromRgb(0x2CBAA8), comp.getStyle().getColor());
     }
 }
