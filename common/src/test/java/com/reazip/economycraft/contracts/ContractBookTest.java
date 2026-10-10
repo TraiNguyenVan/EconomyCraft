@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** Page-packing and action hints for the contract written-book view. */
+/** Page-packing for the contract written-book view and its actions handoff. */
 class ContractBookTest {
 
     @Test
@@ -55,11 +55,10 @@ class ContractBookTest {
     }
 
     @Test
-    @DisplayName("action hints name every chat command for the contract")
-    void actionHints() {
-        String text = ContractsUi.buildActionHints(5).getString();
-        for (String cmd : List.of("accept", "submit", "approve", "revise", "cancel", "dispute", "actions")) {
-            assertTrue(text.contains("/contracts " + cmd + " 5"), cmd);
-        }
+    @DisplayName("book handoff names the contract and offers the actions chest")
+    void actionsHandoff() {
+        String text = ContractsUi.handoffMessage(5).getString();
+        assertTrue(text.contains("Contract #5"));
+        assertTrue(text.contains("[View actions]"));
     }
 }

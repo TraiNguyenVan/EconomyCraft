@@ -8,6 +8,7 @@ import com.reazip.economycraft.contracts.Contract.Category;
 import com.reazip.economycraft.contracts.Contract.Status;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
+import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
 import com.reazip.economycraft.util.ConfirmUi;
@@ -18,10 +19,7 @@ import com.reazip.economycraft.util.NumberInputUi;
 import com.reazip.economycraft.util.PlayerPickerUi;
 import com.reazip.economycraft.util.TextInputUi;
 import net.minecraft.ChatFormatting;
-import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.network.chat.Style;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
@@ -40,7 +38,8 @@ import java.util.UUID;
 /**
  * Vanilla chest UIs for the contracts subsystem: browsing public postings, an actions
  * screen for requester and contractor, a guided creation flow, and a personal contracts list.
- * Reading a contract auto-opens a written-book view; the chest detail screen is actions only.
+ * Reading a contract auto-opens a written-book view of the terms; a chat button
+ * waiting underneath opens the actions-only chest once the book is closed.
  *
  * <p>Every action button revalidates through {@link ContractService} at click time, so a stale
  * open menu can never force a transition the service would refuse. Long text is an anvil-input
@@ -103,6 +102,10 @@ public final class ContractsUi {
         player.setItemInHand(InteractionHand.MAIN_HAND, held);
         player.inventoryMenu.broadcastChanges();
         EconomySounds.page(player);
+        // shortcut: the server gets no close event for a book screen (openItemGui only
+        // sends ClientboundOpenBookPacket), so the actions chest can't auto-open on Done.
+        // The chat button waits underneath and opens it with one click instead.
+        sendActionsHandoff(player, c.id);
     }
 
     /** Actions screen for one contract: accept / submit / approve / cancel / dispute buttons. */
@@ -832,37 +835,34 @@ public final class ContractsUi {
             lines.add("Dispute: " + c.disputeReason);
         }
         if (c.resolution != null) lines.add("Resolution: " + c.resolution);
+        lines.add("Close this book (Done), then pick an action in the chest.");
         return lines;
     }
 
     private static List<Component> buildBookPages(EconomyManager eco, ServerPlayer viewer, Contract c) {
         List<String> text = ContractBook.paginate(buildBookLines(eco, viewer.getUUID(), c));
-        if (text.size() >= ContractBook.MAX_PAGES) text = new ArrayList<>(text.subList(0, ContractBook.MAX_PAGES - 1));
+        if (text.size() >= ContractBook.MAX_PAGES) text = new ArrayList<>(text.subList(0, ContractBook.MAX_PAGES));
         List<Component> pages = new ArrayList<>();
         for (String p : text) pages.add(Component.literal(p));
-        pages.add(buildActionHints(c.id));
         return pages;
     }
 
-    /** Last book page: every contract action as a tap-to-fill chat command (server revalidates each one). */
-    static Component buildActionHints(int id) {
-        MutableComponent out = Component.literal("Actions (tap a line to fill chat):");
-        String[] commands = {
-                "/contracts accept " + id,
-                "/contracts submit " + id + " ",
-                "/contracts approve " + id,
-                "/contracts revise " + id + " ",
-                "/contracts cancel " + id,
-                "/contracts dispute " + id + " ",
-                "/contracts actions " + id,
-        };
-        for (String cmd : commands) {
-            Style link = Style.EMPTY.withColor(ChatFormatting.AQUA)
-                    .withClickEvent(new ClickEvent.SuggestCommand(cmd))
-                    .withUnderlined(Boolean.TRUE);
-            out.append(Component.literal("\n")).append(Component.literal(cmd.strip()).withStyle(link));
+    /** One-click handoff waiting in chat for when the player closes the book. */
+    static void sendActionsHandoff(ServerPlayer player, int id) {
+        player.sendSystemMessage(handoffMessage(id));
+    }
+
+    /** The handoff line as a pure value so tests can assert on it without a player. */
+    static Component handoffMessage(int id) {
+        String cmd = "/contracts actions " + id;
+        Component label = Component.literal("[View actions]");
+        var ev = ChatCompat.runCommandEvent(cmd);
+        if (ev != null) {
+            label = label.copy().withStyle(
+                    s -> s.withUnderlined(true).withColor(ChatFormatting.GREEN).withClickEvent(ev));
         }
-        return out;
+        return Component.literal("Contract #" + id + ": close the book (Done), then ")
+                .withStyle(ChatFormatting.YELLOW).append(label);
     }
 
     private static List<Component> buildSubjectLore(EconomyManager eco, UUID viewer, Contract c) {

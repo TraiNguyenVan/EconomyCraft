@@ -14,7 +14,7 @@ import net.minecraft.world.item.component.WrittenBookContent;
  * Renders a contract as a written-book view: plain strings packed into page-sized
  * chunks, then stamped onto a {@link Items#WRITTEN_BOOK} stack the server
  * force-opens via {@code ServerPlayer.openItemGui}. The viewer keeps nothing;
- * actions stay on the chat commands and the actions chest.
+ * a chat button opens the actions chest once the book is closed.
  */
 public final class ContractBook {
     private ContractBook() {}
