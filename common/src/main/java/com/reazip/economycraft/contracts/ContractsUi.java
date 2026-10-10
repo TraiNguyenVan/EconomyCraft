@@ -721,6 +721,9 @@ public final class ContractsUi {
                                     : MenuUiSupport.hint("Propose cancelling; both sides agree")));
                 }
             }
+            actions.add(MenuUiSupport.button(Items.WRITABLE_BOOK, "Copy to Book",
+                    ChatFormatting.YELLOW,
+                    MenuUiSupport.hint("Copy the details into a Book and Quill")));
             return actions;
         }
 
@@ -763,6 +766,7 @@ public final class ContractsUi {
                 case "Request Revision" -> askRevisionReason(clicker, c.id);
                 case "Raise Dispute" -> askDisputeReason(clicker, c.id);
                 case "Cancel Contract" -> askCancel(clicker, c);
+                case "Copy to Book" -> doCopyToBook(clicker, eco, c.id);
                 default -> {
                 }
             }
@@ -778,6 +782,50 @@ public final class ContractsUi {
 
     private static long netAfterTax(long reward) {
         return reward - TaxPolicy.resolve(TaxScope.TRANSACTION_CONTRACT, reward).amount();
+    }
+
+    private static List<String> buildBookLines(EconomyManager eco, UUID viewer, Contract c) {
+        List<String> lines = new ArrayList<>();
+        lines.add("#" + c.id + " " + c.title);
+        lines.add("Status: " + c.status.label + " | " + c.category.label);
+        lines.add("Posted by: " + displayName(eco, c.requester)
+                + (c.requester.equals(viewer) ? " (you)" : ""));
+        if (c.target != null) {
+            lines.add("Offered to: " + displayName(eco, c.target));
+        }
+        if (c.contractor != null) {
+            lines.add("Contractor: " + displayName(eco, c.contractor)
+                    + (c.contractor.equals(viewer) ? " (you)" : ""));
+        }
+        lines.add("Reward: " + EconomyCraft.formatMoney(c.reward));
+        lines.add("Deadline: " + deadlineLabel(c));
+        if (c.description != null) lines.add("Details: " + c.description);
+        if (c.submissionNotes != null) lines.add("Submitted: " + c.submissionNotes);
+        if (c.reviewNotes != null) lines.add("Feedback: " + c.reviewNotes);
+        if (c.status == Status.DISPUTED && c.disputeReason != null) {
+            lines.add("Dispute: " + c.disputeReason);
+        }
+        if (c.resolution != null) lines.add("Resolution: " + c.resolution);
+        return lines;
+    }
+
+    private static void doCopyToBook(ServerPlayer player, EconomyManager eco, int id) {
+        Contract c = eco.getContracts().getContract(id);
+        if (c == null) {
+            EconomySounds.failure(player);
+            player.closeContainer();
+            return;
+        }
+        ItemStack book = ContractBook.makeBook(ContractBook.paginate(buildBookLines(eco, player.getUUID(), c)));
+        boolean stored = false;
+        if (!player.getInventory().add(book)) {
+            eco.getDeliveries().addDelivery(player.getUUID(), book);
+            stored = true;
+        }
+        EconomySounds.success(player);
+        player.sendSystemMessage(Component.literal("Contract #" + id + " copied to a Book and Quill"
+                        + (stored ? " in your deliveries." : " in your inventory."))
+                .withStyle(ChatFormatting.GREEN));
     }
 
     private static List<Component> buildSubjectLore(EconomyManager eco, UUID viewer, Contract c) {
