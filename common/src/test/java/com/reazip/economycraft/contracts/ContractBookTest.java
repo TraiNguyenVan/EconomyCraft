@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** Page-packing for the contract Book and Quill copy. */
+/** Page-packing and action hints for the contract written-book view. */
 class ContractBookTest {
 
     @Test
@@ -52,5 +52,14 @@ class ContractBookTest {
         List<String> lines = new ArrayList<>();
         for (int i = 0; i < 1000; i++) lines.add("line " + i);
         assertEquals(100, ContractBook.paginate(lines).size());
+    }
+
+    @Test
+    @DisplayName("action hints name every chat command for the contract")
+    void actionHints() {
+        String text = ContractsUi.buildActionHints(5).getString();
+        for (String cmd : List.of("accept", "submit", "approve", "revise", "cancel", "dispute", "actions")) {
+            assertTrue(text.contains("/contracts " + cmd + " 5"), cmd);
+        }
     }
 }

@@ -18,8 +18,12 @@ import com.reazip.economycraft.util.NumberInputUi;
 import com.reazip.economycraft.util.PlayerPickerUi;
 import com.reazip.economycraft.util.TextInputUi;
 import net.minecraft.ChatFormatting;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.SimpleContainer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
@@ -34,8 +38,9 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Vanilla chest UIs for the contracts subsystem: browsing public postings, a work-detail review
+ * Vanilla chest UIs for the contracts subsystem: browsing public postings, an actions
  * screen for requester and contractor, a guided creation flow, and a personal contracts list.
+ * Reading a contract auto-opens a written-book view; the chest detail screen is actions only.
  *
  * <p>Every action button revalidates through {@link ContractService} at click time, so a stale
  * open menu can never force a transition the service would refuse. Long text is an anvil-input
@@ -75,8 +80,33 @@ public final class ContractsUi {
                 new MineMenu(id, inv, eco, player, 0, true));
     }
 
-    /** Detail/review screen for one contract. */
+    /** Detail view for one contract: auto-opens a read-only written book, keeping nothing. */
     public static void openDetails(ServerPlayer player, EconomyManager eco, int id) {
+        Contract c = eco.getContracts().getContract(id);
+        if (c == null) {
+            EconomySounds.failure(player);
+            player.sendSystemMessage(Component.literal("Contract #" + id + " does not exist.")
+                    .withStyle(ChatFormatting.RED));
+            return;
+        }
+        // Swap a written-book copy into the main hand, force-open it, then restore the held
+        // stack. The client snapshots the pages when handling the open packet, so the
+        // same-tick restore is safe; slot syncs bracket the open so the book is present.
+        // shortcut: swap-open-restore instead of inventory juggling; upgrade if hand-sync races appear.
+        ItemStack book = ContractBook.makeWrittenBook(buildBookPages(eco, player, c),
+                "#" + c.id + " " + c.title, displayName(eco, c.requester));
+        ItemStack held = player.getMainHandItem().copy();
+        if (player.containerMenu != player.inventoryMenu) player.closeContainer();
+        player.setItemInHand(InteractionHand.MAIN_HAND, book);
+        player.inventoryMenu.broadcastChanges();
+        player.openItemGui(book, InteractionHand.MAIN_HAND);
+        player.setItemInHand(InteractionHand.MAIN_HAND, held);
+        player.inventoryMenu.broadcastChanges();
+        EconomySounds.page(player);
+    }
+
+    /** Actions screen for one contract: accept / submit / approve / cancel / dispute buttons. */
+    public static void openActions(ServerPlayer player, EconomyManager eco, int id) {
         Contract c = eco.getContracts().getContract(id);
         if (c == null) {
             EconomySounds.failure(player);
@@ -721,9 +751,6 @@ public final class ContractsUi {
                                     : MenuUiSupport.hint("Propose cancelling; both sides agree")));
                 }
             }
-            actions.add(MenuUiSupport.button(Items.WRITABLE_BOOK, "Copy to Book",
-                    ChatFormatting.YELLOW,
-                    MenuUiSupport.hint("Copy the details into a Book and Quill")));
             return actions;
         }
 
@@ -766,7 +793,6 @@ public final class ContractsUi {
                 case "Request Revision" -> askRevisionReason(clicker, c.id);
                 case "Raise Dispute" -> askDisputeReason(clicker, c.id);
                 case "Cancel Contract" -> askCancel(clicker, c);
-                case "Copy to Book" -> doCopyToBook(clicker, eco, c.id);
                 default -> {
                 }
             }
@@ -809,23 +835,34 @@ public final class ContractsUi {
         return lines;
     }
 
-    private static void doCopyToBook(ServerPlayer player, EconomyManager eco, int id) {
-        Contract c = eco.getContracts().getContract(id);
-        if (c == null) {
-            EconomySounds.failure(player);
-            player.closeContainer();
-            return;
+    private static List<Component> buildBookPages(EconomyManager eco, ServerPlayer viewer, Contract c) {
+        List<String> text = ContractBook.paginate(buildBookLines(eco, viewer.getUUID(), c));
+        if (text.size() >= ContractBook.MAX_PAGES) text = new ArrayList<>(text.subList(0, ContractBook.MAX_PAGES - 1));
+        List<Component> pages = new ArrayList<>();
+        for (String p : text) pages.add(Component.literal(p));
+        pages.add(buildActionHints(c.id));
+        return pages;
+    }
+
+    /** Last book page: every contract action as a tap-to-fill chat command (server revalidates each one). */
+    static Component buildActionHints(int id) {
+        MutableComponent out = Component.literal("Actions (tap a line to fill chat):");
+        String[] commands = {
+                "/contracts accept " + id,
+                "/contracts submit " + id + " ",
+                "/contracts approve " + id,
+                "/contracts revise " + id + " ",
+                "/contracts cancel " + id,
+                "/contracts dispute " + id + " ",
+                "/contracts actions " + id,
+        };
+        for (String cmd : commands) {
+            Style link = Style.EMPTY.withColor(ChatFormatting.AQUA)
+                    .withClickEvent(new ClickEvent.SuggestCommand(cmd))
+                    .withUnderlined(Boolean.TRUE);
+            out.append(Component.literal("\n")).append(Component.literal(cmd.strip()).withStyle(link));
         }
-        ItemStack book = ContractBook.makeBook(ContractBook.paginate(buildBookLines(eco, player.getUUID(), c)));
-        boolean stored = false;
-        if (!player.getInventory().add(book)) {
-            eco.getDeliveries().addDelivery(player.getUUID(), book);
-            stored = true;
-        }
-        EconomySounds.success(player);
-        player.sendSystemMessage(Component.literal("Contract #" + id + " copied to a Book and Quill"
-                        + (stored ? " in your deliveries." : " in your inventory."))
-                .withStyle(ChatFormatting.GREEN));
+        return out;
     }
 
     private static List<Component> buildSubjectLore(EconomyManager eco, UUID viewer, Contract c) {
@@ -886,7 +923,7 @@ public final class ContractsUi {
                 EconomySounds.success(player);
                 player.sendSystemMessage(Component.literal("Contract #" + id + " accepted. Good luck!")
                         .withStyle(ChatFormatting.GREEN));
-                openDetails(player, eco, id);
+                openActions(player, eco, id);
             }
             case NOT_OPEN -> {
                 EconomySounds.failure(player);
@@ -898,7 +935,7 @@ public final class ContractsUi {
                 EconomySounds.failure(player);
                 player.sendSystemMessage(Component.literal("You can't accept your own contract.")
                         .withStyle(ChatFormatting.RED));
-                openDetails(player, eco, id);
+                openActions(player, eco, id);
             }
             case WRONG_TARGET -> {
                 EconomySounds.failure(player);
@@ -910,7 +947,7 @@ public final class ContractsUi {
                 EconomySounds.failure(player);
                 player.sendSystemMessage(Component.literal("You have reached your active contract limit.")
                         .withStyle(ChatFormatting.RED));
-                openDetails(player, eco, id);
+                openActions(player, eco, id);
             }
             case NOT_FOUND -> {
                 EconomySounds.failure(player);
@@ -957,9 +994,9 @@ public final class ContractsUi {
                                     .withStyle(ChatFormatting.RED));
                         }
                     }
-                    openDetails(picker, eco, id);
+                    openActions(picker, eco, id);
                 },
-                picker -> openDetails(picker, EconomyCraft.getManager(picker.level().getServer()), id));
+                picker -> openActions(picker, EconomyCraft.getManager(picker.level().getServer()), id));
     }
 
     private static void askApprove(ServerPlayer player, Contract snapshot) {
@@ -1011,9 +1048,9 @@ public final class ContractsUi {
                                     .withStyle(ChatFormatting.RED));
                         }
                     }
-                    openDetails(picker, live, snapshot.id);
+                    openActions(picker, live, snapshot.id);
                 },
-                picker -> openDetails(picker, EconomyCraft.getManager(picker.level().getServer()), snapshot.id));
+                picker -> openActions(picker, EconomyCraft.getManager(picker.level().getServer()), snapshot.id));
     }
 
     private static void askRevisionReason(ServerPlayer player, int id) {
@@ -1052,9 +1089,9 @@ public final class ContractsUi {
                                     .withStyle(ChatFormatting.RED));
                         }
                     }
-                    openDetails(picker, eco, id);
+                    openActions(picker, eco, id);
                 },
-                picker -> openDetails(picker, EconomyCraft.getManager(picker.level().getServer()), id));
+                picker -> openActions(picker, EconomyCraft.getManager(picker.level().getServer()), id));
     }
 
     private static void askDisputeReason(ServerPlayer player, int id) {
@@ -1100,9 +1137,9 @@ public final class ContractsUi {
                                     .withStyle(ChatFormatting.RED));
                         }
                     }
-                    openDetails(picker, eco, id);
+                    openActions(picker, eco, id);
                 },
-                picker -> openDetails(picker, EconomyCraft.getManager(picker.level().getServer()), id));
+                picker -> openActions(picker, EconomyCraft.getManager(picker.level().getServer()), id));
     }
 
     private static void askCancel(ServerPlayer player, Contract snapshot) {
@@ -1137,28 +1174,28 @@ public final class ContractsUi {
                             picker.sendSystemMessage(Component.literal("Cancellation proposed for contract #"
                                     + snapshot.id + ". The other side must confirm.")
                                     .withStyle(ChatFormatting.YELLOW));
-                            openDetails(picker, live, snapshot.id);
+                            openActions(picker, live, snapshot.id);
                         }
                         case REQUEST_PENDING -> {
                             EconomySounds.failure(picker);
                             picker.sendSystemMessage(Component.literal(
                                     "A cancellation or settlement is already in progress.")
                                     .withStyle(ChatFormatting.RED));
-                            openDetails(picker, live, snapshot.id);
+                            openActions(picker, live, snapshot.id);
                         }
                         case REFUND_FAILED -> {
                             EconomySounds.failure(picker);
                             picker.sendSystemMessage(Component.literal(
                                     "The refund failed and stays pending; it will retry automatically.")
                                     .withStyle(ChatFormatting.RED));
-                            openDetails(picker, live, snapshot.id);
+                            openActions(picker, live, snapshot.id);
                         }
                         case DISPUTED -> {
                             EconomySounds.failure(picker);
                             picker.sendSystemMessage(Component.literal(
                                     "A disputed contract can only be resolved by an administrator.")
                                     .withStyle(ChatFormatting.RED));
-                            openDetails(picker, live, snapshot.id);
+                            openActions(picker, live, snapshot.id);
                         }
                         case NOT_PARTICIPANT -> {
                             EconomySounds.failure(picker);
@@ -1172,7 +1209,7 @@ public final class ContractsUi {
                         }
                     }
                 },
-                picker -> openDetails(picker, EconomyCraft.getManager(picker.level().getServer()), snapshot.id));
+                picker -> openActions(picker, EconomyCraft.getManager(picker.level().getServer()), snapshot.id));
     }
 
     // === creation menus ===
