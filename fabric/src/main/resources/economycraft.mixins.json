@@ -15,7 +15,10 @@
     "ProfessionSmeltMixin",
     "ProfessionTradeMixin",
     "ProfessionVillagerPricesMixin",
-    "ProfessionCombatMixin"
+    "ProfessionCombatMixin",
+    "SignBlockEntityMixin",
+    "AnvilMenuMixin",
+    "BookEditMixin"
   ],
   "injectors": {
     "defaultRequire": 1
