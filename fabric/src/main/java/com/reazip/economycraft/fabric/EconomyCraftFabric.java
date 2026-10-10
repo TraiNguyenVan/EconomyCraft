@@ -70,6 +70,17 @@ public final class EconomyCraftFabric implements ModInitializer {
         });
         EconomyCraftFabricPermissions.install();
 
+        net.fabricmc.fabric.api.message.v1.ServerMessageDecoratorEvent.EVENT.register(
+                net.fabricmc.fabric.api.message.v1.ServerMessageDecoratorEvent.CONTENT_PHASE,
+                (sender, message) -> {
+                    String text = message.getString();
+                    if (com.reazip.economycraft.util.AmpersandFormat.containsCodes(text)) {
+                        return com.reazip.economycraft.util.AmpersandFormat.parse(text);
+                    }
+                    return message;
+                }
+        );
+
         if (FabricLoader.getInstance().isModLoaded("placeholder-api")) {
             EconomyCraftFabricPlaceholders.register();
         }
