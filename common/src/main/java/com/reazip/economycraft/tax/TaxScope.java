@@ -18,12 +18,17 @@ import com.reazip.economycraft.api.v1.MutationSource;
  *       buyer's purchase tax-exempt). It is separate from {@link #TRANSACTION_AUCTION_BUY} because D8 keys
  *       on the <em>seller's</em> faction, not the buyer's.</li>
  * </ul>
+ *
+ * <p>{@link #TRANSACTION_CONTRACT} is the service-contract payout scope. It is quoted and charged with the
+ * plain rate (no player resolver), so a service payout inherits neither the Merchant purchase discount nor
+ * any faction import surcharge — service work is not an item trade.
  */
 public enum TaxScope {
     TRANSACTION_SHOP(EconomySources.SHOP_PURCHASE),
     TRANSACTION_AUCTION_BUY(EconomySources.AUCTION_PURCHASE),
     AUCTION_LISTING(EconomySources.AUCTION_PURCHASE),
     TRANSACTION_ORDER(EconomySources.ORDER_FULFILLMENT),
+    TRANSACTION_CONTRACT(EconomySources.CONTRACT_PAYOUT),
     TOLL(EconomySources.TOLL_PAYMENT),
     TRANSACTION_PAY(EconomySources.PLAYER_PAYMENT),
     TRANSACTION_VILLAGER(EconomySources.VILLAGER_TRADE);

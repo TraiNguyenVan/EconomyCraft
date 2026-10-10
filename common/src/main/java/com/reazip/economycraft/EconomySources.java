@@ -15,6 +15,9 @@ public final class EconomySources {
     public static final MutationSource ORDER_FULFILLMENT = MutationSource.of("economycraft:order_fulfillment");
     public static final MutationSource ORDER_ESCROW_HOLD = MutationSource.of("economycraft:order_escrow_hold");
     public static final MutationSource ORDER_ESCROW_REFUND = MutationSource.of("economycraft:order_escrow_refund");
+    public static final MutationSource CONTRACT_ESCROW_HOLD = MutationSource.of("economycraft:contract_escrow_hold");
+    public static final MutationSource CONTRACT_PAYOUT = MutationSource.of("economycraft:contract_payout");
+    public static final MutationSource CONTRACT_ESCROW_REFUND = MutationSource.of("economycraft:contract_escrow_refund");
     public static final MutationSource QUEST_FUNDING = MutationSource.of("economycraft:quest_funding");
     public static final MutationSource QUEST_FORFEIT = MutationSource.of("economycraft:quest_forfeit");
     public static final MutationSource QUEST_BUYBACK = MutationSource.of("economycraft:quest_buyback");

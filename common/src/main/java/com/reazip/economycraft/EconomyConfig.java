@@ -61,6 +61,22 @@ public class EconomyConfig {
     public int maxActiveAuctionsPerPlayer = 0;
     @SerializedName("max_active_tolls_per_player")
     public int maxActiveTollsPerPlayer = 10;
+    @SerializedName("contracts_enabled")
+    public boolean contractsEnabled = true;
+    @SerializedName("max_active_contracts_per_player")
+    public int maxActiveContractsPerPlayer = 0;
+    @SerializedName("max_contract_reward")
+    public long maxContractReward = 1_000_000;
+    @SerializedName("contract_default_duration_hours")
+    public int contractDefaultDurationHours = 168;
+    @SerializedName("contract_max_duration_hours")
+    public int contractMaxDurationHours = 720;
+    @SerializedName("contract_review_hours")
+    public int contractReviewHours = 72;
+    @SerializedName("contract_max_revisions")
+    public int contractMaxRevisions = 2;
+    @SerializedName("contract_revision_extension_hours")
+    public int contractRevisionExtensionHours = 72;
     @SerializedName("dynamic_prices_enabled")
     public boolean dynamicPricesEnabled = false;
     @SerializedName("dynamic_price_min_multiplier")
@@ -173,6 +189,18 @@ public class EconomyConfig {
             parsed.maxActiveOrdersPerPlayer = clampNonNegative("max_active_orders_per_player", parsed.maxActiveOrdersPerPlayer);
             parsed.maxActiveAuctionsPerPlayer = clampNonNegative("max_active_auctions_per_player", parsed.maxActiveAuctionsPerPlayer);
             parsed.maxActiveTollsPerPlayer = clampNonNegative("max_active_tolls_per_player", parsed.maxActiveTollsPerPlayer);
+            parsed.maxActiveContractsPerPlayer = clampNonNegative("max_active_contracts_per_player", parsed.maxActiveContractsPerPlayer);
+            parsed.maxContractReward = clampContractReward(parsed.maxContractReward);
+            parsed.contractDefaultDurationHours = clampNonNegative("contract_default_duration_hours", parsed.contractDefaultDurationHours);
+            parsed.contractMaxDurationHours = clampNonNegative("contract_max_duration_hours", parsed.contractMaxDurationHours);
+            if (parsed.contractMaxDurationHours < parsed.contractDefaultDurationHours) {
+                LOGGER.warn("[EconomyCraft] contract_max_duration_hours ({}) is below contract_default_duration_hours ({}); raising it to match.",
+                        parsed.contractMaxDurationHours, parsed.contractDefaultDurationHours);
+                parsed.contractMaxDurationHours = parsed.contractDefaultDurationHours;
+            }
+            parsed.contractReviewHours = clampNonNegative("contract_review_hours", parsed.contractReviewHours);
+            parsed.contractMaxRevisions = clampNonNegative("contract_max_revisions", parsed.contractMaxRevisions);
+            parsed.contractRevisionExtensionHours = clampNonNegative("contract_revision_extension_hours", parsed.contractRevisionExtensionHours);
             parsed.dynamicPriceMinActiveDays = clampNonNegative("dynamic_price_min_active_days", parsed.dynamicPriceMinActiveDays);
             parsed.wealthTaxRate = clampPercentage("wealth_tax_rate", parsed.wealthTaxRate);
             parsed.wealthTaxFloor = clampNonNegative("wealth_tax_floor", parsed.wealthTaxFloor);
@@ -249,6 +277,16 @@ public class EconomyConfig {
             return 0;
         }
         return value;
+    }
+
+    /** A contract reward must be at least 1 and representable by the balance engine. */
+    private static long clampContractReward(long value) {
+        long clamped = Math.clamp(value, 1, EconomyManager.MAX);
+        if (clamped != value) {
+            LOGGER.warn("[EconomyCraft] max_contract_reward ({}) is outside the valid 1-{} range; clamping to {}.",
+                    value, EconomyManager.MAX, clamped);
+        }
+        return clamped;
     }
 
     public static void normalizeDynamicPriceBounds() {

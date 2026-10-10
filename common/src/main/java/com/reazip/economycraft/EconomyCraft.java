@@ -199,6 +199,11 @@ public final class EconomyCraft {
             LOGGER.error("[EconomyCraft] Failed to process order expirations", e);
         }
         try {
+            com.reazip.economycraft.contracts.ContractService.processDeadlines(eco);
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to process contract deadlines", e);
+        }
+        try {
             eco.getQuests().sweep(eco);
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to process the quest board sweep", e);

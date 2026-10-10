@@ -2,6 +2,7 @@ package com.reazip.economycraft;
 
 import com.reazip.economycraft.admin.AdminUi;
 import com.reazip.economycraft.auction.AuctionUi;
+import com.reazip.economycraft.contracts.ContractsUi;
 import com.reazip.economycraft.orders.OrdersUi;
 import com.reazip.economycraft.sell.SellUi;
 import com.reazip.economycraft.negotiation.OffersHubUi;
@@ -50,6 +51,7 @@ public final class HubUi {
     private static final int TRANSACTIONS = 28;
     private static final int DELIVERIES = 30;
     private static final int OFFERS = 31;
+    private static final int CONTRACTS = 20;
     private static final int HELP = 32;
     private static final int TAGS_SLOT = 33;
     private static final int TOLLS = 34;
@@ -210,6 +212,12 @@ public final class HubUi {
                         MenuUiSupport.hint("or earn money filling other requests.")));
             }
 
+            if (config.contractsEnabled && EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_CONTRACTS)) {
+                container.setItem(CONTRACTS, MenuUiSupport.button(Items.PAPER, "Contracts", ChatFormatting.GREEN,
+                        MenuUiSupport.hint("Post work for others,"),
+                        MenuUiSupport.hint("or earn money doing theirs.")));
+            }
+
             if (EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_DAILY)) {
                 boolean claimed = eco.hasClaimedDailyToday(viewer.getUUID());
                 container.setItem(DAILY, MenuUiSupport.button(Items.CLOCK, "Daily Reward",
@@ -323,6 +331,12 @@ public final class HubUi {
                     if (config.ordersEnabled && EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_ORDERS)) {
                         EconomySounds.click(viewer);
                         OrdersUi.open(viewer, eco);
+                    }
+                }
+                case CONTRACTS -> {
+                    if (config.contractsEnabled && EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_CONTRACTS)) {
+                        EconomySounds.click(viewer);
+                        ContractsUi.open(viewer, eco);
                     }
                 }
                 case TRANSACTIONS -> {

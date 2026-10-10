@@ -66,7 +66,8 @@ public final class EconomyDatabase implements AutoCloseable {
             "stock.json",
             "fiscal.json",
             "faction_fiscal.json",
-            "tolls.json"
+            "tolls.json",
+            "contracts.json"
     );
 
     private final Path dbPath;
@@ -74,6 +75,7 @@ public final class EconomyDatabase implements AutoCloseable {
     private final boolean inMemory;
     private Connection connection;
     private boolean initialized;
+    private boolean inTransaction;
 
     public EconomyDatabase(Path dbPath) {
         this.dbPath = dbPath.toAbsolutePath();
@@ -241,6 +243,39 @@ public final class EconomyDatabase implements AutoCloseable {
             ps.executeUpdate();
         } catch (SQLException e) {
             LOGGER.error("[EconomyCraft-DB] Failed to write document {}", key, e);
+        }
+    }
+
+    /**
+     * Runs {@code body} inside one SQLite transaction: every document write it performs commits
+     * together or not at all. Callers who need a group of document writes to be atomic — the
+     * settlement protocol's balance-plus-contract pair — wrap them here. Nested calls join the
+     * outer transaction instead of opening one, since all writers share this one connection.
+     */
+    public synchronized void runInTransaction(Runnable body) {
+        ensureOpen();
+        if (inTransaction) {
+            body.run();
+            return;
+        }
+        inTransaction = true;
+        try {
+            connection.setAutoCommit(false);
+            body.run();
+            connection.commit();
+        } catch (RuntimeException | SQLException e) {
+            try {
+                connection.rollback();
+            } catch (SQLException rollbackError) {
+                LOGGER.error("[EconomyCraft-DB] Failed to roll back a transaction", rollbackError);
+            }
+            throw e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e);
+        } finally {
+            inTransaction = false;
+            try {
+                connection.setAutoCommit(true);
+            } catch (SQLException ignored) {
+            }
         }
     }
 
