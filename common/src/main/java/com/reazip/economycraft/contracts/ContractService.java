@@ -108,7 +108,7 @@ public final class ContractService {
 
         String title = Contract.sanitize(request.title(), Contract.MAX_TITLE_LENGTH);
         if (title == null) return new CreationResult(CreateStatus.INVALID_TITLE, null);
-        String description = Contract.sanitize(request.description(), Contract.MAX_TEXT_LENGTH);
+        String description = Contract.sanitizeMultiline(request.description(), Contract.MAX_DESCRIPTION_LENGTH);
         long reward = request.reward();
         if (reward <= 0 || reward > maxReward()) return new CreationResult(CreateStatus.INVALID_REWARD, null);
         long deadline = request.workDeadline();

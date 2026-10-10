@@ -11,6 +11,7 @@ import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
 import com.reazip.economycraft.util.ConfirmUi;
+import com.reazip.economycraft.util.BookInputUi;
 import com.reazip.economycraft.util.EconomySounds;
 import com.reazip.economycraft.util.ExpirationUtil;
 import com.reazip.economycraft.util.MenuUiSupport;
@@ -35,14 +36,15 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Vanilla chest UIs for the contracts subsystem: browsing public postings, an actions
- * screen for requester and contractor, a guided creation flow, and a personal contracts list.
- * Left-clicking a contract jumps straight to the actions-only chest;
- * right-clicking opens a written-book view of the terms.
+ * Vanilla chest UIs for the contracts subsystem: browsing public postings (including the viewer's
+ * own), an actions screen for requester and contractor, a guided creation flow, and a personal
+ * contracts list. Left-clicking a contract jumps straight to the actions-only chest;
+ * right-clicking opens a written-book view of the terms — the book is the detail view, so row
+ * tooltips carry only identity and click hints.
  *
  * <p>Every action button revalidates through {@link ContractService} at click time, so a stale
- * open menu can never force a transition the service would refuse. Long text is an anvil-input
- * flow (vanilla clients have no text fields); amounts are steppers.
+ * open menu can never force a transition the service would refuse. Creation details are written
+ * in a book and quill ({@link BookInputUi}); single-line inputs are anvil flows; amounts are steppers.
  */
 public final class ContractsUi {
     private ContractsUi() {}
@@ -173,11 +175,17 @@ public final class ContractsUi {
     }
 
     private static void chooseDescription(ServerPlayer player, EconomyManager eco, Draft draft) {
-        TextInputUi.open(player, "Contract details", draft.description == null ? "" : draft.description,
-                Items.WRITABLE_BOOK, "Details: ", "Describe the work (optional)",
-                true,
+        BookInputUi.open(player, "Contract Details",
+                draft.description == null ? "" : draft.description,
+                "Describe the work other players will do.",
                 (picker, text) -> {
-                    draft.description = Contract.sanitize(text, Contract.MAX_TEXT_LENGTH);
+                    String clean = Contract.sanitizeMultiline(text, Contract.MAX_DESCRIPTION_LENGTH);
+                    if (text != null && clean != null && clean.length() < text.length()) {
+                        picker.sendSystemMessage(Component.literal("Details truncated at "
+                                + Contract.MAX_DESCRIPTION_LENGTH + " characters.")
+                                .withStyle(ChatFormatting.YELLOW));
+                    }
+                    draft.description = clean;
                     chooseReward(picker, eco, draft);
                 },
                 picker -> chooseTitle(picker, eco, draft));
@@ -262,38 +270,22 @@ public final class ContractsUi {
         List<Contract> out = new ArrayList<>();
         for (Contract c : eco.getContracts().getContracts()) {
             if (c.status != Status.OPEN) continue;
-            if (c.requester.equals(id)) continue;
-            if (c.target != null && !c.target.equals(id)) continue;
+            // The board includes the viewer's own postings; other players' targeted contracts stay hidden.
+            if (c.target != null && !c.target.equals(id) && !c.requester.equals(id)) continue;
             out.add(c);
         }
         out.sort(Comparator.comparingInt((Contract c) -> c.id).reversed());
         return out;
     }
 
-    private static ItemStack contractRowItem(EconomyManager eco, Contract c, UUID viewer) {
-        String ownerMark = c.requester.equals(viewer) ? " (you)" : "";
+    /** Row tooltip: identity and click hints only — the book is where the details live. */
+    private static ItemStack contractRowItem(Contract c, UUID viewer, boolean mine) {
         List<Component> lore = new ArrayList<>();
-        lore.add(MenuUiSupport.labeledValue("Category", c.category.label, MenuUiSupport.LABEL_PRIMARY_COLOR));
-        lore.add(MenuUiSupport.labeledValue("Posted by", displayName(eco, c.requester) + ownerMark,
-                MenuUiSupport.LABEL_PRIMARY_COLOR));
-        if (c.target != null) {
-            lore.add(MenuUiSupport.labeledValue("For", displayName(eco, c.target),
-                    MenuUiSupport.LABEL_PRIMARY_COLOR));
-        }
-        long tax = TaxPolicy.resolve(TaxScope.TRANSACTION_CONTRACT, c.reward).amount();
-        String rewardLine = EconomyCraft.formatMoney(c.reward);
-        if (tax > 0) {
-            rewardLine += " (" + EconomyCraft.formatMoney(c.reward - tax) + " after tax)";
-        }
-        lore.add(MenuUiSupport.labeledValue("Reward", rewardLine, MenuUiSupport.LABEL_PRIMARY_COLOR));
-        lore.add(MenuUiSupport.labeledValue("Deadline", deadlineLabel(c), MenuUiSupport.LABEL_PRIMARY_COLOR));
-        if (c.status != Status.OPEN) {
-            lore.add(MenuUiSupport.labeledValue("Status", c.status.label, MenuUiSupport.LABEL_PRIMARY_COLOR));
-        }
-        lore.add(MenuUiSupport.hint("Left-click for actions"));
+        lore.add(MenuUiSupport.hint(c.requester.equals(viewer)
+                ? "Your posting - left-click for actions" : "Left-click for actions"));
         lore.add(MenuUiSupport.hint("Right-click to read"));
-        return MenuUiSupport.button(Items.PAPER, "#" + c.id + " " + c.title, ChatFormatting.GOLD,
-                lore.toArray(new Component[0]));
+        return MenuUiSupport.button(Items.PAPER, "#" + c.id + " " + c.title,
+                mine ? statusColor(c.status) : ChatFormatting.GOLD, lore.toArray(new Component[0]));
     }
 
     private static List<Component> buildTermsLore(EconomyManager eco, UUID viewer, Draft draft) {
@@ -311,6 +303,10 @@ public final class ContractsUi {
         }
         lore.add(MenuUiSupport.labeledValue("Work time", draft.deadlineDays + " day" + (draft.deadlineDays == 1 ? "" : "s"),
                 MenuUiSupport.LABEL_PRIMARY_COLOR));
+        if (draft.description != null) {
+            lore.add(MenuUiSupport.labeledValue("Details", draft.description.length() + " characters",
+                    MenuUiSupport.LABEL_PRIMARY_COLOR));
+        }
         return lore;
     }
 
@@ -338,14 +334,6 @@ public final class ContractsUi {
             case COMPLETED -> ChatFormatting.GOLD;
             case CANCELLED, EXPIRED -> ChatFormatting.GRAY;
         };
-    }
-
-    private static void addMultilineLore(List<Component> lore, String label, @Nullable String text) {
-        if (text == null) return;
-        lore.add(MenuUiSupport.labeledValue(label, "", MenuUiSupport.LABEL_PRIMARY_COLOR));
-        for (String line : text.split("\n")) {
-            lore.add(MenuUiSupport.line("  " + line, ChatFormatting.WHITE));
-        }
     }
 
     // === browse menu ===
@@ -413,7 +401,7 @@ public final class ContractsUi {
             for (int i = 0; i < gridSlots; i++) {
                 int index = page * gridSlots + i;
                 container.setItem(i, index < contracts.size()
-                        ? contractRowItem(eco, contracts.get(index), viewer.getUUID())
+                        ? contractRowItem(contracts.get(index), viewer.getUUID(), false)
                         : ItemStack.EMPTY);
             }
             MenuUiSupport.fillFooter(container);
@@ -547,7 +535,7 @@ public final class ContractsUi {
             for (int i = 0; i < gridSlots; i++) {
                 int index = page * gridSlots + i;
                 container.setItem(i, index < contracts.size()
-                        ? contractRowItem(eco, contracts.get(index), viewer.getUUID())
+                        ? contractRowItem(contracts.get(index), viewer.getUUID(), true)
                         : ItemStack.EMPTY);
             }
             MenuUiSupport.fillFooter(container);
@@ -685,9 +673,10 @@ public final class ContractsUi {
             MenuUiSupport.fillBackground(container);
             container.setItem(BACK, MenuUiSupport.backButton());
             container.setItem(CLOSE, MenuUiSupport.closeButton());
+            // Tooltip carries identity and the read hint only — the book is where the details live.
             container.setItem(SUBJECT, MenuUiSupport.button(Items.BOOK,
                     "#" + c.id + " " + c.title, ChatFormatting.GOLD,
-                    buildSubjectLore(eco, viewer.getUUID(), c).toArray(new Component[0])));
+                    MenuUiSupport.hint("Right-click to read the terms")));
             container.setItem(HOME, MenuUiSupport.button(Items.NETHER_STAR, "Main Menu",
                     ChatFormatting.GOLD, MenuUiSupport.hint("Back to the hub")));
 
@@ -778,6 +767,14 @@ public final class ContractsUi {
                 HubUi.open(clicker);
                 return true;
             }
+            if (slot == SUBJECT) {
+                // Right-click reads the terms; left-click is a no-op on the identity item.
+                if (isReadClick(dragType, kind)) {
+                    EconomySounds.click(clicker);
+                    openDetails(clicker, eco, contractId);
+                }
+                return true;
+            }
             if (slot < ACTION_ROW || slot >= ACTION_ROW + 9) return slot >= 0 && slot < 45;
             Contract c = eco.getContracts().getContract(contractId);
             if (c == null) {
@@ -815,37 +812,79 @@ public final class ContractsUi {
         return reward - TaxPolicy.resolve(TaxScope.TRANSACTION_CONTRACT, reward).amount();
     }
 
-    private static List<String> buildBookLines(EconomyManager eco, UUID viewer, Contract c) {
-        List<String> lines = new ArrayList<>();
-        lines.add("#" + c.id + " " + c.title);
-        lines.add("Status: " + c.status.label + " | " + c.category.label);
-        lines.add("Posted by: " + displayName(eco, c.requester)
-                + (c.requester.equals(viewer) ? " (you)" : ""));
+    /**
+     * The written-book view of a contract. The cover page carries identity first, then the money
+     * and time facts; each remaining section (the work, submitted work, feedback, dispute,
+     * resolution) starts on its own fresh page, so nothing is jammed together.
+     */
+    private static List<Component> buildBookPages(EconomyManager eco, ServerPlayer viewer, Contract c) {
+        UUID me = viewer.getUUID();
+        List<ContractBook.Line> cover = new ArrayList<>();
+        addWrapped(cover, "#" + c.id, ChatFormatting.GOLD, true);
+        addWrapped(cover, c.title, ChatFormatting.BLACK, true);
+        cover.add(ContractBook.Line.of(""));
+        addWrapped(cover, c.category.label + " - " + c.status.label, statusColor(c.status), false);
+        cover.add(ContractBook.Line.of(""));
+        addWrapped(cover, "Posted by " + displayName(eco, c.requester), ChatFormatting.BLACK, false);
         if (c.target != null) {
-            lines.add("Offered to: " + displayName(eco, c.target));
+            addWrapped(cover, "Offered to " + displayName(eco, c.target), ChatFormatting.BLACK, false);
         }
         if (c.contractor != null) {
-            lines.add("Contractor: " + displayName(eco, c.contractor)
-                    + (c.contractor.equals(viewer) ? " (you)" : ""));
+            addWrapped(cover, "Contractor: " + displayName(eco, c.contractor), ChatFormatting.BLACK, false);
         }
-        lines.add("Reward: " + EconomyCraft.formatMoney(c.reward));
-        lines.add("Deadline: " + deadlineLabel(c));
-        if (c.description != null) lines.add("Details: " + c.description);
-        if (c.submissionNotes != null) lines.add("Submitted: " + c.submissionNotes);
-        if (c.reviewNotes != null) lines.add("Feedback: " + c.reviewNotes);
-        if (c.status == Status.DISPUTED && c.disputeReason != null) {
-            lines.add("Dispute: " + c.disputeReason);
+        cover.add(ContractBook.Line.of(""));
+        String reward = "Reward: " + EconomyCraft.formatMoney(c.reward);
+        long tax = c.reward - netAfterTax(c.reward);
+        if (tax > 0) {
+            reward += " (" + EconomyCraft.formatMoney(c.reward - tax) + " after tax)";
         }
-        if (c.resolution != null) lines.add("Resolution: " + c.resolution);
-        return lines;
+        addWrapped(cover, reward, ChatFormatting.DARK_GREEN, true);
+        addWrapped(cover, "Deadline: " + deadlineLabel(c), ChatFormatting.BLACK, false);
+        if (c.status == Status.SUBMITTED && c.reviewDeadline > 0) {
+            addWrapped(cover, "Auto-approves: " + ExpirationUtil.expiresInLabel(c.reviewDeadline),
+                    ChatFormatting.BLACK, false);
+        }
+        List<ContractBook.Section> sections = new ArrayList<>();
+        sections.add(new ContractBook.Section(null, cover));
+        addSection(sections, "The Work", c.description);
+        addSection(sections, "Submitted Work", c.submissionNotes);
+        if (c.reviewNotes != null) {
+            List<ContractBook.Line> lines = new ArrayList<>();
+            if (c.revisions > 0) {
+                addWrapped(lines, "Revisions used: " + c.revisions + " of "
+                        + EconomyConfig.get().contractMaxRevisions, ChatFormatting.BLACK, false);
+            }
+            appendParagraphs(lines, c.reviewNotes);
+            sections.add(new ContractBook.Section("Feedback", lines));
+        }
+        if (c.status == Status.DISPUTED) {
+            List<ContractBook.Line> lines = new ArrayList<>();
+            addWrapped(lines, "Raised by " + displayName(eco, c.disputedBy), ChatFormatting.BLACK, false);
+            appendParagraphs(lines, c.disputeReason);
+            sections.add(new ContractBook.Section("Dispute", lines));
+        }
+        addSection(sections, "Resolution", c.resolution);
+        return ContractBook.render(sections);
     }
 
-    private static List<Component> buildBookPages(EconomyManager eco, ServerPlayer viewer, Contract c) {
-        List<String> text = ContractBook.paginate(buildBookLines(eco, viewer.getUUID(), c));
-        if (text.size() >= ContractBook.MAX_PAGES) text = new ArrayList<>(text.subList(0, ContractBook.MAX_PAGES));
-        List<Component> pages = new ArrayList<>();
-        for (String p : text) pages.add(Component.literal(p));
-        return pages;
+    private static void addSection(List<ContractBook.Section> sections, String header, @Nullable String text) {
+        if (text == null || text.isBlank()) return;
+        List<ContractBook.Line> lines = new ArrayList<>();
+        appendParagraphs(lines, text);
+        sections.add(new ContractBook.Section(header, lines));
+    }
+
+    private static void addWrapped(List<ContractBook.Line> lines, String text, ChatFormatting color, boolean bold) {
+        for (String piece : ContractBook.wrap(text)) {
+            lines.add(new ContractBook.Line(piece, color, bold));
+        }
+    }
+
+    private static void appendParagraphs(List<ContractBook.Line> lines, @Nullable String text) {
+        if (text == null) return;
+        for (String line : ContractBook.wrap(text)) {
+            lines.add(ContractBook.Line.of(line));
+        }
     }
 
     /** Left-click on a PICKUP is the mouse button the menu sees as {@code dragType 0}. */
@@ -853,52 +892,9 @@ public final class ContractsUi {
         return kind == ClickKind.PICKUP && dragType == 0;
     }
 
-    private static List<Component> buildSubjectLore(EconomyManager eco, UUID viewer, Contract c) {
-        List<Component> lore = new ArrayList<>();
-        lore.add(MenuUiSupport.labeledValue("Status", c.status.label, statusColor(c.status)));
-        lore.add(MenuUiSupport.labeledValue("Category", c.category.label, MenuUiSupport.LABEL_PRIMARY_COLOR));
-        String poster = displayName(eco, c.requester) + (c.requester.equals(viewer) ? " (you)" : "");
-        lore.add(MenuUiSupport.labeledValue("Posted by", poster, MenuUiSupport.LABEL_PRIMARY_COLOR));
-        if (c.target != null) {
-            lore.add(MenuUiSupport.labeledValue("Offered to", displayName(eco, c.target),
-                    MenuUiSupport.LABEL_PRIMARY_COLOR));
-        }
-        if (c.contractor != null) {
-            String who = displayName(eco, c.contractor) + (c.contractor.equals(viewer) ? " (you)" : "");
-            lore.add(MenuUiSupport.labeledValue("Contractor", who, MenuUiSupport.LABEL_PRIMARY_COLOR));
-        }
-        lore.add(MenuUiSupport.labeledValue("Reward", EconomyCraft.formatMoney(c.reward),
-                MenuUiSupport.LABEL_PRIMARY_COLOR));
-        long tax = c.reward - netAfterTax(c.reward);
-        if (tax > 0) {
-            lore.add(MenuUiSupport.labeledValue("Contractor receives", EconomyCraft.formatMoney(c.reward - tax),
-                    MenuUiSupport.LABEL_PRIMARY_COLOR));
-        }
-        if (c.escrow > 0 && c.status.active()) {
-            lore.add(MenuUiSupport.labeledValue("In escrow", EconomyCraft.formatMoney(c.escrow),
-                    MenuUiSupport.LABEL_PRIMARY_COLOR));
-        }
-        lore.add(MenuUiSupport.labeledValue("Deadline", deadlineLabel(c), MenuUiSupport.LABEL_PRIMARY_COLOR));
-        if (c.status == Status.SUBMITTED && c.reviewDeadline > 0) {
-            lore.add(MenuUiSupport.labeledValue("Auto-approves",
-                    ExpirationUtil.expiresInLabel(c.reviewDeadline), MenuUiSupport.LABEL_PRIMARY_COLOR));
-        }
-        if (c.revisions > 0 || !c.revisionHistory.isEmpty()) {
-            lore.add(MenuUiSupport.labeledValue("Revisions",
-                    c.revisions + " of " + EconomyConfig.get().contractMaxRevisions,
-                    MenuUiSupport.LABEL_PRIMARY_COLOR));
-        }
-        addMultilineLore(lore, "Details", c.description);
-        addMultilineLore(lore, "Submitted work", c.submissionNotes);
-        addMultilineLore(lore, "Latest feedback", c.reviewNotes);
-        if (c.status == Status.DISPUTED) {
-            lore.add(MenuUiSupport.labeledValue("Disputed by", displayName(eco, c.disputedBy), ChatFormatting.RED));
-            addMultilineLore(lore, "Dispute reason", c.disputeReason);
-        }
-        if (c.resolution != null) {
-            addMultilineLore(lore, "Resolution", c.resolution);
-        }
-        return lore;
+    /** Right-click on a PICKUP is the mouse button the menu sees as {@code dragType 1}. */
+    static boolean isReadClick(int dragType, ClickKind kind) {
+        return kind == ClickKind.PICKUP && dragType == 1;
     }
 
     // === detail actions: every one revalidates in ContractService at click time ===

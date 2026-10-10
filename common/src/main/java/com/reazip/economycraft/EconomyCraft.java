@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.auction.AuctionExpiration;
 import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.util.AsyncFileWriter;
+import com.reazip.economycraft.util.BookInputUi;
 import com.reazip.economycraft.api.v1.EconomyCraftApiBootstrap;
 import com.reazip.economycraft.negotiation.NegotiationEvents;
 import com.reazip.economycraft.negotiation.OffersHubUi;
@@ -172,6 +173,7 @@ public final class EconomyCraft {
     private static void onServerTick(MinecraftServer server) {
         TollHud.tick(server);
         com.reazip.economycraft.motd.MotdService.tick(server);
+        BookInputUi.tick(server);
         // D20's removal half: the break hook only fires on ticks where a mining packet arrived, so without this
         // a player who stops mid-block would keep the bridged window's worth of Haste indefinitely.
         ProfessionHaste.expireStale(server, server.getTickCount());
@@ -274,6 +276,8 @@ public final class EconomyCraft {
      */
     private static void onPlayerQuit(ServerPlayer player) {
         com.reazip.economycraft.motd.MotdService.onPlayerQuit(player);
+        // Restore the stashed item of an unfinished book input before the inventory is saved.
+        BookInputUi.forget(player);
         // Drop the Haste refresh bookkeeping; a reconnect starts clean rather than inheriting a stale window.
         ProfessionHaste.forget(player.getUUID());
         FactionEffects.forget(player);

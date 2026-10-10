@@ -8,52 +8,73 @@ import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.reazip.economycraft.util.BookInputUi;
 import com.reazip.economycraft.util.ClickKind;
 
-/** Page-packing for the contract written-book view and click routing. */
+import net.minecraft.world.item.component.WritableBookContent;
+
+/** Book layout, text packing, and click routing for the contract written-book view. */
 class ContractBookTest {
 
     @Test
-    @DisplayName("empty input yields no pages")
-    void empty() {
-        assertTrue(ContractBook.paginate(List.of()).isEmpty());
+    @DisplayName("wrap keeps every line within the book width")
+    void wrapWidth() {
+        List<String> lines = ContractBook.wrap("Build a castle wall around the northern keep courtyard");
+        for (String line : lines) {
+            assertTrue(line.length() <= ContractBook.WRAP_WIDTH, () -> "too long: " + line);
+        }
+        assertEquals("Build a castle wall", lines.get(0));
     }
 
     @Test
-    @DisplayName("short contracts fit on one page")
-    void singlePage() {
-        List<String> pages = ContractBook.paginate(List.of("#1 Fix the wall", "Reward: 100"));
-        assertEquals(1, pages.size());
-        assertEquals("#1 Fix the wall\nReward: 100", pages.get(0));
+    @DisplayName("wrap hard-splits words longer than a line")
+    void wrapLongWord() {
+        assertEquals(List.of("supercalifragilisti", "c"), ContractBook.wrap("supercalifragilistic"));
     }
 
     @Test
-    @DisplayName("lines spill onto a second page past the line budget")
-    void lineBudget() {
-        List<String> lines = new ArrayList<>();
-        for (int i = 0; i < 10; i++) lines.add("line " + i);
-        List<String> pages = ContractBook.paginate(lines);
-        assertEquals(2, pages.size());
-        assertEquals(9, pages.get(0).split("\n").length);
-        assertEquals("line 9", pages.get(1));
+    @DisplayName("wrap keeps paragraph breaks as blank lines")
+    void wrapParagraphs() {
+        assertEquals(List.of("first", "", "second"), ContractBook.wrap("first\n\nsecond"));
     }
 
     @Test
-    @DisplayName("a long line starts a fresh page instead of overflowing")
-    void charBudget() {
-        String filler = "x".repeat(250);
-        List<String> pages = ContractBook.paginate(List.of("short", filler));
-        assertEquals(2, pages.size());
-        assertEquals("short", pages.get(0));
-        assertEquals(filler, pages.get(1));
+    @DisplayName("sanitizeMultiline collapses blank runs, drops blank input, and caps length")
+    void sanitizeMultiline() {
+        assertEquals("a\n\nb", Contract.sanitizeMultiline("a\n\r\n\n\nb", 100));
+        assertNull(Contract.sanitizeMultiline("   \n  ", 100));
+        assertEquals(50, Contract.sanitizeMultiline("x".repeat(80), 50).length());
     }
 
     @Test
-    @DisplayName("output never exceeds the vanilla page cap")
-    void pageCap() {
-        List<String> lines = new ArrayList<>();
-        for (int i = 0; i < 1000; i++) lines.add("line " + i);
-        assertEquals(100, ContractBook.paginate(lines).size());
+    @DisplayName("packPages splits at paragraph boundaries within the edit-page limit")
+    void packPages() {
+        List<String> pages = BookInputUi.packPages("a\n\n" + "b".repeat(1100));
+        assertEquals(3, pages.size());
+        assertTrue(pages.get(0).startsWith("a"));
+        for (String page : pages) {
+            assertTrue(page.length() <= WritableBookContent.PAGE_EDIT_LENGTH, () -> "page too long: " + page.length());
+        }
+    }
+
+    @Test
+    @DisplayName("packPages keeps a short text on one page")
+    void packPagesShort() {
+        assertEquals(List.of("just a note"), BookInputUi.packPages("just a note"));
+        assertTrue(BookInputUi.packPages("   ").isEmpty());
+    }
+
+    @Test
+    @DisplayName("each section starts on a fresh page and long bodies continue without the header")
+    void renderSections() {
+        List<ContractBook.Section> sections = List.of(
+                new ContractBook.Section(null, List.of(ContractBook.Line.of("cover line"))),
+                new ContractBook.Section("The Work", paragraphs(3, 10)));
+        List<net.minecraft.network.chat.Component> pages = ContractBook.render(sections);
+        assertEquals(4, pages.size());
+        assertTrue(pages.get(0).getString().contains("cover line"));
+        assertTrue(pages.get(1).getString().startsWith("The Work"));
+        assertFalse(pages.get(2).getString().contains("The Work"));
     }
 
     @Test
@@ -62,5 +83,16 @@ class ContractBookTest {
         assertTrue(ContractsUi.isActionsClick(0, ClickKind.PICKUP));
         assertFalse(ContractsUi.isActionsClick(1, ClickKind.PICKUP));
         assertFalse(ContractsUi.isActionsClick(0, ClickKind.QUICK_MOVE));
+        assertTrue(ContractsUi.isReadClick(1, ClickKind.PICKUP));
+        assertFalse(ContractsUi.isReadClick(0, ClickKind.PICKUP));
+    }
+
+    private static List<ContractBook.Line> paragraphs(int count, int linesPerParagraph) {
+        List<ContractBook.Line> out = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) out.add(ContractBook.Line.of(""));
+            for (int j = 0; j < linesPerParagraph; j++) out.add(ContractBook.Line.of("line " + j));
+        }
+        return out;
     }
 }
