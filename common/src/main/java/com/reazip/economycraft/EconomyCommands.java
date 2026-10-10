@@ -1167,6 +1167,10 @@ public final class EconomyCommands {
                         .then(argument("id", IntegerArgumentType.integer(1))
                                 .executes(ctx -> viewContract(ctx.getSource(),
                                         IntegerArgumentType.getInteger(ctx, "id")))))
+                .then(literal("actions")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> openContractActions(ctx.getSource(),
+                                        IntegerArgumentType.getInteger(ctx, "id")))))
                 .then(literal("accept")
                         .then(argument("id", IntegerArgumentType.integer(1))
                                 .executes(ctx -> acceptContract(ctx.getSource(),
@@ -1276,6 +1280,22 @@ public final class EconomyCommands {
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to view contract {} for {}", id, player.getDisplayName().getString(), e);
             source.sendFailure(Component.literal("Failed to view contract. Check server logs."));
+            return 0;
+        }
+    }
+
+    private static int openContractActions(CommandSourceStack source, int id) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can act on contracts.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            ContractsUi.openActions(player, EconomyCraft.getManager(source.getServer()), id);
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to open actions for contract {} for {}", id, player.getDisplayName().getString(), e);
+            source.sendFailure(Component.literal("Failed to open contract actions. Check server logs."));
             return 0;
         }
     }

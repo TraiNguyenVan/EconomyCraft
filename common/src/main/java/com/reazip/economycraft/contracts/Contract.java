@@ -148,9 +148,11 @@ public class Contract {
         public UUID by;
     }
 
-    /** Text bounds: titles are short; descriptions and notes match the orders note backstop. */
+    /** Text bounds: titles are short; notes and reasons stay anvil-scale; descriptions are book-scale. */
     public static final int MAX_TITLE_LENGTH = 40;
     public static final int MAX_TEXT_LENGTH = 100;
+    /** Descriptions are written in a book and quill, so they run to book scale, not anvil scale. */
+    public static final int MAX_DESCRIPTION_LENGTH = 2000;
     /** Revision history entries are bounded so persisted state and processing stay bounded. */
     public static final int MAX_HISTORY_ENTRIES = 10;
 
@@ -277,7 +279,7 @@ public class Contract {
                 LOGGER.error("[EconomyCraft] Dropping contract {} with no usable title", c.id);
                 return null;
             }
-            c.description = sanitize(optString(obj, "description"), MAX_TEXT_LENGTH);
+            c.description = sanitizeMultiline(optString(obj, "description"), MAX_DESCRIPTION_LENGTH);
             c.category = Category.parseOrOther(optString(obj, "category"));
             Status status = Status.parse(optString(obj, "status"));
             if (status == null) {
@@ -411,6 +413,19 @@ public class Contract {
     public static @Nullable String sanitize(@Nullable String raw, int maxLength) {
         if (raw == null) return null;
         String cleaned = raw.replace("\r", "").replace("\n", "").trim();
+        if (cleaned.isEmpty()) return null;
+        return cleaned.length() > maxLength ? cleaned.substring(0, maxLength) : cleaned;
+    }
+
+    /**
+     * Cleans book text: strips carriage returns, trims, collapses blank runs to one blank line,
+     * and clamps; blank input collapses to null. Paragraph breaks are preserved — book pages are
+     * paragraphs.
+     */
+    public static @Nullable String sanitizeMultiline(@Nullable String raw, int maxLength) {
+        if (raw == null) return null;
+        String cleaned = raw.replace("\r", "").trim();
+        cleaned = cleaned.replaceAll("\n{3,}", "\n\n");
         if (cleaned.isEmpty()) return null;
         return cleaned.length() > maxLength ? cleaned.substring(0, maxLength) : cleaned;
     }
