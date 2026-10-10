@@ -75,7 +75,9 @@ public class EconomyManager {
             EconomySources.SHOP_SALE.asString(),
             EconomySources.AUCTION_PURCHASE.asString(),
             EconomySources.ORDER_FULFILLMENT.asString(),
-            EconomySources.ORDER_ESCROW_HOLD.asString()
+            EconomySources.ORDER_ESCROW_HOLD.asString(),
+            EconomySources.CONTRACT_PAYOUT.asString(),
+            EconomySources.CONTRACT_ESCROW_HOLD.asString()
     );
     private static final Set<String> FISCAL_SOURCES = Set.of(
             EconomySources.WEALTH_TAX.asString(),
@@ -139,6 +141,7 @@ public class EconomyManager {
     private final DeliveryManager deliveries;
     private final AuctionManager auctions;
     private final OrderManager orders;
+    private final com.reazip.economycraft.contracts.ContractManager contracts;
     private final QuestManager quests;
     private final QuestStock questStock;
     private final NotificationManager notifications;
@@ -206,6 +209,8 @@ public class EconomyManager {
         this.deliveries = new DeliveryManager(server, database);
         this.auctions = new AuctionManager(server, deliveries, database);
         this.orders = new OrderManager(server, deliveries, database);
+        this.contracts = new com.reazip.economycraft.contracts.ContractManager(
+                dataDir.resolve("contracts.json"), database);
         this.quests = new QuestManager(server, database);
         this.questStock = new QuestStock(server, database);
         this.notifications = new NotificationManager(server, database);
@@ -563,17 +568,24 @@ public class EconomyManager {
     }
 
     public void save() {
-        Documents.write(database, file, "balances.json", GSON.toJson(new HashMap<>(balances), TYPE));
-        UuidLongMapStore.persist(database, dailyFile, "daily.json", lastDaily);
-        Documents.write(database, dailySellFile, "daily_sells.json", GSON.toJson(new HashMap<>(dailySells), DAILY_SELL_TYPE));
-        Documents.write(database, statsFile, "stats.json", GSON.toJson(new HashMap<>(stats), STATS_TYPE));
-        dynamicPrices.flush();
-        onlineTime.flush();
-        cooldowns.flush();
-        factions.flush();
-        professions.flush();
-        quests.save();
-        questStock.save();
+        // One SQLite transaction around every document this save writes. Every balance mutation
+        // triggers a save, so this is what makes the settlement protocol work: a contract's terminal
+        // state and the money movement that settles it commit atomically, and a crash mid-save rolls
+        // back to the last consistent pair instead of leaving a half-flushed settlement behind.
+        database.runInTransaction(() -> {
+            Documents.write(database, file, "balances.json", GSON.toJson(new HashMap<>(balances), TYPE));
+            UuidLongMapStore.persist(database, dailyFile, "daily.json", lastDaily);
+            Documents.write(database, dailySellFile, "daily_sells.json", GSON.toJson(new HashMap<>(dailySells), DAILY_SELL_TYPE));
+            Documents.write(database, statsFile, "stats.json", GSON.toJson(new HashMap<>(stats), STATS_TYPE));
+            dynamicPrices.flush();
+            onlineTime.flush();
+            cooldowns.flush();
+            factions.flush();
+            professions.flush();
+            quests.save();
+            questStock.save();
+            contracts.save();
+        });
     }
 
     private void loadDaily() {
@@ -821,6 +833,10 @@ public class EconomyManager {
 
     public OrderManager getOrders() {
         return orders;
+    }
+
+    public com.reazip.economycraft.contracts.ContractManager getContracts() {
+        return contracts;
     }
 
     /** The automatic weekly bounty board. Never null; inert unless {@code quests.enabled}. */

@@ -6,6 +6,7 @@
 - [Tolls](Tolls)
 - [Shop and selling](Shop-and-Selling)
 - [Auctions, orders, and offers](Auctions-Orders-and-Offers)
+- [Contracts](Contracts)
 - [Balances, daily rewards, and leaderboards](Balances-Daily-Rewards-and-Leaderboards)
 - [Server quests](Server-Quests)
 - [Villager dialogue](Villager-Dialogue)

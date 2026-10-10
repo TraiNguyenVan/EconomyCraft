@@ -11,7 +11,8 @@ public final class EconomyPermissions {
 
         public static final String[] ADMIN_ALL = {
                 "economycraft.admin", "economycraft.admin.players", "economycraft.admin.settings",
-                "economycraft.admin.shop", "economycraft.admin.reload", "economycraft.admin.reset"
+                "economycraft.admin.shop", "economycraft.admin.reload", "economycraft.admin.reset",
+                "economycraft.admin.contracts"
         };
         public static final String ADMIN = ADMIN_ALL[0];
         public static final String ADMIN_PLAYERS = ADMIN_ALL[1];
@@ -19,13 +20,14 @@ public final class EconomyPermissions {
         public static final String ADMIN_SHOP = ADMIN_ALL[3];
         public static final String ADMIN_RELOAD = ADMIN_ALL[4];
         public static final String ADMIN_RESET = ADMIN_ALL[5];
+        public static final String ADMIN_CONTRACTS = ADMIN_ALL[6];
 
         public static final String[] COMMAND_ALL = {
                 "economycraft.command.menu", "economycraft.command.balance", "economycraft.command.pay",
                 "economycraft.command.shop", "economycraft.command.auction", "economycraft.command.sell",
                 "economycraft.command.orders", "economycraft.command.deliveries", "economycraft.command.daily",
                 "economycraft.command.transactions", "economycraft.command.worth", "economycraft.command.toll",
-                "economycraft.command.tag", "economycraft.command.offers"
+                "economycraft.command.tag", "economycraft.command.offers", "economycraft.command.contracts"
         };
         public static final String COMMAND_MENU = COMMAND_ALL[0];
         public static final String COMMAND_BALANCE = COMMAND_ALL[1];
@@ -41,6 +43,7 @@ public final class EconomyPermissions {
         public static final String COMMAND_TOLL = COMMAND_ALL[11];
         public static final String COMMAND_TAG = COMMAND_ALL[12];
         public static final String COMMAND_OFFERS = COMMAND_ALL[13];
+        public static final String COMMAND_CONTRACTS = COMMAND_ALL[14];
     }
 
     public interface Backend {

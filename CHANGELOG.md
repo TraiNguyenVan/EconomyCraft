@@ -5,6 +5,24 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Player-to-player contracts
+
+Players can now post paid work for each other. A contract reserves the full reward in escrow up
+front, exactly one contractor accepts, submits the work, and the requester approves to release the
+payment. Contracts are public or targeted at one player, carry a category, deadline and revision
+budget, and run through a vanilla chest UI (`/contracts`, plus `/eco contracts`) with headless
+single-action subcommands (`view`, `accept`, `submit`, `approve`, `revise`, `cancel`, `dispute`).
+
+Cancelling an open contract refunds the escrow at once; after acceptance both sides must agree.
+Missed deadlines expire and refund, unreviewed submissions auto-approve after the review window, and
+either side can dispute submitted work — disputes freeze the contract until an admin resolves it
+with `/contracts admin resolve <id> pay|refund`. Failed payouts and refunds stay recorded as
+pending settlements and retry automatically without ever paying twice. New config keys:
+`contracts_enabled`, `max_contract_reward`, `contract_default_duration_hours`,
+`contract_max_duration_hours`, `contract_review_hours`, `contract_max_revisions`,
+`contract_revision_extension_hours` and `max_active_contracts_per_player`; new permission nodes
+`economycraft.command.contracts` and `economycraft.admin.contracts`.
+
 ### Single-file SQLite persistence (`economycraft.db`)
 
 Everything under `config/economycraft/data/` now lives in one SQLite file, `economycraft.db`. Each

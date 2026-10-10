@@ -44,6 +44,9 @@ import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.orders.OrderRequest;
 import com.reazip.economycraft.orders.OrdersUi;
+import com.reazip.economycraft.contracts.Contract;
+import com.reazip.economycraft.contracts.ContractService;
+import com.reazip.economycraft.contracts.ContractsUi;
 import com.reazip.economycraft.tag.TagDisplayService;
 import com.reazip.economycraft.tag.TagStyle;
 import com.reazip.economycraft.tag.TagUi;
@@ -89,6 +92,7 @@ public final class EconomyCommands {
         registerStandalone(dispatcher, buildShop(), Nodes.COMMAND_SHOP);
         dispatcher.register(withCommandPermission(
                 buildOrders("orders", buildContext).requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_ORDERS));
+        registerStandalone(dispatcher, buildContracts(), Nodes.COMMAND_CONTRACTS);
         dispatcher.register(withCommandPermission(
                 buildDeliveries().requires(s -> EconomyConfig.get().standaloneCommands), Nodes.COMMAND_DELIVERIES));
         dispatcher.register(withCommandPermission(
@@ -183,6 +187,7 @@ public final class EconomyCommands {
         root.then(withCommandPermission(buildOffers(), Nodes.COMMAND_OFFERS));
         root.then(withCommandPermission(buildShop(), Nodes.COMMAND_SHOP));
         root.then(withCommandPermission(buildOrders("orders", buildContext), Nodes.COMMAND_ORDERS));
+        root.then(withCommandPermission(buildContracts(), Nodes.COMMAND_CONTRACTS));
         root.then(withCommandPermission(buildDeliveries(), Nodes.COMMAND_DELIVERIES));
         root.then(withCommandPermission(buildDaily(), Nodes.COMMAND_DAILY));
         root.then(withCommandPermission(buildTransactions(), Nodes.COMMAND_TRANSACTIONS));
@@ -1143,6 +1148,329 @@ public final class EconomyCommands {
             source.sendFailure(Component.literal("Failed to open orders. Check server logs."));
             return 0;
         }
+    }
+
+    /**
+     * {@code /contracts} (and {@code /eco contracts}) mirrors the Contracts UI: browsing and
+     * personal lists open GUIs, while single-action subcommands run the same
+     * {@link ContractService} transitions headlessly so macros and keybinds work too.
+     */
+    private static LiteralArgumentBuilder<CommandSourceStack> buildContracts() {
+        return literal("contracts")
+                .requires(src -> EconomyConfig.get().contractsEnabled)
+                .executes(ctx -> openContracts(ctx.getSource()))
+                .then(literal("mine")
+                        .executes(ctx -> openMyContracts(ctx.getSource())))
+                .then(literal("new")
+                        .executes(ctx -> newContract(ctx.getSource())))
+                .then(literal("view")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> viewContract(ctx.getSource(),
+                                        IntegerArgumentType.getInteger(ctx, "id")))))
+                .then(literal("accept")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> acceptContract(ctx.getSource(),
+                                        IntegerArgumentType.getInteger(ctx, "id")))))
+                .then(literal("submit")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> submitContract(ctx.getSource(),
+                                        IntegerArgumentType.getInteger(ctx, "id"), null))
+                                .then(argument("notes", StringArgumentType.greedyString())
+                                        .executes(ctx -> submitContract(ctx.getSource(),
+                                                IntegerArgumentType.getInteger(ctx, "id"),
+                                                StringArgumentType.getString(ctx, "notes"))))))
+                .then(literal("approve")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> approveContract(ctx.getSource(),
+                                        IntegerArgumentType.getInteger(ctx, "id")))))
+                .then(literal("revise")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .then(argument("reason", StringArgumentType.greedyString())
+                                        .executes(ctx -> reviseContract(ctx.getSource(),
+                                                IntegerArgumentType.getInteger(ctx, "id"),
+                                                StringArgumentType.getString(ctx, "reason"))))))
+                .then(literal("cancel")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .executes(ctx -> cancelContract(ctx.getSource(),
+                                        IntegerArgumentType.getInteger(ctx, "id")))))
+                .then(literal("dispute")
+                        .then(argument("id", IntegerArgumentType.integer(1))
+                                .then(argument("reason", StringArgumentType.greedyString())
+                                        .executes(ctx -> disputeContract(ctx.getSource(),
+                                                IntegerArgumentType.getInteger(ctx, "id"),
+                                                StringArgumentType.getString(ctx, "reason"))))))
+                .then(literal("admin")
+                        .requires(src -> EconomyPermissions.checkAdmin(src, Nodes.ADMIN_CONTRACTS))
+                        .then(literal("list")
+                                .executes(ctx -> listContracts(ctx.getSource(), null))
+                                .then(argument("status", StringArgumentType.word())
+                                        .executes(ctx -> listContracts(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "status")))))
+                        .then(literal("resolve")
+                                .then(argument("id", IntegerArgumentType.integer(1))
+                                        .then(literal("pay")
+                                                .executes(ctx -> resolveContract(ctx.getSource(),
+                                                        IntegerArgumentType.getInteger(ctx, "id"), true)))
+                                        .then(literal("refund")
+                                                .executes(ctx -> resolveContract(ctx.getSource(),
+                                                        IntegerArgumentType.getInteger(ctx, "id"), false))))));
+    }
+
+    private static int openContracts(CommandSourceStack source) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can browse contracts.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            ContractsUi.open(player, EconomyCraft.getManager(source.getServer()));
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to open /contracts for {}", player.getDisplayName().getString(), e);
+            source.sendFailure(Component.literal("Failed to open contracts. Check server logs."));
+            return 0;
+        }
+    }
+
+    private static int openMyContracts(CommandSourceStack source) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can list their contracts.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            ContractsUi.openMine(player, EconomyCraft.getManager(source.getServer()));
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to open /contracts mine for {}", player.getDisplayName().getString(), e);
+            source.sendFailure(Component.literal("Failed to open your contracts. Check server logs."));
+            return 0;
+        }
+    }
+
+    private static int newContract(CommandSourceStack source) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can create contracts.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            ContractsUi.startCreate(player, EconomyCraft.getManager(source.getServer()));
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to start /contracts new for {}", player.getDisplayName().getString(), e);
+            source.sendFailure(Component.literal("Failed to start contract creation. Check server logs."));
+            return 0;
+        }
+    }
+
+    private static int viewContract(CommandSourceStack source, int id) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can view contracts.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            ContractsUi.openDetails(player, EconomyCraft.getManager(source.getServer()), id);
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to view contract {} for {}", id, player.getDisplayName().getString(), e);
+            source.sendFailure(Component.literal("Failed to view contract. Check server logs."));
+            return 0;
+        }
+    }
+
+    private static int acceptContract(CommandSourceStack source, int id) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can accept contracts.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        return switch (ContractService.accept(eco, player.getUUID(), id)) {
+            case OK -> {
+                source.sendSuccess(() -> Component.literal("Contract #" + id + " accepted. Good luck!")
+                        .withStyle(ChatFormatting.GREEN), false);
+                yield 1;
+            }
+            case NOT_OPEN -> fail(source, "That contract is no longer open.");
+            case OWN_CONTRACT -> fail(source, "You can't accept your own contract.");
+            case WRONG_TARGET -> fail(source, "That contract was offered to someone else.");
+            case LIMIT_REACHED -> fail(source, "You have reached your active contract limit.");
+            case NOT_FOUND -> fail(source, "Contract #" + id + " does not exist.");
+            case DISABLED -> fail(source, "Contracts are disabled.");
+        };
+    }
+
+    private static int submitContract(CommandSourceStack source, int id, @Nullable String notes) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can submit work.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        return switch (ContractService.submit(eco, player.getUUID(), id, notes)) {
+            case OK -> {
+                source.sendSuccess(() -> Component.literal("Work submitted for contract #" + id
+                        + ". The requester has been notified.").withStyle(ChatFormatting.GREEN), false);
+                yield 1;
+            }
+            case DEADLINE_MISSED -> fail(source, "The deadline passed; this contract will expire instead.");
+            case NOT_CONTRACTOR -> fail(source, "Only the contractor can submit work.");
+            case NOT_ACCEPTED -> fail(source, "That contract can't accept a submission right now.");
+            case NOT_FOUND -> fail(source, "Contract #" + id + " does not exist.");
+        };
+    }
+
+    private static int approveContract(CommandSourceStack source, int id) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can approve contracts.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        ContractService.ApproveResult result = ContractService.approve(eco, player.getUUID(), id);
+        return switch (result.status()) {
+            case OK -> {
+                source.sendSuccess(() -> Component.literal("Contract #" + id + " completed. Paid "
+                        + EconomyCraft.formatMoney(result.paid())
+                        + (result.tax() > 0 ? " (" + EconomyCraft.formatMoney(result.tax()) + " tax)" : "")
+                        + ".").withStyle(ChatFormatting.GREEN), false);
+                yield 1;
+            }
+            case PAYOUT_FAILED -> fail(source, "The payout failed and stays pending; it will retry automatically.");
+            case NOT_SUBMITTED -> fail(source, "That contract has no submission to approve.");
+            case REFUND_PENDING -> fail(source, "A refund is already in progress for that contract.");
+            case NOT_REQUESTER -> fail(source, "Only the requester can approve this contract.");
+            case NOT_FOUND -> fail(source, "Contract #" + id + " does not exist.");
+        };
+    }
+
+    private static int reviseContract(CommandSourceStack source, int id, String reason) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can request revisions.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        return switch (ContractService.requestRevision(eco, player.getUUID(), id, reason)) {
+            case OK -> {
+                source.sendSuccess(() -> Component.literal("Revision requested for contract #" + id + ".")
+                        .withStyle(ChatFormatting.GREEN), false);
+                yield 1;
+            }
+            case REVISIONS_EXHAUSTED -> fail(source, "No revisions left; raise a dispute instead if you can't agree.");
+            case INVALID_REASON -> fail(source, "Give a reason so the contractor knows what to fix.");
+            case NOT_REQUESTER -> fail(source, "Only the requester can request a revision.");
+            case NOT_SUBMITTED -> fail(source, "That contract has no submission to revise.");
+            case NOT_FOUND -> fail(source, "Contract #" + id + " does not exist.");
+        };
+    }
+
+    private static int cancelContract(CommandSourceStack source, int id) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can cancel contracts.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        return switch (ContractService.cancel(eco, player.getUUID(), id)) {
+            case OK -> {
+                source.sendSuccess(() -> Component.literal("Contract #" + id + " cancelled.")
+                        .withStyle(ChatFormatting.GREEN), false);
+                yield 1;
+            }
+            case REQUEST_SENT -> {
+                source.sendSuccess(() -> Component.literal("Cancellation proposed for contract #" + id
+                        + ". The other side must confirm.").withStyle(ChatFormatting.YELLOW), false);
+                yield 1;
+            }
+            case REQUEST_PENDING -> fail(source, "A cancellation or settlement is already in progress.");
+            case REFUND_FAILED -> fail(source, "The refund failed and stays pending; it will retry automatically.");
+            case DISPUTED -> fail(source, "A disputed contract can only be resolved by an administrator.");
+            case NOT_PARTICIPANT -> fail(source, "Only the requester or contractor can cancel this contract.");
+            case NOT_CANCELLABLE -> fail(source, "That contract can't be cancelled.");
+            case NOT_FOUND -> fail(source, "Contract #" + id + " does not exist.");
+        };
+    }
+
+    private static int disputeContract(CommandSourceStack source, int id, String reason) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) {
+            source.sendFailure(Component.literal("Only players can raise disputes.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        return switch (ContractService.raiseDispute(eco, player.getUUID(), id, reason)) {
+            case OK -> {
+                source.sendSuccess(() -> Component.literal("Contract #" + id
+                        + " is disputed and frozen. An administrator will resolve it.")
+                        .withStyle(ChatFormatting.YELLOW), false);
+                yield 1;
+            }
+            case NOT_DISPUTABLE -> fail(source, "Only submitted work — or contracts out of revisions — can be disputed.");
+            case INVALID_REASON -> fail(source, "Give a reason for the dispute.");
+            case SETTLEMENT_PENDING -> fail(source, "A payout or refund is already in progress for this contract.");
+            case NOT_PARTICIPANT -> fail(source, "Only the requester or contractor can dispute this contract.");
+            case NOT_FOUND -> fail(source, "Contract #" + id + " does not exist.");
+        };
+    }
+
+    private static int listContracts(CommandSourceStack source, @Nullable String statusFilter) {
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        Contract.Status filter = statusFilter == null ? null : Contract.Status.parse(statusFilter.toUpperCase());
+        if (statusFilter != null && filter == null) {
+            return fail(source, "Unknown status. Use OPEN, IN_PROGRESS, SUBMITTED, DISPUTED, COMPLETED, CANCELLED or EXPIRED.");
+        }
+        List<Contract> matches = new ArrayList<>();
+        for (Contract c : eco.getContracts().getContracts()) {
+            if (filter == null || c.status == filter) matches.add(c);
+        }
+        matches.sort(Comparator.comparingInt((Contract c) -> c.id).reversed());
+        if (matches.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("No contracts"
+                    + (filter == null ? "." : " with status " + filter.label + ".")), false);
+            return 1;
+        }
+        int shown = Math.min(matches.size(), 15);
+        Contract.Status shown_filter = filter;
+        int total = matches.size();
+        source.sendSuccess(() -> Component.literal("Contracts"
+                + (shown_filter == null ? "" : " [" + shown_filter.label + "]")
+                + " (" + total + "):").withStyle(ChatFormatting.GOLD), false);
+        for (int i = 0; i < shown; i++) {
+            Contract c = matches.get(i);
+            String line = "#" + c.id + " [" + c.status.label + "] \"" + c.title + "\" "
+                    + EconomyCraft.formatMoney(c.reward) + " by " + eco.getBestName(c.requester);
+            source.sendSuccess(() -> Component.literal(line), false);
+        }
+        if (matches.size() > shown) {
+            int rest = matches.size() - shown;
+            source.sendSuccess(() -> Component.literal("... and " + rest + " more."), false);
+        }
+        return 1;
+    }
+
+    private static int resolveContract(CommandSourceStack source, int id, boolean pay) {
+        EconomyManager eco = EconomyCraft.getManager(source.getServer());
+        return switch (ContractService.resolveDispute(eco, source, id, pay)) {
+            case OK -> {
+                source.sendSuccess(() -> Component.literal("Contract #" + id + " resolved: "
+                        + (pay ? "paid out to the contractor." : "refunded to the requester."))
+                        .withStyle(ChatFormatting.GREEN), false);
+                yield 1;
+            }
+            case NOT_DISPUTED -> fail(source, "Contract #" + id + " is not disputed.");
+            case PAYOUT_FAILED -> fail(source, "The payout failed and stays pending; it will retry automatically.");
+            case REFUND_FAILED -> fail(source, "The refund failed and stays pending; it will retry automatically.");
+            case NOT_ADMIN -> fail(source, "You don't have permission to resolve disputes.");
+            case NOT_FOUND -> fail(source, "Contract #" + id + " does not exist.");
+        };
+    }
+
+    private static int fail(CommandSourceStack source, String message) {
+        source.sendFailure(Component.literal(message).withStyle(ChatFormatting.RED));
+        return 0;
     }
 
     private static LiteralArgumentBuilder<CommandSourceStack> buildDaily() {

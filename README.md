@@ -33,6 +33,7 @@ which is Fabric-only. Without it those features are inert and everything else wo
 | **Auction House** | Buy items other players have listed, or list your own. Offline sellers receive a sale notice when they return.           |
 | **Sell Items**  | Drop items in, check the total, confirm. Unpriced items can not be sold.                                                 |
 | **Orders**      | Request an item, amount and price. Other players fill it and get paid.                                                   |
+| **Contracts**   | Post work for others, or accept theirs and get paid.                                                                    |
 | **Daily Reward** | Claims the daily payout, once per day.                                                                                   |
 | **Pay a Player** | Send money to another player.                                                                                            |
 | **Leaderboards** | Top Balances, Earners, Spenders, Sellers, Buyers and Traders.                                                            |
@@ -47,7 +48,7 @@ which is Fabric-only. Without it those features are inert and everything else wo
 
 Your balance is shown at the top-left of the same menu.
 
-Each screen also has a command: `/bal`, `/pay`, `/daily`, `/shop`, `/ah`, `/auction`, `/sell`, `/worth`, `/orders`, `/deliveries`, `/transactions`, `/offers`, `/toll`, `/tag`, `/job`, `/party`. Every one of them also works as `/eco <command>`, and the short forms exist only while `standalone_commands` is on.
+Each screen also has a command: `/bal`, `/pay`, `/daily`, `/shop`, `/ah`, `/auction`, `/sell`, `/worth`, `/orders`, `/contracts`, `/deliveries`, `/transactions`, `/offers`, `/toll`, `/tag`, `/job`, `/party`. Every one of them also works as `/eco <command>`, and the short forms exist only while `standalone_commands` is on.
 
 `/worth` takes an item and an optional amount: `/worth minecraft:diamond 8`.
 
@@ -65,6 +66,22 @@ never reads messages.
   **Review it now** link in an offer message runs exactly that, so a click lands on the offers it is
   about, and the login prompt for offers that arrived while you were offline points at the hub.
 - The owner is told about every new offer, acceptance, decline, reprice and withdrawal.
+
+### Contracts
+
+A contract is paid work between two players: the requester reserves the full reward in escrow up
+front, one contractor accepts, submits the work, and the requester approves to release the payment.
+Contracts can be public (anyone may accept) or targeted at one player.
+
+- `/contracts` (or `/eco contracts`) opens the board; `/contracts mine` lists what you posted and
+  accepted; `/contracts new` starts the guided creation flow. The same steps work headlessly:
+  `view`, `accept`, `submit`, `approve`, `revise`, `cancel` and `dispute` each take an id.
+- Cancelling an open contract refunds the escrow at once. After acceptance both sides must agree.
+  Missed deadlines expire the contract and refund the requester; an unreviewed submission
+  auto-approves after `contract_review_hours`.
+- Either side can dispute submitted work (or work out of revisions). Disputes freeze the contract;
+  an admin resolves with `/contracts admin resolve <id> pay|refund`, or lists disputes with
+  `/contracts admin list [status]`. Failed payouts and refunds stay pending and retry automatically.
 
 ---
 
@@ -204,6 +221,7 @@ Admin and command access is gated by permission nodes. Any admin node not set by
 | Node                          | Grants                                                                                        |
 |-------------------------------|-----------------------------------------------------------------------------------------------|
 | `economycraft.admin`          | Everything below                                                                              |
+| `economycraft.admin.contracts`  | `/contracts admin list`, `/contracts admin resolve`                                           |
 | `economycraft.admin.players`  | `/eco addmoney`, `/eco setmoney`, `/eco removemoney`, `/eco removeplayer`, the Players screen |
 | `economycraft.admin.settings` | The Settings screen                                                                           |
 | `economycraft.admin.shop`     | The Shop editor (from the Admin menu or the in-shop edit button)                              |
@@ -221,6 +239,7 @@ Admin and command access is gated by permission nodes. Any admin node not set by
 | `economycraft.command.auction`      | `/ah`, `/auction`   |
 | `economycraft.command.sell`         | `/sell`             |
 | `economycraft.command.orders`       | `/orders`           |
+| `economycraft.command.contracts`     | `/contracts`        |
 | `economycraft.command.deliveries`   | `/deliveries`       |
 | `economycraft.command.daily`        | `/daily`            |
 | `economycraft.command.transactions` | `/transactions`     |
@@ -257,6 +276,7 @@ appear until first use.
 | `deliveries.json` | Items and payouts that could not be delivered directly. |
 | `auctions.json` | Live auction listings. |
 | `orders.json` | Live order requests and their escrow. |
+| `contracts.json` | Live contracts, their escrow and any pending settlement. |
 | `shop.json` | Legacy delivery storage, migrated into `deliveries.json` on first start. |
 | `negotiations.json` | Open price offers on listings and requests. |
 | `tolls.json` | Placed tolls: position, fee and owner. |
@@ -299,6 +319,12 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 | `auction_enabled` | `true` | Enable the auction house. |
 | `auction_expiration_hours` | `168` | Hours before an unsold auction expires and its item goes to deliveries. `0` disables expiration. |
 | `balance_separator` | `"."` | Thousands separator, e.g. `","` gives `$1,000`. |
+| `contract_default_duration_hours` | `168` | Default work time offered for a new contract (7 days). |
+| `contract_max_duration_hours` | `720` | Longest work time a contract may set (30 days). Raised to match the default if lower. |
+| `contract_max_revisions` | `2` | Times the requester can send work back before disputes unlock. `0` disables revisions. |
+| `contract_revision_extension_hours` | `72` | Extra work time granted per revision. `0` keeps the original deadline. |
+| `contract_review_hours` | `72` | Hours the requester has to review a submission before it auto-approves. `0` disables auto-approval. |
+| `contracts_enabled` | `true` | Enable player-to-player contracts. |
 | `dailyAmount` | `100` | Money given by the daily reward. |
 | `dailySellLimit` | `10000` | Most a player can earn per day from selling. `0` disables the limit. |
 | `dynamic_price_max_multiplier` | `5.0` | Highest allowed price scale. |
@@ -362,8 +388,10 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 | `gemini_gossip.private_chat_chance` | `0.5` | Chance that a villager says something when you open its trade interface. The line is sent **only to you**. Clamped to 0.0-1.0. |
 | `gemini_gossip.temperature` | `0.85` | Sampling temperature. Clamped to 0.0-2.0. |
 | `max_active_auctions_per_player` | `0` | Most active auctions a player can have at once. `0` = unlimited. Overridable per player. |
+| `max_active_contracts_per_player` | `0` | Most live contracts a player can be part of at once. `0` = unlimited. Overridable per player. |
 | `max_active_orders_per_player` | `0` | Most open orders a player can have at once. `0` = unlimited. Overridable per player. |
 | `max_active_tolls_per_player` | `10` | Most tolls a player can have placed at once. `0` = unlimited. |
+| `max_contract_reward` | `1000000` | Highest reward a contract may offer. Clamped to 1–99,999,999. |
 | `motd.delay_ticks` | `40` | Ticks after joining before the message appears (`40` = 2 seconds). Clamped to 0-1200. |
 | `motd.enabled` | `true` | Send the join message on login. |
 | `motd.blocks` | One block | Ordered message blocks. Each has `lines` and `next_delay_seconds` (default `30`, clamped to 0-3600); the final block's delay is unused. Legacy `motd.lines` is migrated to one block. |
