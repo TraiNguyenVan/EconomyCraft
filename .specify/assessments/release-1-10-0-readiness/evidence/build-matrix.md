@@ -73,3 +73,15 @@ The release path does not hit this because its generated tasks clean first
 (`build.gradle:186`, `build.gradle:262`: `:fabric:clean` / `:neoforge:clean` are passed to the nested
 wrapper), and the same 1.21.1 fabric leg got past configuration to the compile errors above. Recorded as an
 order-dependent developer-experience artifact, not as a release blocker.
+
+## Matrix closure
+
+- The 26.1.2 legs and the documented 26.3 commands were re-run after a sandbox reset wiped the first log set
+  (the results above are from the re-run; the first run produced identical outcomes for every leg it reached).
+  Re-run results: `buildAndCopyFabricJars_26.1.02` **FAIL**, `buildAndCopyNeoForgeJars_26.1.02` **FAIL**,
+  `./gradlew -Pminecraft_version=26.3 :common:test` **PASS**, and
+  `./gradlew -Pfilter_platforms=fabric :common:test :fabric:build` **PASS**.
+- Final tally: **2 of 10 release legs pass** (26.3 on Fabric and NeoForge); **8 fail**, all with the same class
+  of defect — era-specific vanilla APIs referenced from the shared source set instead of a compat fork.
+- The test suite itself is green on the only target that compiles, which is why the breakage is invisible to
+  the documented default-target workflow.
