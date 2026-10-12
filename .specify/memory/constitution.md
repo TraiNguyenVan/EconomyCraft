@@ -7,7 +7,7 @@ This document holds normative principles. `AGENTS.md` holds the operational mech
 citations, the architecture map and the traps. Where the two overlap, this file states *what must be true* and
 `AGENTS.md` states *how it is done today*.
 
-**Version**: 1.0.0 | **Last Amended**: 2026-10-07 | **Ratified**: none — this is the first written version; it
+**Version**: 1.0.1 | **Last Amended**: 2026-10-12 | **Ratified**: none — this is the first written version; it
 was derived from code and from the retired `TODO.md`, not from a signing event.
 
 ---
@@ -80,8 +80,9 @@ Any vanilla API that differs across platform targets goes in a compat fork with 
 following the existing `util/*Compat.java` pattern (`PermissionCompat`, `ProfileCompat`,
 `FailureSoundCompat`, `CompatMenu`).
 
-*Enforced by*: the source-set split — `main`, plus `modern`/`legacy121` and `unobfuscated`/`obfuscated`. A
-second target means a new fork, not an `if` on a Minecraft version inside shared code.
+*Enforced by*: the source-set split — `main`, plus the `unobfuscated` and `modern` 26.x forks, and the
+separate `fabric`/`neoforge` modules. A second target means a new fork, not an `if` on a Minecraft version
+inside shared code.
 
 ### VIII. Mutation source naming is constrained
 
@@ -115,8 +116,8 @@ Two facts a newcomer most needs, stated only because they are counter-intuitive:
 - **Mixins are loader-specific and the asymmetry is deliberate.** Fabric and NeoForge mixin sets are not
   mirrors of each other. Adding a mixin to one loader requires an explicit decision about the other; see
   `AGENTS.md` §2.2 for the current sets.
-- **Never state a raw test count in a document.** Coverage is per-target, so any single number is wrong for four
-  of the five supported targets. Name the source sets and give the reproduction command.
+- **Never state a raw test count in a document.** Coverage varies by source set, so any single number is
+  misleading. Name the source sets and give the reproduction command.
 - **Documentation describes what ships.** A feature that is not in the code is not in the wiki or the README,
   and no user-facing document may contain phase numbers, task identifiers or internal decision IDs.
 
@@ -138,4 +139,4 @@ Amendments require a version bump, a recorded date, and re-verification of every
 code. A principle that cannot be verified is an aspiration, and an aspiration here is worse than no principle
 at all, because it will be cited as though it were enforced. So: verify, or drop it.
 
-**Version**: 1.0.0 | **Last Amended**: 2026-10-07 | **Ratified**: none
+**Version**: 1.0.1 | **Last Amended**: 2026-10-12 | **Ratified**: none

@@ -33,7 +33,8 @@ vanilla client: no client mod, custom packets, or registered `MenuType`. UI uses
   same file. Writes are synchronous on the server thread; legacy files import once, then archive. Never use
   NBT for mod state.
 - **Compatibility:** vanilla API differences belong in matching compat forks, not version checks in shared
-  logic. Source sets include `main`, `modern`, `legacy121`, `obfuscated` and `unobfuscated`.
+  logic. Minecraft 26.3 is the only supported target, so the version forks are the `unobfuscated` and
+  `modern` source sets beside `main`; loader differences stay in the `fabric/` and `neoforge/` modules.
 - **Mixins:** Fabric and NeoForge sets intentionally differ. Fabric has toll pressure plate/base plate/hopper
   mixins; NeoForge has `ProfessionBreakMixin`. Make an explicit loader decision for every new hook.
 - **ShopGuard:** claims belong to the external Fabric-only ShopGuard mod. EconomyCraft's reflective,
@@ -49,18 +50,27 @@ vanilla client: no client mod, custom packets, or registered `MenuType`. UI uses
 
 ## Build and verification
 
-Supported targets are 1.21.1 (Java 21), 1.21.11 (Java 21), 26.1.2, 26.2 and 26.3 (Java 25). Both Fabric
-and NeoForge are supported; 1.21.1 uses the `legacy121` compatibility source set. 26.3 is the default and
-only target with an additional target-specific test source set.
+Minecraft 26.3 (Java 25) is the only supported target, for both Fabric and NeoForge. There is no version
+flag to pass: `minecraft_version` is fixed in `gradle.properties` and `build.gradle`. 26.x is
+unobfuscated, so the build never remaps against Mojang mappings.
 
 ```sh
-./gradlew build
-./gradlew -Pminecraft_version=1.21.1 build
-./gradlew -Pfilter_platforms=fabric :common:test :fabric:build
-./gradlew -Pminecraft_version=26.3 :common:test
+./gradlew build                                   # both loaders
+./gradlew -Pfilter_platforms=fabric build         # Fabric only
+./gradlew -Pfilter_platforms=neoforge build       # NeoForge only
+./gradlew :common:test                            # common-module tests
 ```
 
-Common tests live in `common/src/test`; 26.3-only tests live in `common/src/test26_3`.
+The release path builds and copies a single loader's jar into `build/<platform>/26.3/`:
+
+```sh
+./gradlew -Pfilter_platforms=fabric buildAndCopyFabricJars
+./gradlew -Pfilter_platforms=neoforge buildAndCopyNeoForgeJars
+```
+
+Common tests live in `common/src/test`; the 26.3 integration tests that bootstrap the item component
+registries live in `common/src/test26_3`. For the release procedure, see
+[release guidance](docs/contributing/release.md).
 
 ## High-risk checks
 
@@ -76,4 +86,4 @@ Common tests live in `common/src/test`; 26.3-only tests live in `common/src/test
 For domain-specific verification notes, see [toll contributor guidance](docs/contributing/tolls.md). For
 architecture traps and invariants, see [the contributor reference](docs/contributing/architecture.md).
 
-*Verified against the repository on 2026-10-07 (`mod_version 1.10.0`, unreleased; last tag `1.9.0`).*
+*Verified against the repository on 2026-10-12 (`mod_version 1.10.0`, unreleased; last tag `1.9.0`).*

@@ -1,5 +1,3 @@
-import org.gradle.api.GradleException
-
 plugins {
     id "com.gradleup.shadow"
 }
@@ -26,18 +24,18 @@ repositories {
     mavenCentral()
 }
 
-def mcCoord = (rootProject.findProperty("minecraft_version") ?: rootProject.minecraft_version) as String
-def tgt     = rootProject.ext.resolveMcTarget(mcCoord)
+def tgt     = rootProject.ext.mcTarget
+def mcCoord = tgt.mc
 
 // The placeholder-api-neoforge library did a major API redesign between the 1.21.11-era release
-// (Placeholders.register) and the 26.x-era release (Placeholders.registerServer), so the
-// placeholder-api-neoforge integration entrypoint is forked per era below. The TAB bridge doesn't
-// touch placeholder-api-neoforge at all, so it lives in src/main/java and is shared by both.
+// (Placeholders.register) and the 26.x-era release (Placeholders.registerServer), so the 26.x
+// entrypoint lives in the `unobfuscated` fork and the 26.x mod class in `modern`. The TAB bridge
+// doesn't touch placeholder-api-neoforge at all, so it lives in src/main/java and is shared.
 sourceSets {
     main {
         java {
-            srcDir "src/${tgt.legacy121 ? 'legacy121' : 'modern'}/java"
-            srcDir "src/${tgt.legacy121 ? 'legacy121' : (tgt.obfuscated ? 'obfuscated' : 'unobfuscated')}/java"
+            srcDir "src/modern/java"
+            srcDir "src/unobfuscated/java"
         }
     }
 }
@@ -48,31 +46,17 @@ dependencies {
 
     // Platform loader + API
     neoForge "net.neoforged:neoforge:${rootProject.findProperty('neoforge_version') ?: tgt.neoforge}"
+    api "dev.architectury:architectury-neoforge:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
 
-    if (tgt.obfuscated) {
-        // 1.21.11 is obfuscated; NeoForge itself already uses Mojang's official mappings (it
-        // dropped its own obfuscation years ago), but common still needs remapping into them.
-        mappings loom.officialMojangMappings()
-
-        modApi "dev.architectury:architectury-neoforge:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
-
-        // Link common module — namedElements is the remap-aware configuration Loom needs when
-        // common was compiled against Mojang official mappings and must be remapped here too.
-        common(project(path: ":common", configuration: "namedElements")) { transitive = false }
-        apiModule(project(path: ":api", configuration: "namedElements")) { transitive = false }
-    } else {
-        api "dev.architectury:architectury-neoforge:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
-
-        // Link common module
-        common(project(path: ":common")) { transitive = false }
-        apiModule(project(path: ":api")) { transitive = false }
-    }
+    // Link common module
+    common(project(path: ":common")) { transitive = false }
+    apiModule(project(path: ":api")) { transitive = false }
     shadowBundle project(path: ":common", configuration: "transformProductionNeoForge")
     shadowBundle project(path: ":api", configuration: "transformProductionNeoForge")
 
     def placeholderNeoForgeVersion = rootProject.findProperty('placeholder_api_neoforge_version')
             ?: tgt.placeholderApiNeoForge
-    if (!tgt.legacy121 && placeholderNeoForgeVersion) {
+    if (placeholderNeoForgeVersion) {
         compileOnly "eu.pb4:placeholder-api-neoforge:${placeholderNeoForgeVersion}"
     }
 
@@ -89,7 +73,7 @@ processResources {
 
     def archVer = (rootProject.findProperty("architectury_version_plain")
             ?: project.findProperty("architectury_version_plain")
-            ?: "21.0.2").toString()
+            ?: tgt.architecturyVer).toString()
     def placeholderModId = rootProject.ext.placeholderModId
 
     inputs.property "version", project.version
@@ -123,41 +107,23 @@ tasks.withType(Jar).configureEach {
     }
 }
 
-if (tgt.obfuscated) {
-    shadowJar {
-        configurations = [project.configurations.shadowBundle]
-        archiveClassifier = "dev-shadow"
+// 26.3 is unobfuscated: the plain jar is the raw classifier and shadowJar builds the shipped jar.
+jar {
+    archiveClassifier = "raw"
+}
 
-        manifest {
-            attributes(
-                    'Implementation-Title': project.name,
-                    'Implementation-Version': project.version
-            )
-        }
-    }
+shadowJar {
+    dependsOn jar
+    mainSpec.sourcePaths.clear()
+    from(zipTree(jar.archiveFile))
 
-    remapJar {
-        inputFile.set(shadowJar.archiveFile)
-        archiveVersion = ""
-    }
-} else {
-    jar {
-        archiveClassifier = "raw"
-    }
+    configurations = [project.configurations.shadowBundle]
+    archiveClassifier = null
 
-    shadowJar {
-        dependsOn jar
-        mainSpec.sourcePaths.clear()
-        from(zipTree(jar.archiveFile))
-
-        configurations = [project.configurations.shadowBundle]
-        archiveClassifier = null
-
-        manifest {
-            attributes(
-                    'Implementation-Title': project.name,
-                    'Implementation-Version': project.version
-            )
-        }
+    manifest {
+        attributes(
+                'Implementation-Title': project.name,
+                'Implementation-Version': project.version
+        )
     }
 }

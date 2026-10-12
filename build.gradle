@@ -16,50 +16,27 @@ allprojects {
     version = rootProject.mod_version
 }
 
-// ---- Build targets ----
-// One entry per supported Minecraft version; each drives a generated set of build/deploy/run
-// tasks below (buildFabric_<v>, runLocalFabric_<v>, ...). Must stay defined before subprojects{}
-// — its configuration closure isn't guaranteed to run after the rest of this script, so it can't
-// safely forward-reference an ext value defined later in the file.
-ext.bumpLastSegment = { String v ->
-    def parts = v.tokenize('.')
-    parts[-1] = ((parts[-1] as int) + 1).toString()
-    return parts.join('.')
-}
-
-ext.mcTargets = [
-        [ mc: "1.21.1", minecraftPredicate: "1.21.1", fabricApi: "0.116.17+1.21.1", architecturyVer: "13.0.11", neoforge: "21.1.250", neoforgeLineLo: "21.1", neoforgeLineHi: ext.bumpLastSegment("21.1"), textPlaceholderApi: "2.4.2+1.21", placeholderApiNeoForge: null, obfuscated: true, javaVersion: 21, legacy121: true ],
-        [ mc: "1.21.11", fabricApi: "0.141.6+1.21.11", architecturyVer: "19.0.1", neoforge: "21.11.45", neoforgeLineLo: "21.11", neoforgeLineHi: ext.bumpLastSegment("21.11"), textPlaceholderApi: "2.8.2+1.21.10", placeholderApiNeoForge: "2.9.0+1.21.11+neoforge", obfuscated: true, javaVersion: 21 ],
-        [ mc: "26.1.2", fabricApi: "0.155.3+26.1.2", architecturyVer: "20.1.14", neoforge: "26.1.2.109", neoforgeLineLo: "26.1", neoforgeLineHi: ext.bumpLastSegment("26.1"), textPlaceholderApi: "3.0.0+26.1", placeholderApiNeoForge: "3.0.0+26.1+neoforge" ],
-        [ mc: "26.2", fabricApi: "0.160.0+26.2", architecturyVer: "21.1.9", neoforge: "26.2.0.88", neoforgeLineLo: "26.2", neoforgeLineHi: ext.bumpLastSegment("26.2"), textPlaceholderApi: "3.1.0-beta.1+26.2", placeholderApiNeoForge: "3.1.0-beta.1+26.2+neoforge" ],
-        [ mc: "26.3", fabricApi: "0.160.5+26.3", architecturyVer: "22.0.1", neoforge: "26.3.0.3-beta", neoforgeLineLo: "26.3", neoforgeLineHi: ext.bumpLastSegment("26.3"), textPlaceholderApi: "3.2.0+26.3", placeholderApiNeoForge: "3.1.0-beta.1+26.2+neoforge" ],
+// ---- Build target ----
+// Minecraft 26.3 is the only supported target, for both Fabric and NeoForge. The 26.x line is
+// unobfuscated, so the build never remaps against Mojang mappings and there are no per-version
+// task names. Must stay defined before subprojects{} — its configuration closure isn't guaranteed
+// to run after the rest of this script, so it can't safely forward-reference an ext value defined
+// later in the file.
+ext.mcTarget = [
+        mc: "26.3",
+        fabricApi: "0.160.5+26.3",
+        architecturyVer: "22.0.1",
+        neoforge: "26.3.0.3-beta",
+        neoforgeLineLo: "26.3",
+        neoforgeLineHi: "26.4",
+        textPlaceholderApi: "3.2.0+26.3",
+        placeholderApiNeoForge: "3.1.0-beta.1+26.2+neoforge",
+        javaVersion: 25,
 ]
-
-// ---- TARGET RESOLVER
-ext.resolveMcTarget = { String mcStr ->
-    def t = ext.mcTargets.find { it.mc == mcStr }
-    if (!t) throw new GradleException("No mcTarget for minecraft_version='$mcStr'")
-    return t
-}
-
-// ---- TASK NAME VERSION
-ext.mcTaskVer = { String v ->
-    def parts = v.tokenize('.')
-    if (parts.size() < 3) return v
-    def major = parts[0] as int
-    def minor = parts[1] as int
-    def patch = parts[2] as int
-    return "${major}.${minor}.${String.format('%02d', patch)}"
-}
 
 ext.mcRange = { tgt ->
     def parts = tgt.mc.tokenize('.')
     if (parts.size() < 2) throw new GradleException("Invalid minecraft_version: ${tgt.mc}")
-    if (tgt.obfuscated) {
-        def hiParts = new ArrayList<>(parts)
-        hiParts[-1] = ((hiParts[-1] as int) + 1).toString()
-        return [tgt.mc, hiParts.join('.')]
-    }
     def major = parts[0] as int
     def minor = parts[1] as int
     return ["${major}.${minor}".toString(), "${major}.${minor + 1}".toString()]
@@ -68,10 +45,11 @@ ext.mcRange = { tgt ->
 ext.placeholderModId = "placeholder-api-neoforge"
 
 subprojects {
-    def mcCoord = (rootProject.findProperty("minecraft_version") ?: rootProject.minecraft_version) as String
-    def tgt = rootProject.ext.resolveMcTarget(mcCoord)
+    def mcCoord = rootProject.ext.mcTarget.mc as String
+    def tgt = rootProject.ext.mcTarget
 
-    apply plugin: tgt.obfuscated ? "dev.architectury.loom" : "dev.architectury.loom-no-remap"
+    // Minecraft 26.3 is unobfuscated, so Loom's no-remap plugin is used throughout.
+    apply plugin: "dev.architectury.loom-no-remap"
     apply plugin: "architectury-plugin"
     apply plugin: "maven-publish"
 
@@ -81,14 +59,6 @@ subprojects {
 
     tasks.withType(Jar).configureEach { archiveVersion = "" }
 
-    // Auto-accepts the Mojang mappings license so --no-daemon builds don't block on a prompt;
-    // only obfuscated targets remap against those mappings at all.
-    if (tgt.obfuscated) {
-        loom {
-            silentMojangMappingsLicense()
-        }
-    }
-
     repositories {
         gradlePluginPortal()
         maven { url "https://maven.fabricmc.net/" }
@@ -97,7 +67,7 @@ subprojects {
         mavenCentral()
     }
 
-    def javaVer = (tgt.javaVersion ?: 25) as int
+    def javaVer = tgt.javaVersion as int
     java {
         sourceCompatibility = JavaVersion.toVersion(javaVer)
         targetCompatibility = JavaVersion.toVersion(javaVer)
@@ -153,44 +123,33 @@ subprojects {
     }
 }
 
-// ---- Build per version via external gradlew
+// ---- Build, deploy and run ----
+// The root `build` task builds every configured platform. These tasks add the release/deploy
+// convenience of copying the built jar into build/<platform>/<mc> and, when present, the local
+// dev server's mods folder.
+//
 // On Windows a .bat cannot be launched directly by Exec/ProcessBuilder ("A problem occurred
 // starting process"), and `cmd /c` will not resolve a bare name from the working dir, so the
 // wrapper must be referenced by absolute path.
 import org.gradle.internal.os.OperatingSystem
-def gradleWrapperCmd = OperatingSystem.current().isWindows()
-        ? ["cmd", "/c", new File(rootProject.projectDir, "gradlew.bat").absolutePath]
-        : [new File(rootProject.projectDir, "gradlew").absolutePath]
 
-// Each target's server jar is compiled for that target's Java version. Launch the local dev
+// Each platform's server jar is compiled for the target's Java version. Launch the local dev
 // servers with the provisioned toolchain JDK rather than a bare `java`, whose version depends
 // on the (Gradle daemon's) PATH and may not match.
 apply plugin: "jvm-toolchains"
 
-ext.mcTargets.each { t ->
-    def mcTask = ext.mcTaskVer(t.mc)
-    def serverJavaLauncher = javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of((t.javaVersion ?: 25) as int)
-    }
+def serverJavaLauncher = javaToolchains.launcherFor {
+    languageVersion = JavaLanguageVersion.of(rootProject.ext.mcTarget.javaVersion as int)
+}
+def mcVersion = rootProject.ext.mcTarget.mc
 
-    // Fabric only
-    def buildFabricTask = tasks.register("buildFabric_${mcTask}", Exec) {
-        workingDir rootProject.projectDir
-        commandLine(gradleWrapperCmd + [
-                "--no-daemon",
-                "-Pfilter_platforms=fabric",
-                "-Pminecraft_version=${t.mc}",
-                "-Pfabric_api_version=${t.fabricApi}",
-                "-Parchitectury_version_plain=${t.architecturyVer}",
-                "-Ptext_placeholder_api_version=${t.textPlaceholderApi}",
-                ":fabric:clean", ":fabric:build"
-        ])
-    }
-
-    tasks.register("buildAndCopyFabricJars_${mcTask}") {
+// Tasks are registered only for the platforms enabled by -Pfilter_platforms (default: both), so a
+// single-platform invocation never references an absent subproject.
+if (findProject(":fabric") != null) {
+    tasks.register("buildAndCopyFabricJars") {
         group = "build/fabric"
-        description = "Build and copy Fabric Jar for MC ${t.mc}"
-        dependsOn buildFabricTask
+        description = "Build the Fabric jar for MC ${mcVersion} and copy it to build/fabric and local_servers"
+        dependsOn ":fabric:build"
         doLast {
             def libsDir = file("${rootProject.projectDir}/fabric/build/libs")
             if (!libsDir.exists()) {
@@ -207,15 +166,15 @@ ext.mcTargets.each { t ->
                 throw new GradleException("No built jars found in ${libsDir}")
             }
 
-            def buildOut = file("${rootProject.projectDir}/build/fabric/${t.mc}")
+            def buildOut = file("${rootProject.projectDir}/build/fabric/${mcVersion}")
             copy {
                 from builtJars
                 into buildOut
             }
 
-            def localModsDir = file("${rootProject.projectDir}/local_servers/fabric/${t.mc}/mods")
+            def localModsDir = file("${rootProject.projectDir}/local_servers/fabric/${mcVersion}/mods")
             if (!localModsDir.exists()) {
-                println "local_servers/fabric/${t.mc}/mods not found – skipped local deploy."
+                println "local_servers/fabric/${mcVersion}/mods not found – skipped local deploy."
                 return
             }
 
@@ -229,44 +188,28 @@ ext.mcTargets.each { t ->
                 into localModsDir
             }
 
-            println "Deployed Fabric ${t.mc} jar to ${buildOut} and ${localModsDir}"
+            println "Deployed Fabric ${mcVersion} jar to ${buildOut} and ${localModsDir}"
         }
     }
 
-    tasks.register("runLocalFabric_${mcTask}", Exec) {
+    tasks.register("runLocalFabric", Exec) {
         group = "run/fabric"
-        description = "Build, deploy and run local Fabric server for MC ${t.mc}"
-        dependsOn "buildAndCopyFabricJars_${mcTask}"
+        description = "Build, deploy and run local Fabric server for MC ${mcVersion}"
+        dependsOn "buildAndCopyFabricJars"
 
-        workingDir "$rootProject.projectDir/local_servers/fabric/${t.mc}"
+        workingDir "$rootProject.projectDir/local_servers/fabric/${mcVersion}"
         args "-Xmx4G", "-jar", "fabric-server-launch.jar", "nogui"
         doFirst {
             executable serverJavaLauncher.get().executablePath.asFile.absolutePath
         }
     }
+}
 
-    // NeoForge only
-    def buildNeoForgeTask = tasks.register("buildNeoForge_${mcTask}", Exec) {
-        workingDir rootProject.projectDir
-        commandLine(gradleWrapperCmd + [
-                "--no-daemon",
-                "-Pfilter_platforms=neoforge",
-                "-Pminecraft_version=${t.mc}",
-                "-Pneoforge_version=${t.neoforge}",
-                "-Parchitectury_version_plain=${t.architecturyVer}",
-                "-Pneoforge_line_lo=${t.neoforgeLineLo}",
-                "-Pneoforge_line_hi=${t.neoforgeLineHi}",
-                *(t.placeholderApiNeoForge
-                        ? ["-Pplaceholder_api_neoforge_version=${t.placeholderApiNeoForge}"]
-                        : []),
-                ":neoforge:clean", ":neoforge:build"
-        ])
-    }
-
-    tasks.register("buildAndCopyNeoForgeJars_${mcTask}") {
+if (findProject(":neoforge") != null) {
+    tasks.register("buildAndCopyNeoForgeJars") {
         group = "build/neoforge"
-        description = "Build and copy NeoForge Jar for MC ${t.mc}"
-        dependsOn buildNeoForgeTask
+        description = "Build the NeoForge jar for MC ${mcVersion} and copy it to build/neoforge and local_servers"
+        dependsOn ":neoforge:build"
         doLast {
             def nfLibsDir = file("${rootProject.projectDir}/neoforge/build/libs")
             if (!nfLibsDir.exists()) {
@@ -283,15 +226,15 @@ ext.mcTargets.each { t ->
                 throw new GradleException("No NeoForge jars found in ${nfLibsDir}")
             }
 
-            def nfOut = file("${rootProject.projectDir}/build/neoforge/${t.mc}")
+            def nfOut = file("${rootProject.projectDir}/build/neoforge/${mcVersion}")
             copy {
                 from nfJars
                 into nfOut
             }
 
-            def localModsDir = file("${rootProject.projectDir}/local_servers/neoforge/${t.mc}/mods")
+            def localModsDir = file("${rootProject.projectDir}/local_servers/neoforge/${mcVersion}/mods")
             if (!localModsDir.exists()) {
-                println "local_servers/neoforge/${t.mc}/mods not found – skipped local deploy."
+                println "local_servers/neoforge/${mcVersion}/mods not found – skipped local deploy."
                 return
             }
 
@@ -305,16 +248,16 @@ ext.mcTargets.each { t ->
                 into localModsDir
             }
 
-            println "Deployed NeoForge ${t.mc} jar to ${nfOut} and ${localModsDir}"
+            println "Deployed NeoForge ${mcVersion} jar to ${nfOut} and ${localModsDir}"
         }
     }
 
-    tasks.register("runLocalNeoForge_${mcTask}", Exec) {
+    tasks.register("runLocalNeoForge", Exec) {
         group = "run/neoforge"
-        description = "Build, deploy and run local NeoForge server for MC ${t.mc}"
-        dependsOn "buildAndCopyNeoForgeJars_${mcTask}"
+        description = "Build, deploy and run local NeoForge server for MC ${mcVersion}"
+        dependsOn "buildAndCopyNeoForgeJars"
 
-        def serverDir = file("$rootProject.projectDir/local_servers/neoforge/${t.mc}")
+        def serverDir = file("$rootProject.projectDir/local_servers/neoforge/${mcVersion}")
         workingDir serverDir
 
         // Reference the launch script by absolute path (cmd /c will not resolve a bare name from
@@ -331,23 +274,4 @@ ext.mcTargets.each { t ->
             environment "PATH", javaBin + File.pathSeparator + (System.getenv("PATH") ?: "")
         }
     }
-}
-
-// Convenience task: build everything
-tasks.register("buildAll") {
-    group = "build"
-    description = "Build all Fabric & NeoForge targets"
-    dependsOn tasks.matching { it.name.startsWith("buildAndCopyFabricJars_") || it.name.startsWith("buildAndCopyNeoForgeJars_") }
-}
-
-tasks.register("buildAllFabric") {
-    group = "build"
-    description = "Build all Fabric targets"
-    dependsOn tasks.matching { it.name.startsWith("buildAndCopyFabricJars_") }
-}
-
-tasks.register("buildAllNeoForge") {
-    group = "build"
-    description = "Build all NeoForge targets"
-    dependsOn tasks.matching { it.name.startsWith("buildAndCopyNeoForgeJars_") }
 }

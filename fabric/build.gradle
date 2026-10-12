@@ -1,5 +1,3 @@
-import org.gradle.api.GradleException
-
 plugins {
     id "com.gradleup.shadow"
 }
@@ -26,16 +24,16 @@ repositories {
     mavenCentral()
 }
 
-def mcCoord = (rootProject.findProperty("minecraft_version") ?: rootProject.minecraft_version) as String
-def tgt     = rootProject.ext.resolveMcTarget(mcCoord)
+def tgt     = rootProject.ext.mcTarget
+def mcCoord = tgt.mc
 
 // The placeholder-api library did a major API redesign between the 1.21.11-era release
-// (Placeholders.register) and the 26.x-era release (Placeholders.registerServer); only the
-// placeholder integration entrypoint lives here, forked per era.
+// (Placeholders.register) and the 26.x-era release (Placeholders.registerServer); the 26.x
+// entrypoint lives in the `unobfuscated` fork.
 sourceSets {
     main {
         java {
-            srcDir "src/${tgt.legacy121 ? 'legacy121' : (tgt.obfuscated ? 'obfuscated' : 'unobfuscated')}/java"
+            srcDir "src/unobfuscated/java"
         }
     }
 }
@@ -43,45 +41,25 @@ sourceSets {
 dependencies {
     minecraft "com.mojang:minecraft:${mcCoord}"
 
-    if (tgt.obfuscated) {
-        // 1.21.11 is obfuscated; Loom needs real mappings to remap it. Official Mojang mappings
-        // (rather than Yarn) so fabric-specific source matches common's own naming.
-        mappings loom.officialMojangMappings()
+    // Platform loader + API
+    implementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${rootProject.findProperty('fabric_api_version') ?: tgt.fabricApi}"
+    api "dev.architectury:architectury-fabric:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
 
-        // Platform loader + API
-        modImplementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
-        modImplementation "net.fabricmc.fabric-api:fabric-api:${rootProject.findProperty('fabric_api_version') ?: tgt.fabricApi}"
-        modApi "dev.architectury:architectury-fabric:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
+    // Link common module
+    common(project(path: ":common")) { transitive = false }
+    apiModule(project(path: ":api")) { transitive = false }
+    implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
+    shadowBundle 'org.xerial:sqlite-jdbc:3.49.1.0'
+    shadowBundle project(path: ":common", configuration: "transformProductionFabric")
+    shadowBundle project(path: ":api", configuration: "transformProductionFabric")
 
-        // Link common module — namedElements is the remap-aware configuration Loom needs to
-        // remap common's official-mappings output into this project's own mapped classpath.
-        common(project(path: ":common", configuration: "namedElements")) { transitive = false }
-        apiModule(project(path: ":api", configuration: "namedElements")) { transitive = false }
-        shadowBundle project(path: ":common", configuration: "transformProductionFabric")
-        shadowBundle project(path: ":api", configuration: "transformProductionFabric")
-
-        modCompileOnly "eu.pb4:placeholder-api:${rootProject.findProperty('text_placeholder_api_version') ?: tgt.textPlaceholderApi}"
-    } else {
-        // Platform loader + API
-        implementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
-        implementation "net.fabricmc.fabric-api:fabric-api:${rootProject.findProperty('fabric_api_version') ?: tgt.fabricApi}"
-        api "dev.architectury:architectury-fabric:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
-
-        // Link common module
-        common(project(path: ":common")) { transitive = false }
-        apiModule(project(path: ":api")) { transitive = false }
-        implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
-        shadowBundle 'org.xerial:sqlite-jdbc:3.49.1.0'
-        shadowBundle project(path: ":common", configuration: "transformProductionFabric")
-        shadowBundle project(path: ":api", configuration: "transformProductionFabric")
-
-        compileOnly "eu.pb4:placeholder-api:${rootProject.findProperty('text_placeholder_api_version') ?: tgt.textPlaceholderApi}"
-    }
+    compileOnly "eu.pb4:placeholder-api:${rootProject.findProperty('text_placeholder_api_version') ?: tgt.textPlaceholderApi}"
 }
 
 processResources {
     def (mcLo, mcHi) = rootProject.ext.mcRange(tgt)
-    def mcPredicate = (tgt.minecraftPredicate ?: ">=${mcLo} <${mcHi}").toString()
+    def mcPredicate = ">=${mcLo} <${mcHi}"
 
     inputs.property("version", project.version)
     inputs.property("mcLo", mcLo)
@@ -95,27 +73,16 @@ processResources {
     }
 }
 
-if (tgt.obfuscated) {
-    shadowJar {
-        configurations = [project.configurations.shadowBundle]
-        archiveClassifier = "dev-shadow"
-    }
+// 26.3 is unobfuscated: the plain jar is the raw classifier and shadowJar builds the shipped jar.
+jar {
+    archiveClassifier = "raw"
+}
 
-    remapJar {
-        inputFile.set(shadowJar.archiveFile)
-        archiveVersion = ""
-    }
-} else {
-    jar {
-        archiveClassifier = "raw"
-    }
+shadowJar {
+    dependsOn jar
+    mainSpec.sourcePaths.clear()
+    from(zipTree(jar.archiveFile))
 
-    shadowJar {
-        dependsOn jar
-        mainSpec.sourcePaths.clear()
-        from(zipTree(jar.archiveFile))
-
-        configurations = [project.configurations.shadowBundle]
-        archiveClassifier = null
-    }
+    configurations = [project.configurations.shadowBundle]
+    archiveClassifier = null
 }

@@ -5,6 +5,13 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Minecraft 26.3 is the only supported target
+
+EconomyCraft now builds and ships for **Minecraft 26.3 only**, on Java 25, for both Fabric and NeoForge.
+The 1.21.1, 1.21.11, 26.1.2 and 26.2 targets are removed from the build and are no longer documented as
+supported: the shared source set had drifted onto 26.3-only vanilla APIs and no longer compiled for them.
+Gameplay, existing player data and the legacy JSON import path are unchanged.
+
 ### Player-to-player contracts
 
 Players can now post paid work for each other. A contract reserves the full reward in escrow up
@@ -146,8 +153,7 @@ the live `config.json` by hand anyway. Historic entries below are left as writte
 
 ### Faction & Profession System
 
-This section records what landed. The baseline at the time of writing was 313 passing tests on 26.3, both
-loaders green.
+This section records what landed. At the time of writing both loaders were green on 26.3.
 
 ### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.
@@ -318,9 +324,9 @@ loaders green.
 ### Notes
 - The pre-existing wealth tax (`FiscalPass`, `FiscalPolicy`, `fiscal.json`, `wealth_tax_*`) is deliberately
   untouched by this feature.
-- **Supported versions.** The faction and profession system targets **Minecraft 26.3 only**. It still builds
-  and runs on the other declared targets (1.21.1, 1.21.11, 26.1.2, 26.2) and on both Fabric and NeoForge, but
-  these features are absent there — several vanilla classes this feature hooks (`AgeableMob`,
+- **Supported versions.** The faction and profession system targets **Minecraft 26.3 only**, which is now
+  the only supported Minecraft version for the whole mod, on both Fabric and NeoForge. Older Minecraft
+  versions are no longer built or supported: several vanilla classes these features hook (`AgeableMob`,
   `AbstractHorse`, `BreedGoal`, `LavaFluid`, `LivingEntity#hurtServer`,
   `ServerPlayerGameMode#destroyAndAck`, `server.players.NameAndId`) were renamed or reshaped after 1.21.11,
   and supporting them would mean forking all of them. Existing features are unaffected.

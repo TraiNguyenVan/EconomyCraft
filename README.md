@@ -7,18 +7,14 @@ Requires Architectury API.
 
 ## Supported versions
 
-Pick the jar that matches your server's Minecraft version. Every target ships for both loaders.
+EconomyCraft targets **Minecraft 26.3** only, on **Java 25**, and ships for both Fabric and NeoForge. There
+is no build for older Minecraft versions.
 
 | Minecraft | Java | Fabric | NeoForge |
 |---|---|---|---|
-| 1.21.1 | 21 | yes | yes |
-| 1.21.11 | 21 | yes | yes |
-| 26.1.2 | 25 | yes | yes |
-| 26.2 | 25 | yes | yes |
 | 26.3 | 25 | yes | yes |
 
-The 1.21.x line needs a Java 21 server; the 26.x line needs Java 25. This is a server-side mod — no client
-mod is needed and the jar works with an unmodified vanilla client.
+This is a server-side mod — no client mod is needed and the jar works with an unmodified vanilla client.
 
 Land-claim-dependent faction features need [ShopGuard](https://github.com/andrewwwwwwwwwwwwwww/shopguard),
 which is Fabric-only. Without it those features are inert and everything else works normally.

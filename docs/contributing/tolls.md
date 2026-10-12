@@ -3,7 +3,7 @@
 Run the focused toll verification command:
 
 ```sh
-./gradlew -Pfilter_platforms=fabric -Pminecraft_version=26.3 :common:test :fabric:build
+./gradlew -Pfilter_platforms=fabric :common:test :fabric:build
 ```
 
 `TollUiTest` covers menu callbacks and toll storage, including visibility, missing targets, cancellation,

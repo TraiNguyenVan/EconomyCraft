@@ -2,8 +2,8 @@ plugins {
     id "dev.architectury.loom"
 }
 
-def mcCoord = (rootProject.findProperty("minecraft_version") ?: rootProject.minecraft_version) as String
-def tgt     = rootProject.ext.resolveMcTarget(mcCoord)
+def tgt     = rootProject.ext.mcTarget
+def mcCoord = tgt.mc
 
 def platforms = (rootProject.findProperty("filter_platforms") ?: "fabric,neoforge")
         .split(",")
@@ -13,18 +13,19 @@ architectury {
     common(platforms)
 }
 
-// A handful of Minecraft classes were renamed between the last obfuscated version (1.21.11,
-// e.g. ClickType) and the unobfuscated 26.x line (e.g. ContainerInput). Everything else lives in
-// src/main/java; only the files that actually reference one of those renamed classes live here.
+// Minecraft classes renamed between the last obfuscated version (1.21.11, e.g. ClickType) and the
+// unobfuscated 26.x line (e.g. ContainerInput) live in the `unobfuscated` fork; `modern` is the
+// current-era fork. Minecraft 26.3 is the only supported target, so those are the only variants.
+// The 26.3 integration tests bootstrap the item component registries and live in their own source
+// set.
 sourceSets {
-    // These integration tests bootstrap the 26.3 item component registries.
-    if (mcCoord == '26.3') {
-        test.java.srcDir 'src/test26_3/java'
+    test {
+        java.srcDir 'src/test26_3/java'
     }
     main {
         java {
-            srcDir "src/${tgt.obfuscated ? 'obfuscated' : 'unobfuscated'}/java"
-            srcDir "src/${tgt.legacy121 ? 'legacy121' : 'modern'}/java"
+            srcDir "src/unobfuscated/java"
+            srcDir "src/modern/java"
         }
     }
 }
@@ -37,29 +38,13 @@ dependencies {
     minecraft "com.mojang:minecraft:${mcCoord}"
     implementation project(":api")
     implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
-    implementation 'org.xerial:sqlite-jdbc:3.49.1.0'
 
-    if (tgt.obfuscated) {
-        // 1.21.11 is obfuscated; common compiles against Mojang's official mappings and gets
-        // remapped per-platform at build time (see fabric/neoforge transformProduction*).
-        mappings loom.officialMojangMappings()
+    // Fabric loader only for @Environment annotations
+    implementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
 
-        // Fabric loader only for @Environment annotations
-        modImplementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
-
-        // Architectury API — resolved per MC target (same as the fabric/neoforge modules) so
-        // multi-version builds pull the matching architectury version instead of the
-        // gradle.properties fallback, which only fits the default target.
-        modImplementation "dev.architectury:architectury:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
-    } else {
-        // Fabric loader only for @Environment annotations
-        implementation "net.fabricmc:fabric-loader:${rootProject.fabric_loader_version}"
-
-        // Architectury API — resolved per MC target (same as the fabric/neoforge modules) so
-        // multi-version builds pull the matching architectury version instead of the
-        // gradle.properties fallback, which only fits the default target.
-        implementation "dev.architectury:architectury:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
-    }
+    // Architectury API — resolved from the shared target so common and the platform modules pull
+    // the same version.
+    implementation "dev.architectury:architectury:${rootProject.findProperty('architectury_version_plain') ?: tgt.architecturyVer}"
 }
 
 tasks.withType(Test).configureEach {
