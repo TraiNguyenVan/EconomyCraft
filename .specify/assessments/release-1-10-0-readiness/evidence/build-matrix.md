@@ -27,12 +27,12 @@ Two independent paths, because they answer different questions:
 | 26.3 | NeoForge | `buildAndCopyNeoForgeJars_26.3` | **PASS** — `build/neoforge/26.3/economycraft-neoforge-1.10.0_26.3.jar` (1.1 MB) |
 | 26.2 | Fabric | `buildAndCopyFabricJars_26.2` | **FAIL** — `:common:compileJava`, 6 errors |
 | 26.2 | NeoForge | `buildAndCopyNeoForgeJars_26.2` | **FAIL** — `:common:compileJava`, 6 errors |
-| 26.1.2 | Fabric | `buildAndCopyFabricJars_26.1.02` | see below |
-| 26.1.2 | NeoForge | `buildAndCopyNeoForgeJars_26.1.02` | see below |
+| 26.1.2 | Fabric | `buildAndCopyFabricJars_26.1.02` | **FAIL** — `:common:compileJava` (BonemealSource, Prediction, `Optional<T>` vs `ChatFormatting`) |
+| 26.1.2 | NeoForge | `buildAndCopyNeoForgeJars_26.1.02` | **FAIL** — `:common:compileJava`, same three symbols |
 | 1.21.11 | Fabric | `buildAndCopyFabricJars_1.21.11` | **FAIL** — `:common:compileJava`, 6 errors |
 | 1.21.11 | NeoForge | `buildAndCopyNeoForgeJars_1.21.11` | **FAIL** — `:common:compileJava`, 6 errors |
 | 1.21.1 | Fabric | `buildAndCopyFabricJars_1.21.01` | **FAIL** — `:common:compileJava`, 6 errors |
-| 1.21.1 | NeoForge | `buildAndCopyNeoForgeJars_1.21.01` | see below |
+| 1.21.1 | NeoForge | `buildAndCopyNeoForgeJars_1.21.01` | **FAIL** — `:common:compileJava` (BonemealSource, villager package layout) |
 
 Root-level commands: `./gradlew build` (default target 26.3, both platforms) **PASS**, and it did execute
 `:common:test`; `./gradlew -Pfilter_platforms=fabric :common:test` (26.3) **PASS**.
