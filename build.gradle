@@ -127,10 +127,6 @@ subprojects {
 // The root `build` task builds every configured platform. These tasks add the release/deploy
 // convenience of copying the built jar into build/<platform>/<mc> and, when present, the local
 // dev server's mods folder.
-//
-// On Windows a .bat cannot be launched directly by Exec/ProcessBuilder ("A problem occurred
-// starting process"), and `cmd /c` will not resolve a bare name from the working dir, so the
-// wrapper must be referenced by absolute path.
 import org.gradle.internal.os.OperatingSystem
 
 // Each platform's server jar is compiled for the target's Java version. Launch the local dev
@@ -260,8 +256,8 @@ if (findProject(":neoforge") != null) {
         def serverDir = file("$rootProject.projectDir/local_servers/neoforge/${mcVersion}")
         workingDir serverDir
 
-        // Reference the launch script by absolute path (cmd /c will not resolve a bare name from
-        // the working dir on this setup, same as the wrapper above).
+        // On Windows a .bat cannot be launched directly by Exec/ProcessBuilder and `cmd /c` will
+        // not resolve a bare name from the working dir, so reference the script by absolute path.
         if (OperatingSystem.current().isWindows()) {
             commandLine "cmd", "/c", new File(serverDir, "run.bat").absolutePath
         } else {
