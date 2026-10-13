@@ -146,8 +146,7 @@ the live `config.json` by hand anyway. Historic entries below are left as writte
 
 ### Faction & Profession System
 
-This section records what landed. The baseline at the time of writing was 313 passing tests on 26.3, both
-loaders green.
+This section records what landed.
 
 ### Added
 - Single central tax policy (`tax` package), replacing 19 duplicated `Math.round(base * taxRate)` sites.

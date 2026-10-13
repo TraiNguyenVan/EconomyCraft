@@ -6,8 +6,6 @@ import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.db.EconomyDatabase;
-import com.reazip.economycraft.db.Documents;
-import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.time.WallClock;
 import org.slf4j.Logger;
 
