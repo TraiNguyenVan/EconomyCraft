@@ -78,7 +78,7 @@ public final class ProfessionHooks {
                     }
                 }
                 case FARMER -> {
-                    if (placed.getBlock() instanceof CropBlock) {
+                    if (FarmerEffects.isCrop(placed)) {
                         award(eco, player);
                     }
                 }
