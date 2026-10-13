@@ -4,8 +4,10 @@ import com.mojang.authlib.GameProfile;
 import com.reazip.economycraft.api.v1.PaymentResult;
 import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.AsyncFileWriter;
 import com.reazip.economycraft.util.ClickKind;
+import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.EconomyPermissions;
 import com.reazip.economycraft.util.EconomySounds;
 import com.reazip.economycraft.util.MenuUiSupport;
@@ -65,6 +67,7 @@ class TollUiTest {
     private PlayerList players;
     private EconomyManager eco;
     private TollManager tolls;
+    private EconomyDatabase tollDb;
     private EconomyConfig config;
     private AbstractContainerMenu menu;
     private boolean tollAllowed = true;
@@ -81,7 +84,7 @@ class TollUiTest {
                 .forEach(components -> components.apply());
     }
 
-    @BeforeEach void setup() throws ReflectiveOperationException {
+    @BeforeEach void setup() throws ReflectiveOperationException, java.sql.SQLException {
         server = mock(MinecraftServer.class);
         when(server.getWorldPath(LevelResource.ROOT)).thenReturn(world);
         players = mock(PlayerList.class);
@@ -113,6 +116,10 @@ class TollUiTest {
         configs.when(EconomyConfig::get).thenReturn(config);
         craft = mockStatic(EconomyCraft.class, CALLS_REAL_METHODS);
         craft.when(() -> EconomyCraft.getManager(server)).thenReturn(eco);
+        tollDb = new EconomyDatabase(EconomyPaths.dataDir(server).resolve(EconomyDatabase.DB_FILE_NAME));
+        tollDb.initialize();
+        when(eco.getDatabase()).thenReturn(tollDb);
+        craft.when(() -> EconomyCraft.peekManager(server)).thenReturn(eco);
         sounds = mockStatic(EconomySounds.class);
         Inventory inv = mock(Inventory.class);
         when(inv.getItem(anyInt())).thenReturn(ItemStack.EMPTY);
@@ -129,6 +136,7 @@ class TollUiTest {
 
     @AfterEach void cleanup() {
         EconomyPermissions.setBackend(null);
+        if (tollDb != null) tollDb.close();
         if (menus != null) menus.close();
         if (sounds != null) sounds.close();
         if (craft != null) craft.close();
@@ -185,6 +193,7 @@ class TollUiTest {
     private TollManager reload() {
         MinecraftServer restarted = mock(MinecraftServer.class);
         when(restarted.getWorldPath(LevelResource.ROOT)).thenReturn(world);
+        craft.when(() -> EconomyCraft.peekManager(restarted)).thenReturn(eco);
         return TollManager.of(restarted);
     }
 

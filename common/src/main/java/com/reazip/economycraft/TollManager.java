@@ -3,7 +3,6 @@ package com.reazip.economycraft;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
-import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.tax.TaxPolicy;
@@ -23,11 +22,9 @@ import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import org.slf4j.Logger;
 
 /** Persistent player owned toll points. */
 public final class TollManager {
-    private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Type TYPE = new TypeToken<Map<String, Toll>>() {}.getType();
     private static final Map<MinecraftServer, TollManager> INSTANCES = new WeakHashMap<>();
@@ -40,51 +37,21 @@ public final class TollManager {
     private final Map<String, Set<UUID>> pressurePlateGranted = new HashMap<>();
 
     public static synchronized TollManager of(MinecraftServer server) {
-        return INSTANCES.computeIfAbsent(server, TollManager::sharedOrOwn);
+        return INSTANCES.computeIfAbsent(server, s -> new TollManager(s, sharedDatabase(s)));
     }
-    /** Reuses the manager's database so tolls share the one economycraft.db connection. */
-    private static TollManager sharedOrOwn(MinecraftServer server) {
-        EconomyManager manager;
-        try {
-            manager = EconomyCraft.peekManager(server);
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to obtain the shared database for toll storage", e);
+
+    /**
+     * The one {@code economycraft.db} connection, owned by {@link EconomyManager}. TollManager never
+     * opens its own: a second connection to the same file is the ownership problem this avoids.
+     */
+    private static EconomyDatabase sharedDatabase(MinecraftServer server) {
+        EconomyManager manager = EconomyCraft.peekManager(server);
+        EconomyDatabase db = manager != null ? manager.getDatabase() : null;
+        if (db == null) {
+            throw new IllegalStateException(
+                    "Toll storage needs the live EconomyManager's shared database, and there is none for this server");
         }
-        if (manager != null) {
-            EconomyDatabase db;
-            try {
-                db = manager.getDatabase();
-            } catch (Exception e) {
-                throw new IllegalStateException("Failed to obtain the shared database for toll storage", e);
-            }
-            if (db == null) {
-                throw new IllegalStateException("Shared database unavailable for toll storage");
-            }
-            return new TollManager(server, db);
-        }
-        LOGGER.warn("[EconomyCraft] No live EconomyManager for toll storage; opening a separate connection."
-                + " Tolls should only be accessed after server start so they share economycraft.db.");
-        return new TollManager(server);
-    }
-    private TollManager(MinecraftServer server) {
-        this.server = server;
-        Path dataDir = EconomyPaths.dataDir(server);
-        file = dataDir.resolve("tolls.json");
-        EconomyDatabase database = new EconomyDatabase(dataDir.resolve(EconomyDatabase.DB_FILE_NAME));
-        try {
-            database.initialize();
-            database.importLegacy(dataDir);
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to open toll storage at " + dataDir, e);
-        }
-        this.db = database;
-        try {
-            String json = Documents.read(db, file, "tolls.json");
-            if (json != null) {
-                Map<String, Toll> read = GSON.fromJson(json, TYPE);
-                if (read != null) tolls.putAll(read);
-            }
-        } catch (Exception e) { throw new IllegalStateException("Failed to load tolls at " + file, e); }
+        return db;
     }
     private TollManager(MinecraftServer server, EconomyDatabase db) {
         this.server = server;
