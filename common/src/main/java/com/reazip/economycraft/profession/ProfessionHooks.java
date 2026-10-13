@@ -61,6 +61,18 @@ public final class ProfessionHooks {
         award(eco, player, 1L);
     }
 
+    private static void awardFarmerTreeWork(EconomyManager eco, ServerPlayer player) {
+        if (eco.getProfessions().recordFarmerTreeWork(player.getUUID())) {
+            ProfessionEffects.applyPersistent(player);
+        }
+    }
+
+    private static void awardFarmerFarmingWork(EconomyManager eco, ServerPlayer player) {
+        if (eco.getProfessions().recordFarmerFarmingWork(player.getUUID())) {
+            ProfessionEffects.applyPersistent(player);
+        }
+    }
+
     /** A block was placed by a player. Counts Builder building-block progress and Farmer planting progress. */
     public static void onBlockPlaced(ServerPlayer player, BlockState placed) {
         if (player == null || placed == null) return;
@@ -78,8 +90,10 @@ public final class ProfessionHooks {
                     }
                 }
                 case FARMER -> {
-                    if (FarmerEffects.isCrop(placed)) {
-                        award(eco, player);
+                    if (FarmerEffects.isSapling(placed)) {
+                        awardFarmerTreeWork(eco, player);
+                    } else if (FarmerEffects.isCrop(placed)) {
+                        awardFarmerFarmingWork(eco, player);
                     }
                 }
                 default -> {
@@ -120,8 +134,10 @@ public final class ProfessionHooks {
                     MinerEffects.applyDoubleOreDrop(eco, player, pos, broken);
                 }
                 case FARMER -> {
-                    if (broken.getBlock() instanceof CropBlock crop && crop.isMaxAge(broken)) {
-                        award(eco, player);
+                    if (FarmerEffects.isLog(broken)) {
+                        awardFarmerTreeWork(eco, player);
+                    } else if (broken.getBlock() instanceof CropBlock crop && crop.isMaxAge(broken)) {
+                        awardFarmerFarmingWork(eco, player);
                     }
                 }
                 default -> {
@@ -152,7 +168,7 @@ public final class ProfessionHooks {
             if (!EconomyConfig.get().professions.enabled) return;
 
             if (eco.getProfessions().professionOf(player.getUUID()) == ProfessionId.FARMER) {
-                award(eco, player);
+                awardFarmerFarmingWork(eco, player);
             }
         } catch (Exception ignored) {
             // A profession hook must never break the interaction that triggered it.
@@ -172,7 +188,7 @@ public final class ProfessionHooks {
             if (!EconomyConfig.get().professions.enabled) return;
 
             if (eco.getProfessions().professionOf(player.getUUID()) == ProfessionId.FARMER) {
-                award(eco, player);
+                awardFarmerFarmingWork(eco, player);
                 FarmerEffects.applyBreedingEffects(player, parent1, parent2, child);
             }
         } catch (Exception ignored) {

@@ -55,6 +55,8 @@ public final class ProfessionStore {
         public ProfessionId professionId;
         /** Progress towards the current profession's level-up. Reset on every choice. */
         public long progress;
+        /** Farmer-specific tree progression (planting saplings, cutting logs). Capped at levelUpCount / 2. */
+        public long farmerTreeProgress;
         /** All professions the player has ever reached Master at. Persisted permanently. */
         public Set<ProfessionId> masteredProfessions = new HashSet<>();
         /** Whether the player is currently serving rust on their current profession. */
@@ -176,6 +178,7 @@ public final class ProfessionStore {
 
         progress.professionId = profession;
         progress.progress = 0L;
+        progress.farmerTreeProgress = 0L;
         progress.rustStartedAtOnlineMs = 0L;
         progress.selectedAtEpochMillis = clock.millis();
         progress.tradesPerVillager.clear();
@@ -205,6 +208,24 @@ public final class ProfessionStore {
             return false;
         }
 
+        if (progress.professionId == ProfessionId.FARMER) {
+            long currentTree = progress.farmerTreeProgress;
+            long currentFarm = Math.max(0, progress.progress - currentTree);
+            long remainingFarm = Math.max(0, farmerFarmingCap() - currentFarm);
+            long remainingTree = Math.max(0, farmerTreeCap() - currentTree);
+            if (remainingFarm == 0 && remainingTree == 0) return false;
+
+            long toFarm = Math.min(amount / 2 + (amount % 2), remainingFarm);
+            long toTree = Math.min(amount - toFarm, remainingTree);
+            if (toFarm < remainingFarm && (amount - toTree) > toFarm) {
+                toFarm = Math.min(amount - toTree, remainingFarm);
+            }
+            progress.farmerTreeProgress += toTree;
+            progress.progress += (toFarm + toTree);
+            dirty = true;
+            return checkFarmerPromotion(player, progress);
+        }
+
         progress.progress += amount;
         dirty = true;
 
@@ -212,6 +233,77 @@ public final class ProfessionStore {
         if (progress.progress >= needed) {
             progress.progress = needed;
             progress.masteredProfessions.add(progress.professionId);
+            progress.rusted = false;
+            return true;
+        }
+        return false;
+    }
+
+    /** Maximum points forestry (cutting trees / saplings) can contribute toward Farmer Master. */
+    public static int farmerTreeCap() {
+        return levelUpCountFor(ProfessionId.FARMER) / 2;
+    }
+
+    /** Maximum points traditional farming (crops / animals) can contribute toward Farmer Master. */
+    public static int farmerFarmingCap() {
+        return levelUpCountFor(ProfessionId.FARMER) - farmerTreeCap();
+    }
+
+    /**
+     * Records tree work (planting saplings, cutting logs) toward Farmer level-up.
+     * Capped at {@link #farmerTreeCap()} (150 by default).
+     *
+     * @return {@code true} if the player was promoted to Master
+     */
+    public boolean recordFarmerTreeWork(UUID player) {
+        if (player == null) return false;
+        ProfessionProgress progress = progressByPlayer.get(player);
+        if (progress == null || progress.professionId != ProfessionId.FARMER) return false;
+        if (progress.isRusted() || progress.isCurrentMastered()) return false;
+
+        int cap = farmerTreeCap();
+        if (progress.farmerTreeProgress >= cap) return false;
+
+        progress.farmerTreeProgress++;
+        progress.progress++;
+        dirty = true;
+        return checkFarmerPromotion(player, progress);
+    }
+
+    /**
+     * Records traditional farming work (crops, animals) toward Farmer level-up.
+     * Capped at {@link #farmerFarmingCap()} (150 by default).
+     *
+     * @return {@code true} if the player was promoted to Master
+     */
+    public boolean recordFarmerFarmingWork(UUID player) {
+        if (player == null) return false;
+        ProfessionProgress progress = progressByPlayer.get(player);
+        if (progress == null || progress.professionId != ProfessionId.FARMER) return false;
+        if (progress.isRusted() || progress.isCurrentMastered()) return false;
+
+        int cap = farmerFarmingCap();
+        long currentFarm = progress.progress - progress.farmerTreeProgress;
+        if (currentFarm >= cap) return false;
+
+        progress.progress++;
+        dirty = true;
+        return checkFarmerPromotion(player, progress);
+    }
+
+    /**
+     * Checks if a Farmer has reached both caps (150 tree work AND 150 farming work).
+     * Promotes to Master if both are satisfied.
+     *
+     * @return true if player was just promoted to Master
+     */
+    public boolean checkFarmerPromotion(UUID player, ProfessionProgress progress) {
+        if (progress == null || progress.professionId != ProfessionId.FARMER) return false;
+        if (progress.isRusted() || progress.isCurrentMastered()) return false;
+
+        long currentFarm = progress.progress - progress.farmerTreeProgress;
+        if (progress.farmerTreeProgress >= farmerTreeCap() && currentFarm >= farmerFarmingCap()) {
+            progress.masteredProfessions.add(ProfessionId.FARMER);
             progress.rusted = false;
             return true;
         }
@@ -233,7 +325,7 @@ public final class ProfessionStore {
 
     /** Whether this profession's level-up is a single counter, which {@link #addProgress} may serve. */
     public static boolean usesSingleProgressCounter(ProfessionId profession) {
-        return profession != ProfessionId.MERCHANT;
+        return profession != ProfessionId.MERCHANT && profession != ProfessionId.FARMER;
     }
 
     /**

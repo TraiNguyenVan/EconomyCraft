@@ -177,4 +177,30 @@ class FarmerEffectsTest {
         assertFalse(FarmerEffects.isCrop(Blocks.STRIPPED_OAK_LOG.defaultBlockState()));
         assertFalse(FarmerEffects.isCrop(null));
     }
+
+    @Test
+    void isSaplingDetectsTreeSaplingsAndExcludesOthers() {
+        assertTrue(FarmerEffects.isSapling(Blocks.OAK_SAPLING.defaultBlockState()));
+        assertTrue(FarmerEffects.isSapling(Blocks.SPRUCE_SAPLING.defaultBlockState()));
+        assertTrue(FarmerEffects.isSapling(Blocks.BIRCH_SAPLING.defaultBlockState()));
+        assertTrue(FarmerEffects.isSapling(Blocks.DARK_OAK_SAPLING.defaultBlockState()));
+
+        assertFalse(FarmerEffects.isSapling(Blocks.WHEAT.defaultBlockState()));
+        assertFalse(FarmerEffects.isSapling(Blocks.OAK_LOG.defaultBlockState()));
+        assertFalse(FarmerEffects.isSapling(Blocks.DIRT.defaultBlockState()));
+        assertFalse(FarmerEffects.isSapling(null));
+    }
+
+    @Test
+    void isLogDetectsWoodLogsAndExcludesOthers() {
+        assertTrue(FarmerEffects.isLog(Blocks.OAK_LOG.defaultBlockState()));
+        assertTrue(FarmerEffects.isLog(Blocks.BIRCH_LOG.defaultBlockState()));
+        assertTrue(FarmerEffects.isLog(Blocks.SPRUCE_LOG.defaultBlockState()));
+        assertTrue(FarmerEffects.isLog(Blocks.STRIPPED_OAK_LOG.defaultBlockState()));
+
+        assertFalse(FarmerEffects.isLog(Blocks.OAK_SAPLING.defaultBlockState()));
+        assertFalse(FarmerEffects.isLog(Blocks.WHEAT.defaultBlockState()));
+        assertFalse(FarmerEffects.isLog(Blocks.STONE.defaultBlockState()));
+        assertFalse(FarmerEffects.isLog(null));
+    }
 }

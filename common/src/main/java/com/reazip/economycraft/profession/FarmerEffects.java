@@ -4,8 +4,10 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.config.ProfessionsSection;
+import com.reazip.economycraft.util.IdentifierCompat;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -69,6 +71,31 @@ public final class FarmerEffects {
                 || state.getBlock() instanceof SweetBerryBushBlock
                 || state.getBlock() instanceof BambooStalkBlock
                 || state.getBlock() instanceof BambooSaplingBlock;
+    }
+
+    /**
+     * Checks if a block state represents a tree sapling for forestry progression.
+     */
+    public static boolean isSapling(BlockState state) {
+        if (state == null) return false;
+        return state.is(BlockTags.SAPLINGS)
+                || state.getBlock() instanceof SaplingBlock;
+    }
+
+    /**
+     * Checks if a block state represents a tree log (natural or placed) for forestry progression.
+     */
+    public static boolean isLog(BlockState state) {
+        if (state == null) return false;
+        if (state.is(BlockTags.LOGS)) return true;
+        try {
+            IdentifierCompat.Id id = IdentifierCompat.wrap(BuiltInRegistries.BLOCK.getKey(state.getBlock()));
+            if (id != null) {
+                String path = id.path();
+                return path.endsWith("_log") || path.endsWith("_wood") || path.endsWith("_stem") || path.endsWith("_hyphae");
+            }
+        } catch (Exception ignored) {}
+        return false;
     }
 
     /**
