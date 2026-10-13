@@ -314,6 +314,13 @@ public final class EconomyCraft {
         }
     }
 
+    /** Returns the live manager for this server without creating one, or null. */
+    public static EconomyManager peekManager(MinecraftServer server) {
+        synchronized (MANAGER_LOCK) {
+            return lastServer == server ? manager : null;
+        }
+    }
+
     public static boolean canImportSharedFolder() {
         MinecraftServer server = lastServer;
         return server != null && EconomyPaths.hasSharedFolder(server);

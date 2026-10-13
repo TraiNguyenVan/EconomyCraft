@@ -37,7 +37,18 @@ public final class TollManager {
     private final Map<String, Set<UUID>> pressurePlateGranted = new HashMap<>();
 
     public static synchronized TollManager of(MinecraftServer server) {
-        return INSTANCES.computeIfAbsent(server, TollManager::new);
+        return INSTANCES.computeIfAbsent(server, TollManager::sharedOrOwn);
+    }
+    /** Reuses the manager's database so tolls share the one economycraft.db connection. */
+    private static TollManager sharedOrOwn(MinecraftServer server) {
+        try {
+            EconomyManager manager = EconomyCraft.peekManager(server);
+            if (manager != null && manager.getDatabase() != null) {
+                return new TollManager(server, manager.getDatabase());
+            }
+        } catch (Exception ignored) {
+        }
+        return new TollManager(server);
     }
     private TollManager(MinecraftServer server) {
         this.server = server;
@@ -51,6 +62,18 @@ public final class TollManager {
             throw new IllegalStateException("Failed to open toll storage at " + dataDir, e);
         }
         this.db = database;
+        try {
+            String json = Documents.read(db, file, "tolls.json");
+            if (json != null) {
+                Map<String, Toll> read = GSON.fromJson(json, TYPE);
+                if (read != null) tolls.putAll(read);
+            }
+        } catch (Exception e) { throw new IllegalStateException("Failed to load tolls at " + file, e); }
+    }
+    private TollManager(MinecraftServer server, EconomyDatabase db) {
+        this.server = server;
+        this.db = db;
+        file = EconomyPaths.dataDir(server).resolve("tolls.json");
         try {
             String json = Documents.read(db, file, "tolls.json");
             if (json != null) {
