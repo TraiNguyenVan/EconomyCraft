@@ -66,16 +66,7 @@ public final class OrderFulfillment {
         if (peek == null) return SetDescriptionStatus.ORDER_GONE;
         if (!peek.requester.equals(requester)) return SetDescriptionStatus.NOT_OWNER;
 
-        String desc = description;
-        if (desc != null) {
-            desc = desc.replace("\r", "").replace("\n", "").trim();
-            if (desc.isEmpty()) {
-                desc = null;
-            } else if (desc.length() > 100) {
-                desc = desc.substring(0, 100);
-            }
-        }
-        peek.description = desc;
+        peek.description = com.reazip.economycraft.util.ListingDescriptions.sanitize(description);
         orders.markChanged();
         return SetDescriptionStatus.OK;
     }
@@ -127,15 +118,7 @@ public final class OrderFulfillment {
             return null;
         }
 
-        String desc = description;
-        if (desc != null) {
-            desc = desc.replace("\r", "").replace("\n", "").trim();
-            if (desc.isEmpty()) {
-                desc = null;
-            } else if (desc.length() > 100) {
-                desc = desc.substring(0, 100);
-            }
-        }
+        String desc = com.reazip.economycraft.util.ListingDescriptions.sanitize(description);
 
         OrderRequest request = new OrderRequest();
         request.requester = requester;

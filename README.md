@@ -257,50 +257,30 @@ the Tags button rather than greying it out.
 
 Stored in `config/economycraft/` on a server (or `saves/<world>/economycraft/` per-world in singleplayer):
 `config.json`, `webhook.json` and `prices.json` at the top, transaction logs under `logs/`, and player and
-world state under `data/`.
+world state in `data/economycraft.db` (SQLite via `db/EconomyDatabase`).
 
-### Data files
+### Data storage
 
-The mod writes these under `data/`. They are written only when something changes, so an untouched file does not
-appear until first use.
+Single file `data/economycraft.db`. Each legacy `*.json` document is one row in `documents(name, content,
+updated_at)` with the identical Gson payload; villager gossip keeps the `villagers`, `player_memories` and
+`villager_trades` tables in the same file. Writes are synchronous on the server thread. Legacy `*.json` files
+and `villagers.db` import once on first boot (empty-table guard) and are then archived to
+`data/_migrated-json/` — never deleted.
 
-| File | Holds |
-|---|---|
-| `balances.json` | Every player's balance. |
-| `daily.json` | When each player last claimed the daily reward. |
-| `daily_sells.json` | What each player has earned from selling today. |
-| `stats.json` | Leaderboard totals: earned, spent and the per-category counters. |
-| `player_names.json` | UUID to name, so offline players still display correctly. |
-| `player_activity.json` | Last-seen time per player, for the active-player median behind dynamic pricing. |
-| `notifications.json` | Queued messages for players who were offline. |
-| `deliveries.json` | Items and payouts that could not be delivered directly. |
-| `auctions.json` | Live auction listings. |
-| `orders.json` | Live order requests and their escrow. |
-| `contracts.json` | Live contracts, their escrow and any pending settlement. |
-| `shop.json` | Legacy delivery storage, migrated into `deliveries.json` on first start. |
-| `negotiations.json` | Open price offers on listings and requests. |
-| `tolls.json` | Placed tolls: position, fee and owner. |
-| `quests.json` | The quest board's current period and open quests. |
-| `stock.json` | Stock the quest bot has banked, awaiting buyback. |
-| `fiscal.json` | Daily wealth tax state: last run and per-player carry. |
-| `faction_fiscal.json` | Daily Capitalism and Monarchy tax state. |
-| `online_time.json` | Accumulated online minutes, for the levy and rust timers. |
-| `cooldowns.json` | Wall-clock cooldowns. |
-| `parties.json` | Party choices and their lockouts. |
-| `professions.json` | Profession, level and rust state. |
-| `villagers.db` | Generated villagers, their names and traits, and their memories of your visits and trades. |
+The legacy document keys are `balances`, `daily`, `daily_sells`, `stats`, `player_names`, `player_activity`,
+`notifications`, `deliveries`, `auctions`, `orders`, `contracts`, `negotiations`, `tolls`, `quests`, `stock`,
+`fiscal`, `faction_fiscal`, `online_time`, `cooldowns`, `parties` and `professions` (each `*.json`), plus a
+read-only `shop.json` fallback that feeds the `auctions` document when no `auctions` row exists.
 
 ### Import and export
 
-`/eco import` moves a **subset** of these between a singleplayer world and a server: `balances.json`,
-`daily.json`, `daily_sells.json`, `deliveries.json`, `auctions.json`, `shop.json`, `orders.json`,
-`notifications.json`, `player_activity.json` and `player_names.json` — the economy itself.
+`/eco import` carries `economycraft.db` like any other data file; the legacy JSON names stay listed in
+`EconomyPaths.DATA_FILES` so old shared folders still copy and import on boot.
 
-The rest are deliberately excluded, because they are per-player progression rather than economy, and importing
-them would hand every player a fresh party and profession on migration. That covers `online_time.json`,
-`cooldowns.json`, `parties.json` and `professions.json`, along with the quest, toll and fiscal state.
-Copy those by hand if you mean to move them; deleting the shared copy also destroys the source server's tag
-state.
+Progression documents are still excluded by design, because importing them would hand every player a fresh
+party and profession on migration. That covers `online_time`, `cooldowns`, `parties` and `professions`, along
+with the quest, toll and fiscal state. Copy those by hand if you mean to move them; deleting the shared copy
+also destroys the source server's tag state.
 
 ### `config.json`
 

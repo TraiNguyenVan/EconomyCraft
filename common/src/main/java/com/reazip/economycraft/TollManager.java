@@ -37,20 +37,26 @@ public final class TollManager {
     private final Map<String, Set<UUID>> pressurePlateGranted = new HashMap<>();
 
     public static synchronized TollManager of(MinecraftServer server) {
-        return INSTANCES.computeIfAbsent(server, TollManager::new);
+        return INSTANCES.computeIfAbsent(server, s -> new TollManager(s, sharedDatabase(s)));
     }
-    private TollManager(MinecraftServer server) {
-        this.server = server;
-        Path dataDir = EconomyPaths.dataDir(server);
-        file = dataDir.resolve("tolls.json");
-        EconomyDatabase database = new EconomyDatabase(dataDir.resolve(EconomyDatabase.DB_FILE_NAME));
-        try {
-            database.initialize();
-            database.importLegacy(dataDir);
-        } catch (Exception e) {
-            throw new IllegalStateException("Failed to open toll storage at " + dataDir, e);
+
+    /**
+     * The one {@code economycraft.db} connection, owned by {@link EconomyManager}. TollManager never
+     * opens its own: a second connection to the same file is the ownership problem this avoids.
+     */
+    private static EconomyDatabase sharedDatabase(MinecraftServer server) {
+        EconomyManager manager = EconomyCraft.peekManager(server);
+        EconomyDatabase db = manager != null ? manager.getDatabase() : null;
+        if (db == null) {
+            throw new IllegalStateException(
+                    "Toll storage needs the live EconomyManager's shared database, and there is none for this server");
         }
-        this.db = database;
+        return db;
+    }
+    private TollManager(MinecraftServer server, EconomyDatabase db) {
+        this.server = server;
+        this.db = db;
+        file = EconomyPaths.dataDir(server).resolve("tolls.json");
         try {
             String json = Documents.read(db, file, "tolls.json");
             if (json != null) {
