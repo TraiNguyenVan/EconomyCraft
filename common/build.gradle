@@ -13,9 +13,9 @@ architectury {
     common(platforms)
 }
 
-// A handful of Minecraft classes were renamed between the last obfuscated version (1.21.11,
-// e.g. ClickType) and the unobfuscated 26.x line (e.g. ContainerInput). Everything else lives in
-// src/main/java; only the files that actually reference one of those renamed classes live here.
+// `modern` and `unobfuscated` hold the Minecraft-26.3 compat forks. A handful of vanilla classes
+// were renamed across the versions this mod used to target (e.g. ClickType -> ContainerInput).
+// Everything else lives in src/main/java; only files that reference a renamed class live here.
 sourceSets {
     // These integration tests bootstrap the 26.3 item component registries.
     if (mcCoord == '26.3') {
@@ -23,8 +23,8 @@ sourceSets {
     }
     main {
         java {
-            srcDir "src/${tgt.obfuscated ? 'obfuscated' : 'unobfuscated'}/java"
-            srcDir "src/${tgt.legacy121 ? 'legacy121' : 'modern'}/java"
+            srcDir "src/unobfuscated/java"
+            srcDir "src/modern/java"
         }
     }
 }
