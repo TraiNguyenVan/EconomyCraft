@@ -29,15 +29,15 @@ repositories {
 def mcCoord = (rootProject.findProperty("minecraft_version") ?: rootProject.minecraft_version) as String
 def tgt     = rootProject.ext.resolveMcTarget(mcCoord)
 
-// The placeholder-api-neoforge library did a major API redesign between the 1.21.11-era release
-// (Placeholders.register) and the 26.x-era release (Placeholders.registerServer), so the
+// The placeholder-api-neoforge library redesigned its entrypoint (Placeholders.register ->
+// Placeholders.registerServer) across the versions this mod used to target, so the
 // placeholder-api-neoforge integration entrypoint is forked per era below. The TAB bridge doesn't
-// touch placeholder-api-neoforge at all, so it lives in src/main/java and is shared by both.
+// touch placeholder-api-neoforge at all, so it lives in src/main/java and is shared.
 sourceSets {
     main {
         java {
-            srcDir "src/${tgt.legacy121 ? 'legacy121' : 'modern'}/java"
-            srcDir "src/${tgt.legacy121 ? 'legacy121' : (tgt.obfuscated ? 'obfuscated' : 'unobfuscated')}/java"
+            srcDir "src/modern/java"
+            srcDir "src/unobfuscated/java"
         }
     }
 }
@@ -72,7 +72,7 @@ dependencies {
 
     def placeholderNeoForgeVersion = rootProject.findProperty('placeholder_api_neoforge_version')
             ?: tgt.placeholderApiNeoForge
-    if (!tgt.legacy121 && placeholderNeoForgeVersion) {
+    if (placeholderNeoForgeVersion) {
         compileOnly "eu.pb4:placeholder-api-neoforge:${placeholderNeoForgeVersion}"
     }
 

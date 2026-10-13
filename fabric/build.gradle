@@ -29,13 +29,13 @@ repositories {
 def mcCoord = (rootProject.findProperty("minecraft_version") ?: rootProject.minecraft_version) as String
 def tgt     = rootProject.ext.resolveMcTarget(mcCoord)
 
-// The placeholder-api library did a major API redesign between the 1.21.11-era release
-// (Placeholders.register) and the 26.x-era release (Placeholders.registerServer); only the
+// The placeholder-api library redesigned its entrypoint (Placeholders.register ->
+// Placeholders.registerServer) across the versions this mod used to target, so only the
 // placeholder integration entrypoint lives here, forked per era.
 sourceSets {
     main {
         java {
-            srcDir "src/${tgt.legacy121 ? 'legacy121' : (tgt.obfuscated ? 'obfuscated' : 'unobfuscated')}/java"
+            srcDir "src/unobfuscated/java"
         }
     }
 }

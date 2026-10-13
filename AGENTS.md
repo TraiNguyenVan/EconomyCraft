@@ -33,7 +33,7 @@ vanilla client: no client mod, custom packets, or registered `MenuType`. UI uses
   same file. Writes are synchronous on the server thread; legacy files import once, then archive. Never use
   NBT for mod state.
 - **Compatibility:** vanilla API differences belong in matching compat forks, not version checks in shared
-  logic. Source sets include `main`, `modern`, `legacy121`, `obfuscated` and `unobfuscated`.
+  logic. Source sets include `main`, `modern` and `unobfuscated`.
 - **Mixins:** Fabric and NeoForge sets intentionally differ. Fabric has toll pressure plate/base plate/hopper
   mixins; NeoForge has `ProfessionBreakMixin`. Make an explicit loader decision for every new hook.
 - **ShopGuard:** claims belong to the external Fabric-only ShopGuard mod. EconomyCraft's reflective,
@@ -49,18 +49,20 @@ vanilla client: no client mod, custom packets, or registered `MenuType`. UI uses
 
 ## Build and verification
 
-Supported targets are 1.21.1 (Java 21), 1.21.11 (Java 21), 26.1.2, 26.2 and 26.3 (Java 25). Both Fabric
-and NeoForge are supported; 1.21.1 uses the `legacy121` compatibility source set. 26.3 is the default and
-only target with an additional target-specific test source set.
+Minecraft 26.3 (Java 25) is the only supported target, for both Fabric and NeoForge. `mcTargets` in
+`build.gradle` holds exactly one entry; `-Pminecraft_version=<other>` fails fast rather than compiling
+against an unsupported API. Source sets are `main` plus the `modern` and `unobfuscated` compat forks;
+`test26_3` adds the 26.3-only tests.
 
 ```sh
-./gradlew build
-./gradlew -Pminecraft_version=1.21.1 build
-./gradlew -Pfilter_platforms=fabric :common:test :fabric:build
-./gradlew -Pminecraft_version=26.3 :common:test
+./gradlew build                          # common tests + both loaders
+./gradlew :common:test                   # common-module tests
+./gradlew -Pfilter_platforms=fabric :fabric:build
+./gradlew -Pfilter_platforms=neoforge :neoforge:build
 ```
 
-Common tests live in `common/src/test`; 26.3-only tests live in `common/src/test26_3`.
+Common tests live in `common/src/test`; 26.3-only tests live in `common/src/test26_3`. CI runs the first
+two command groups on every push to `main` and every pull request.
 
 ## High-risk checks
 

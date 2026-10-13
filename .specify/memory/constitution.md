@@ -80,7 +80,7 @@ Any vanilla API that differs across platform targets goes in a compat fork with 
 following the existing `util/*Compat.java` pattern (`PermissionCompat`, `ProfileCompat`,
 `FailureSoundCompat`, `CompatMenu`).
 
-*Enforced by*: the source-set split — `main`, plus `modern`/`legacy121` and `unobfuscated`/`obfuscated`. A
+*Enforced by*: the source-set split — `main`, plus the `modern` and `unobfuscated` compat forks. A
 second target means a new fork, not an `if` on a Minecraft version inside shared code.
 
 ### VIII. Mutation source naming is constrained

@@ -5,6 +5,23 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Minecraft 26.3 is the only supported version
+
+Support for 1.21.1, 1.21.11, 26.1.2 and 26.2 is dropped. The build targets Minecraft 26.3 only, on both
+Fabric and NeoForge, and `-Pminecraft_version=` with any other value now fails immediately instead of
+compiling shared code against an unsupported API. The version-specific compat source sets that only those
+targets compiled are removed.
+
+**No data migration.** Existing balances, stats, auctions, orders and tolls load unchanged, and the legacy
+JSON import and archival path is untouched.
+
+### Placeholder API now built against the 26.3 NeoForge release
+
+The optional Placeholder API integration compiled against `placeholder-api-neoforge` 3.1.0-beta.1, which
+targets Minecraft 26.2. It now uses 3.2.0, the 26.3 release, so `%economycraft_balance%` and the other
+placeholders actually resolve on a 26.3 NeoForge server. Servers still running 26.2 need to stay on the
+previous release.
+
 ### Player-to-player contracts
 
 Players can now post paid work for each other. A contract reserves the full reward in escrow up

@@ -27,7 +27,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Run common tests
-        run: ./gradlew -Pminecraft_version=26.3 :common:test --no-daemon
+        run: ./gradlew :common:test --no-daemon
 
   # The common tests only cover the shared module. Both loader modules are compiled against 26.3 so a
   # loader-only break (a mixin that no longer matches, an entrypoint API that moved) fails the PR
@@ -46,4 +46,4 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Compile Fabric and NeoForge
-        run: ./gradlew -Pminecraft_version=26.3 :fabric:compileJava :neoforge:compileJava --no-daemon
+        run: ./gradlew :fabric:compileJava :neoforge:compileJava --no-daemon
