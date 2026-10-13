@@ -28,3 +28,22 @@ jobs:
 
       - name: Run common tests
         run: ./gradlew -Pminecraft_version=26.3 :common:test --no-daemon
+
+  # The common tests only cover the shared module. Both loader modules are compiled against 26.3 so a
+  # loader-only break (a mixin that no longer matches, an entrypoint API that moved) fails the PR
+  # instead of the release build.
+  loaders:
+    name: Loader compile (26.3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile Fabric and NeoForge
+        run: ./gradlew -Pminecraft_version=26.3 :fabric:compileJava :neoforge:compileJava --no-daemon
