@@ -34,7 +34,7 @@ ext.bumpLastSegment = { String v ->
 }
 
 ext.mcTargets = [
-        [ mc: "26.3", fabricApi: "0.160.5+26.3", architecturyVer: "22.0.1", neoforge: "26.3.0.3-beta", neoforgeLineLo: "26.3", neoforgeLineHi: ext.bumpLastSegment("26.3"), textPlaceholderApi: "3.2.0+26.3", placeholderApiNeoForge: "3.1.0-beta.1+26.2+neoforge" ],
+        [ mc: "26.3", fabricApi: "0.160.5+26.3", architecturyVer: "22.0.1", neoforge: "26.3.0.3-beta", neoforgeLineLo: "26.3", neoforgeLineHi: ext.bumpLastSegment("26.3"), textPlaceholderApi: "3.2.0+26.3", placeholderApiNeoForge: "3.2.0+26.3+neoforge" ],
 ]
 
 // ---- TARGET RESOLVER
