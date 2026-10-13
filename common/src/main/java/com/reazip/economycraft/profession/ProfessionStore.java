@@ -310,6 +310,37 @@ public final class ProfessionStore {
         return false;
     }
 
+    /**
+     * Normalizes a Farmer progress record against the forestry and agriculture caps.
+     * Normalizes legacy records where agriculture progress exceeded {@link #farmerFarmingCap()}.
+     *
+     * @return {@code true} if either counter was adjusted
+     */
+    public static boolean normalizeFarmerProgress(ProfessionProgress progress) {
+        if (progress == null || progress.professionId != ProfessionId.FARMER) return false;
+        long oldProgress = progress.progress;
+        long oldTree = progress.farmerTreeProgress;
+
+        if (progress.isCurrentMastered()) {
+            if (progress.farmerTreeProgress <= 0L && progress.progress >= levelUpCountFor(ProfessionId.FARMER)) {
+                progress.farmerTreeProgress = farmerTreeCap();
+                progress.progress = levelUpCountFor(ProfessionId.FARMER);
+            }
+            return progress.progress != oldProgress || progress.farmerTreeProgress != oldTree;
+        }
+
+        long treeCap = farmerTreeCap();
+        long farmCap = farmerFarmingCap();
+        long tree = Math.min(treeCap, Math.max(0L, progress.farmerTreeProgress));
+        long legacyFarm = Math.max(0L, progress.progress - progress.farmerTreeProgress);
+        long cappedFarm = Math.min(farmCap, legacyFarm);
+
+        progress.farmerTreeProgress = tree;
+        progress.progress = tree + cappedFarm;
+
+        return progress.progress != oldProgress || progress.farmerTreeProgress != oldTree;
+    }
+
     /** The level-up count for a profession, read from its own config record. */
     public static int levelUpCountFor(ProfessionId profession) {
         com.reazip.economycraft.EconomyConfig config = com.reazip.economycraft.EconomyConfig.get();
@@ -505,6 +536,11 @@ public final class ProfessionStore {
                     }
                 }
                 if (progress.tradesPerVillager == null) progress.tradesPerVillager = new HashMap<>();
+                if (progress.professionId == ProfessionId.FARMER) {
+                    if (normalizeFarmerProgress(progress)) {
+                        dirty = true;
+                    }
+                }
                 progressByPlayer.put(entry.getKey(), progress);
             }
         } catch (Exception ex) {

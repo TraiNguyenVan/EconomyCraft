@@ -486,14 +486,15 @@ public final class TagUi {
                         lore.add(MenuUiSupport.line("Tiến độ: " + trades + "/" + neededTrades + " giao dịch | " + ahBuys + "/" + neededAh + " mua AH", ChatFormatting.AQUA));
                     } else if (profession == ProfessionId.FARMER) {
                         var progObj = store.progressOf(viewer.getUUID());
-                        long treeProg = progObj.farmerTreeProgress;
-                        long farmProg = Math.max(0, progObj.progress - treeProg);
                         int farmCap = ProfessionStore.farmerFarmingCap();
                         int treeCap = ProfessionStore.farmerTreeCap();
                         int totalNeeded = ProfessionStore.levelUpCountFor(ProfessionId.FARMER);
+                        long treeProg = Math.min(treeCap, Math.max(0, progObj.farmerTreeProgress));
+                        long farmProg = Math.min(farmCap, Math.max(0, progObj.progress - progObj.farmerTreeProgress));
+                        long totalProg = Math.min(totalNeeded, Math.max(0, progObj.progress));
                         lore.add(MenuUiSupport.line("Tiến độ nông nghiệp: " + farmProg + " / " + farmCap + " điểm", ChatFormatting.AQUA));
                         lore.add(MenuUiSupport.line("Tiến độ lâm nghiệp: " + treeProg + " / " + treeCap + " điểm (cây & gỗ)", ChatFormatting.AQUA));
-                        lore.add(MenuUiSupport.line("Tổng tiến độ thăng cấp: " + progObj.progress + " / " + totalNeeded, ChatFormatting.DARK_AQUA));
+                        lore.add(MenuUiSupport.line("Tổng tiến độ thăng cấp: " + totalProg + " / " + totalNeeded, ChatFormatting.DARK_AQUA));
                     } else {
                         long prog = store.progressOf(viewer.getUUID()).progress;
                         int needed = ProfessionStore.levelUpCountFor(profession);
