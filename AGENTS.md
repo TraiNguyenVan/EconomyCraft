@@ -75,5 +75,3 @@ Common tests live in `common/src/test`; 26.3-only tests live in `common/src/test
 
 For domain-specific verification notes, see [toll contributor guidance](docs/contributing/tolls.md). For
 architecture traps and invariants, see [the contributor reference](docs/contributing/architecture.md).
-
-*Verified against the repository on 2026-10-07 (`mod_version 1.10.0`, unreleased; last tag `1.9.0`).*

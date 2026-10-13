@@ -8,8 +8,6 @@ import java.util.List;
  * The {@code professions} section: the five jobs, what each one counts towards its level-up, and the numbers
  * every one of their effects is read through.
  *
- * <p>Nothing here is wired to gameplay yet. Phase 2 is the data and save layer; the jobs arrive in Phases 4–8.
- *
  * <p>Each job's effect has two values, one per level, and no job reads its own numbers any other way — the
  * framework in Phase 4 resolves them through a single gate so the rust rule cannot be applied to four jobs
  * and forgotten on the fifth.
