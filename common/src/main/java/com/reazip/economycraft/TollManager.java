@@ -3,6 +3,7 @@ package com.reazip.economycraft;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.tax.TaxPolicy;
@@ -22,9 +23,11 @@ import java.lang.reflect.Type;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
 
 /** Persistent player owned toll points. */
 public final class TollManager {
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Type TYPE = new TypeToken<Map<String, Toll>>() {}.getType();
     private static final Map<MinecraftServer, TollManager> INSTANCES = new WeakHashMap<>();
@@ -41,13 +44,26 @@ public final class TollManager {
     }
     /** Reuses the manager's database so tolls share the one economycraft.db connection. */
     private static TollManager sharedOrOwn(MinecraftServer server) {
+        EconomyManager manager;
         try {
-            EconomyManager manager = EconomyCraft.peekManager(server);
-            if (manager != null && manager.getDatabase() != null) {
-                return new TollManager(server, manager.getDatabase());
-            }
-        } catch (Exception ignored) {
+            manager = EconomyCraft.peekManager(server);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to obtain the shared database for toll storage", e);
         }
+        if (manager != null) {
+            EconomyDatabase db;
+            try {
+                db = manager.getDatabase();
+            } catch (Exception e) {
+                throw new IllegalStateException("Failed to obtain the shared database for toll storage", e);
+            }
+            if (db == null) {
+                throw new IllegalStateException("Shared database unavailable for toll storage");
+            }
+            return new TollManager(server, db);
+        }
+        LOGGER.warn("[EconomyCraft] No live EconomyManager for toll storage; opening a separate connection."
+                + " Tolls should only be accessed after server start so they share economycraft.db.");
         return new TollManager(server);
     }
     private TollManager(MinecraftServer server) {
