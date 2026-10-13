@@ -28,7 +28,6 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -185,36 +184,35 @@ class StorePersistenceTest {
 
     @Test
     void restoringAListingDoesNotLetTheNextOneOverwriteIt() {
-        // AuctionTrade restores a claimed listing when the sale is rolled back. That insertion does
-        // not advance the id counter, so the store must never hand the same id out again.
+        // AuctionTrade restores a claimed listing when a sale is rolled back, and that insertion
+        // never advances the id counter. So on a fresh manager the counter can still point at the id
+        // being restored, and the next listing must be given a different one.
         AuctionListing claimed = listing(500L);
-        auctions.addListing(claimed);
-        int id = claimed.id;
-        auctions.removeListing(id);
+        claimed.id = 1;
         auctions.restoreListing(claimed);
+        assertEquals(1, auctions.getListing(1).id, "the restored entry occupies id 1");
 
         AuctionListing fresh = listing(900L);
         auctions.addListing(fresh);
 
-        assertNotEquals(id, fresh.id, "a restored listing keeps its id; the next one must get a new one");
-        assertEquals(500L, auctions.getListing(id).price, "the restored listing must survive");
-        assertEquals(900L, auctions.getListing(fresh.id).price);
+        assertEquals(2, fresh.id, "the counter must not hand out an id that is already in use");
+        assertEquals(500L, auctions.getListing(1).price, "the restored listing must survive");
+        assertEquals(900L, auctions.getListing(2).price);
         assertEquals(2, auctions.getListings().size());
     }
 
     @Test
     void restoringARequestDoesNotLetTheNextOneOverwriteIt() {
         OrderRequest claimed = request();
-        orders.addRequest(claimed);
-        int id = claimed.id;
-        orders.removeRequest(id);
+        claimed.id = 1;
         orders.restoreRequest(claimed);
+        assertEquals(1, orders.getRequest(1).id);
 
         OrderRequest fresh = request();
         orders.addRequest(fresh);
 
-        assertNotEquals(id, fresh.id);
-        assertEquals(1_280L, orders.getRequest(id).escrow, "restored escrow must survive");
+        assertEquals(2, fresh.id);
+        assertEquals(1_280L, orders.getRequest(1).escrow, "restored escrow must survive");
         assertEquals(2, orders.getRequests().size());
     }
 
