@@ -28,6 +28,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -180,6 +181,41 @@ class StorePersistenceTest {
 
         assertEquals(firstId + 1, second.id, "the id counter has to resume past the restored listing");
         assertNotNull(auctions.getListing(firstId));
+    }
+
+    @Test
+    void restoringAListingDoesNotLetTheNextOneOverwriteIt() {
+        // AuctionTrade restores a claimed listing when the sale is rolled back. That insertion does
+        // not advance the id counter, so the store must never hand the same id out again.
+        AuctionListing claimed = listing(500L);
+        auctions.addListing(claimed);
+        int id = claimed.id;
+        auctions.removeListing(id);
+        auctions.restoreListing(claimed);
+
+        AuctionListing fresh = listing(900L);
+        auctions.addListing(fresh);
+
+        assertNotEquals(id, fresh.id, "a restored listing keeps its id; the next one must get a new one");
+        assertEquals(500L, auctions.getListing(id).price, "the restored listing must survive");
+        assertEquals(900L, auctions.getListing(fresh.id).price);
+        assertEquals(2, auctions.getListings().size());
+    }
+
+    @Test
+    void restoringARequestDoesNotLetTheNextOneOverwriteIt() {
+        OrderRequest claimed = request();
+        orders.addRequest(claimed);
+        int id = claimed.id;
+        orders.removeRequest(id);
+        orders.restoreRequest(claimed);
+
+        OrderRequest fresh = request();
+        orders.addRequest(fresh);
+
+        assertNotEquals(id, fresh.id);
+        assertEquals(1_280L, orders.getRequest(id).escrow, "restored escrow must survive");
+        assertEquals(2, orders.getRequests().size());
     }
 
     @Test

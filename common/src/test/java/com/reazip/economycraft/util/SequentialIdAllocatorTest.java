@@ -8,12 +8,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Id allocation for the auction and order stores. The branch that matters is the exhausted one:
- * reusing {@link Integer#MAX_VALUE} would overwrite a live entry, so the allocator has to hand back
- * a free id instead of quietly clobbering someone's listing.
+ * Id allocation for the auction and order stores. The contract is the important part: whatever the
+ * candidate is, the returned id is never one that is already in use, so a caller's map insertion
+ * cannot clobber a live listing, order or contract.
  */
 class SequentialIdAllocatorTest {
 
@@ -25,10 +24,14 @@ class SequentialIdAllocatorTest {
     }
 
     @Test
-    void anyCandidateBelowMaxIsUsedEvenIfTaken() {
-        // Only MAX_VALUE is special: stores stop advancing there, so a lower candidate cannot be a
-        // stale allocator pointer.
-        assertEquals(1, SequentialIdAllocator.nextId(1, Map.of(1, "a"), LOGGER, "Auction listing"));
+    void occupiedCandidateIsNeverHandedBack() {
+        // Restoring a cancelled entry re-inserts it without advancing the store's counter, so the
+        // candidate can already be live. Returning it would overwrite that entry.
+        Map<Integer, String> existing = new HashMap<>();
+        existing.put(1, "live listing");
+
+        assertEquals(2, SequentialIdAllocator.nextId(1, existing, LOGGER, "Auction listing"));
+        assertEquals(1, existing.size(), "the existing entry must survive the allocation");
     }
 
     @Test
