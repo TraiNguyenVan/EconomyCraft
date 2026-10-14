@@ -23,7 +23,9 @@ Choose a profession with `/job` or `/eco job`, or open `/eco` and select **Tags*
 ---
 
 ## 2. Farmer
-- **Requirement for Master:** Complete 300 farming actions, such as planting crops, harvesting mature crops, feeding animals, or breeding animals.
+- **Requirement for Master:** Complete 300 farming actions across two tracks (150 points each):
+  - **Forestry (up to 150 points):** Planting saplings and cutting tree logs (both natural and player-placed).
+  - **Traditional farming (up to 150 points):** Planting crops, harvesting mature crops, feeding animals, or breeding animals.
 - **Skills:**
   - **Lush Growth:** Every 4 minutes, the system scans a 24-block radius around you. Each crop has a 10% chance at Apprentice or 20% chance at Master to receive a natural growth boost, similar to bone meal.
   - **Care:** Reduces the time before livestock can breed again by 10% at Apprentice or 20% at Master. Offspring grow 15% faster at Apprentice or 30% faster at Master.

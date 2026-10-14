@@ -260,6 +260,7 @@ class ProfessionStoreTest {
         assertFalse(store.addProgress(ALICE, 1_000L),
                 "the Merchant needs both counters; half of its condition must not be reachable by accident");
         assertFalse(ProfessionStore.usesSingleProgressCounter(ProfessionId.MERCHANT));
+        assertFalse(ProfessionStore.usesSingleProgressCounter(ProfessionId.FARMER));
         assertTrue(ProfessionStore.usesSingleProgressCounter(ProfessionId.BUILDER));
     }
 
@@ -383,5 +384,130 @@ class ProfessionStoreTest {
         assertEquals(ProfessionId.FARMER, ProfessionId.fromKey(" Farmer "));
         assertNull(ProfessionId.fromKey("herbalist"));
         assertNull(ProfessionId.fromKey(null));
+    }
+
+    @Test
+    void farmerTracksTreeAndFarmingSeparatelyWith150CapEach() {
+        ProfessionStore store = store();
+        store.select(ALICE, ProfessionId.FARMER);
+
+        assertEquals(150, ProfessionStore.farmerTreeCap());
+        assertEquals(150, ProfessionStore.farmerFarmingCap());
+
+        // Fill tree track to 150
+        for (int i = 0; i < 150; i++) {
+            assertFalse(store.recordFarmerTreeWork(ALICE), "not promoted yet at tree step " + (i + 1));
+        }
+        assertEquals(150L, store.progressOf(ALICE).farmerTreeProgress);
+        assertEquals(150L, store.progressOf(ALICE).progress);
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE));
+
+        // Excess tree work is rejected
+        assertFalse(store.recordFarmerTreeWork(ALICE), "tree work is capped at 150");
+        assertEquals(150L, store.progressOf(ALICE).farmerTreeProgress);
+        assertEquals(150L, store.progressOf(ALICE).progress);
+
+        // Fill farming track to 149
+        for (int i = 0; i < 149; i++) {
+            assertFalse(store.recordFarmerFarmingWork(ALICE), "not promoted yet at farming step " + (i + 1));
+        }
+        assertEquals(150L, store.progressOf(ALICE).farmerTreeProgress);
+        assertEquals(299L, store.progressOf(ALICE).progress);
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE));
+
+        // 150th farming work promotes to Master
+        assertTrue(store.recordFarmerFarmingWork(ALICE), "150th farming step promotes to Master");
+        assertEquals(300L, store.progressOf(ALICE).progress);
+        assertEquals(ProfessionLevel.MASTER, store.levelOf(ALICE));
+        assertTrue(store.hasMastered(ALICE, ProfessionId.FARMER));
+
+        // Work after Master is rejected
+        assertFalse(store.recordFarmerTreeWork(ALICE));
+        assertFalse(store.recordFarmerFarmingWork(ALICE));
+    }
+
+    @Test
+    void farmerCannotPromoteFromOnlyOneTrack() {
+        ProfessionStore store = store();
+        store.select(ALICE, ProfessionId.FARMER);
+
+        // Even 500 tree actions cannot exceed 150 or promote alone
+        for (int i = 0; i < 500; i++) {
+            store.recordFarmerTreeWork(ALICE);
+        }
+        assertEquals(150L, store.progressOf(ALICE).farmerTreeProgress);
+        assertEquals(150L, store.progressOf(ALICE).progress);
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE));
+    }
+
+    @Test
+    void legacyFarmerRecordAbove150IsNormalizedOnLoad() throws Exception {
+        // Simulates a legacy Farmer record before the split where progress was 250 (all farming, no farmerTreeProgress field in JSON)
+        String legacyJson = """
+        {
+          "%s": {
+            "professionId": "FARMER",
+            "progress": 250,
+            "masteredProfessions": [],
+            "rusted": false,
+            "selectedAtEpochMillis": 1000,
+            "rustStartedAtOnlineMs": 0,
+            "tradesPerVillager": {}
+          }
+        }
+        """.formatted(ALICE);
+
+        Path file = dir.resolve("professions.json");
+        Files.writeString(file, legacyJson);
+
+        ProfessionStore store = store();
+
+        ProfessionStore.ProfessionProgress progress = store.progressOf(ALICE);
+        assertEquals(0L, progress.farmerTreeProgress);
+        assertEquals(150L, progress.progress, "legacy progress > 150 must be capped to 150 on load");
+        assertEquals(150L, Math.max(0, progress.progress - progress.farmerTreeProgress), "agriculture progress capped at 150");
+        assertEquals(ProfessionLevel.APPRENTICE, store.levelOf(ALICE));
+
+        // Alice cannot earn more farming progress as she is already at the 150 farming cap
+        assertFalse(store.recordFarmerFarmingWork(ALICE), "farming work rejected when at 150 farming cap");
+
+        // Now if Alice does 150 tree work, progress increases from 150 to 300 and promotes to Master
+        for (int i = 0; i < 149; i++) {
+            assertFalse(store.recordFarmerTreeWork(ALICE));
+        }
+        assertEquals(149L, progress.farmerTreeProgress);
+        assertEquals(299L, progress.progress);
+
+        assertTrue(store.recordFarmerTreeWork(ALICE));
+        assertEquals(150L, progress.farmerTreeProgress);
+        assertEquals(300L, progress.progress);
+        assertEquals(ProfessionLevel.MASTER, store.levelOf(ALICE));
+    }
+
+    @Test
+    void legacyMasterFarmerRecordPreservesMasterAndPopulatesTreeProgress() throws Exception {
+        String legacyJson = """
+        {
+          "%s": {
+            "professionId": "FARMER",
+            "progress": 300,
+            "masteredProfessions": ["FARMER"],
+            "rusted": false,
+            "selectedAtEpochMillis": 1000,
+            "rustStartedAtOnlineMs": 0,
+            "tradesPerVillager": {}
+          }
+        }
+        """.formatted(ALICE);
+
+        Path file = dir.resolve("professions.json");
+        Files.writeString(file, legacyJson);
+
+        ProfessionStore store = store();
+
+        ProfessionStore.ProfessionProgress progress = store.progressOf(ALICE);
+        assertEquals(ProfessionLevel.MASTER, store.levelOf(ALICE));
+        assertEquals(150L, progress.farmerTreeProgress);
+        assertEquals(300L, progress.progress);
     }
 }
