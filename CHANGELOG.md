@@ -5,6 +5,17 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Quest buyback stock transfers are atomic
+
+Moving units between the quest buyback stock ledger and its auction listings now commits in one
+database transaction. Listing unlisted stock, an expired buyback listing returning to the ledger, and
+an admin clear of the auction house each write `stock.json` and `auctions.json` together, so an
+interrupted write can no longer withdraw units that never reach a listing, or return units to the
+ledger while the old listing is still on the board.
+
+A transfer that fails also reloads the live ledger, auction house and delivery mailboxes from the
+rolled-back documents, so a later save cannot commit half of a move the database refused.
+
 ### Minecraft 26.3 is the only supported version
 
 Support for 1.21.1, 1.21.11, 26.1.2 and 26.2 is dropped. The build targets Minecraft 26.3 only, on both

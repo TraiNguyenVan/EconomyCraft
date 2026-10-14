@@ -261,10 +261,17 @@ public class AuctionManager {
         Documents.write(db, file, "auctions.json", GSON.toJson(root));
     }
 
+    public synchronized void reload() {
+        listings.clear();
+        limitOverrides.clear();
+        nextId = 1;
+        load();
+        notifyListeners();
+    }
+
     public void addListener(Runnable run) {
         listeners.add(run);
     }
-
     public void removeListener(Runnable run) {
         listeners.remove(run);
     }

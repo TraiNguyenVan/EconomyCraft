@@ -76,6 +76,16 @@ public class QuestStock {
         return total;
     }
 
+    /**
+     * Drops the ledger and re-reads it from disk. A stock-to-listing move mutates memory as it runs
+     * and writes as it goes; when its transaction rolls back, the documents revert and this brings
+     * the ledger back in step with them.
+     */
+    public synchronized void reload() {
+        stock.clear();
+        load();
+    }
+
     private void load() {
         String json = Documents.read(db, file, "stock.json");
         if (json == null) return;

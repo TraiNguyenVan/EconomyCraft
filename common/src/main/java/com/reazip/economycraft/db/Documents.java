@@ -49,4 +49,20 @@ public final class Documents {
         }
         AsyncFileWriter.writeAsync(legacyFile, content);
     }
+
+    /**
+     * Runs {@code body} so that every document write inside it commits as one unit.
+     *
+     * <p>Some state transitions move a thing between two documents — quest stock into an auction
+     * listing and back out again — where persisting half the move loses or duplicates the units.
+     * With a database those writes join a single SQLite transaction that commits or rolls back
+     * together; without one (file-backed unit tests) the body just runs, as it always did.
+     */
+    public static void atomic(EconomyDatabase db, Runnable body) {
+        if (db == null) {
+            body.run();
+            return;
+        }
+        db.runInTransaction(body);
+    }
 }
