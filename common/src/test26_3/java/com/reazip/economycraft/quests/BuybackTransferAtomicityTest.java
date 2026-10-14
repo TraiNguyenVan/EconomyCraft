@@ -47,9 +47,10 @@ import static org.mockito.Mockito.when;
  * (duplication) and never on neither (loss). Each test drives a real transfer through a real
  * {@link AuctionManager} and {@link QuestStock} over a file-backed database, breaks the transfer
  * where a crash would (the auctions write fails), and then reads the state back through freshly
- * opened stores, exactly as a restarted server would. Before the transfer was one transaction the
- * ledger was written first, so these reads saw the withdrawn units missing (or, on the return
- * path, present while the listing still was) and the sum changed.
+ * opened stores — the way a restarted server would — as well as through the live stores that just
+ * ran the failed transfer. Before the transfer was one transaction the ledger was written first, so
+ * these reads saw the withdrawn units missing (or, on the return path, present while the listing
+ * still was) and the sum changed.
  */
 class BuybackTransferAtomicityTest {
 
@@ -135,6 +136,10 @@ class BuybackTransferAtomicityTest {
 
         assertThrows(RuntimeException.class, () -> QuestBuyback.sweep(eco));
 
+        // The live store is reloaded with the rolled-back ledger, not left holding a withdrawal the
+        // database refused: a later save must not persist units the auction document never took.
+        assertEquals(10L, stock.get(KEY), "the live ledger is resynced after a failed listing");
+
         QuestStock reloadedStock = restartStock();
         assertEquals(10L, reloadedStock.get(KEY), "a rolled-back listing must leave the ledger whole");
         assertTrue(restartAuctions().getListings().isEmpty(), "no listing was committed");
@@ -176,6 +181,11 @@ class BuybackTransferAtomicityTest {
 
         assertThrows(RuntimeException.class, () -> QuestBuyback.sweep(eco));
 
+        // The live stores are resynced to the rolled-back documents: the ledger keeps its units and
+        // the live lot keeps only what was already committed.
+        assertEquals(10L, stock.get(KEY), "the live ledger is resynced after a failed top-up");
+        assertEquals(10, auctions.getListings().get(0).item.getCount());
+
         assertEquals(10L, restartStock().get(KEY), "the withdrawal and the top-up commit together");
         assertEquals(10, restartAuctions().getListings().get(0).item.getCount(),
                 "the open lot keeps the units it already had");
@@ -212,6 +222,14 @@ class BuybackTransferAtomicityTest {
         when(eco.getQuestStock()).thenReturn(stock);
 
         assertThrows(RuntimeException.class, () -> AuctionExpiration.expireOverdue(eco));
+
+        // The live stores are resynced to the rolled-back documents, so a later save cannot write the
+        // returned units beside a listing the auction document still holds.
+        QuestStock liveStock = eco.getQuestStock();
+        AuctionManager liveAuctions = eco.getAuctions();
+        assertEquals(0L, liveStock.get(KEY), "the live ledger is resynced after a failed return");
+        assertEquals(1, liveAuctions.getListings().size(), "the live listing is restored, not lost");
+        assertEquals(4, liveAuctions.getListings().get(0).item.getCount());
 
         QuestStock reloadedStock = restartStock();
         AuctionManager reloadedAuctions = restartAuctions();
@@ -251,6 +269,12 @@ class BuybackTransferAtomicityTest {
         when(eco.getQuestStock()).thenReturn(stock);
 
         assertThrows(RuntimeException.class, () -> AuctionExpiration.clearAll(eco));
+
+        // Live and persisted state agree after a failed clear, so the next save cannot move the units
+        // alone.
+        assertEquals(0L, stock.get(KEY), "the live ledger is resynced after a failed clear");
+        assertEquals(1, auctions.getListings().size(), "the live listing is restored, not lost");
+        assertEquals(4, auctions.getListings().get(0).item.getCount());
 
         QuestStock reloadedStock = restartStock();
         AuctionManager reloadedAuctions = restartAuctions();

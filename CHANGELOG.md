@@ -13,6 +13,9 @@ an admin clear of the auction house each write `stock.json` and `auctions.json` 
 interrupted write can no longer withdraw units that never reach a listing, or return units to the
 ledger while the old listing is still on the board.
 
+A transfer that fails also reloads the live ledger, auction house and delivery mailboxes from the
+rolled-back documents, so a later save cannot commit half of a move the database refused.
+
 ### Minecraft 26.3 is the only supported version
 
 Support for 1.21.1, 1.21.11, 26.1.2 and 26.2 is dropped. The build targets Minecraft 26.3 only, on both

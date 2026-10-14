@@ -61,6 +61,16 @@ public final class DeliveryManager {
         return ledger.has(player);
     }
 
+    /**
+     * Drops the mailbox and re-reads it from disk. A transfer moves items into the mailbox in memory
+     * before its transaction commits; when that transaction rolls back, this brings the mailbox back
+     * in step with the documents it reads.
+     */
+    public synchronized void reload() {
+        ledger.clear();
+        load(EconomyPaths.dataDir(server));
+    }
+
     private void load(Path dataDir) {
         String json = Documents.read(db, file, "deliveries.json");
         if (json != null) {

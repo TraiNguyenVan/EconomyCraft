@@ -4,9 +4,9 @@ import com.reazip.economycraft.DeliveryManager;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.PriceRegistry;
-import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.negotiation.NegotiationEvents;
 import com.reazip.economycraft.negotiation.NegotiationStore;
+import com.reazip.economycraft.quests.BuybackTransfers;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.util.ExpirationUtil;
 import net.minecraft.world.item.ItemStack;
@@ -25,8 +25,9 @@ public final class AuctionExpiration {
         // Removing a listing and returning its units to quest stock (or a delivery box) touches two
         // documents. Expiring every overdue listing inside one transaction means a crash rolls the
         // whole sweep back: no removed listing beside stock that was never booked, and no booked
-        // stock beside a listing still on the board.
-        Documents.atomic(eco.getDatabase(), () -> {
+        // stock beside a listing still on the board. The live stores reload with it, so a later save
+        // cannot commit half of a move the database refused.
+        BuybackTransfers.run(eco, () -> {
             boolean anyExpired = false;
             for (AuctionListing listing : auctions.getListings()) {
                 if (!ExpirationUtil.isExpired(listing.expiresAt, now)) continue;
@@ -92,9 +93,10 @@ public final class AuctionExpiration {
         AuctionManager auctions = eco.getAuctions();
         DeliveryManager deliveries = eco.getDeliveries();
         // Same one-transaction rule as the expiry sweep: a cleared listing's units move to quest
-        // stock or a delivery box in the same commit that removes the listing.
+        // stock or a delivery box in the same commit that removes the listing, and a failure reloads
+        // the live stores with the rolled-back documents.
         int[] cleared = {0};
-        Documents.atomic(eco.getDatabase(), () -> {
+        BuybackTransfers.run(eco, () -> {
             for (AuctionListing listing : auctions.getListings()) {
                 AuctionListing removed = auctions.removeListing(listing.id, false);
                 if (removed == null) continue;

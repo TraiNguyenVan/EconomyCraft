@@ -7,7 +7,6 @@ import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.auction.AuctionManager;
 import com.reazip.economycraft.config.QuestsSection;
-import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.util.ExpirationUtil;
 import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
@@ -44,8 +43,9 @@ public final class QuestBuyback {
         for (var stocked : eco.getQuestStock().snapshot().entrySet()) {
             // Each listing moves units between the stock ledger and the auction document. One
             // transaction per key keeps them on exactly one side of the move: a crash mid-listing
-            // rolls the whole key back instead of losing the withdrawn units (or the remainder).
-            Documents.atomic(eco.getDatabase(),
+            // rolls the whole key back instead of losing the withdrawn units (or the remainder),
+            // and the live stores are reloaded with it.
+            BuybackTransfers.run(eco,
                     () -> listUnlisted(eco, stocked.getKey(), stocked.getValue(), quests));
         }
     }
