@@ -4,6 +4,7 @@ import com.reazip.economycraft.DeliveryManager;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.PriceRegistry;
+import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.negotiation.NegotiationEvents;
 import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.quests.QuestManager;
@@ -21,30 +22,36 @@ public final class AuctionExpiration {
         AuctionManager auctions = eco.getAuctions();
         DeliveryManager deliveries = eco.getDeliveries();
         long now = System.currentTimeMillis();
-        boolean anyExpired = false;
-        for (AuctionListing listing : auctions.getListings()) {
-            if (!ExpirationUtil.isExpired(listing.expiresAt, now)) continue;
+        // Removing a listing and returning its units to quest stock (or a delivery box) touches two
+        // documents. Expiring every overdue listing inside one transaction means a crash rolls the
+        // whole sweep back: no removed listing beside stock that was never booked, and no booked
+        // stock beside a listing still on the board.
+        Documents.atomic(eco.getDatabase(), () -> {
+            boolean anyExpired = false;
+            for (AuctionListing listing : auctions.getListings()) {
+                if (!ExpirationUtil.isExpired(listing.expiresAt, now)) continue;
 
-            AuctionListing removed = auctions.removeListing(listing.id, false);
-            if (removed == null) continue;
-            anyExpired = true;
+                AuctionListing removed = auctions.removeListing(listing.id, false);
+                if (removed == null) continue;
+                anyExpired = true;
 
-            if (QuestManager.BOT_UUID.equals(removed.seller)) {
-                returnBuybackToStock(eco, removed);
-                continue;
+                if (QuestManager.BOT_UUID.equals(removed.seller)) {
+                    returnBuybackToStock(eco, removed);
+                    continue;
+                }
+
+                ItemStack stack = removed.item.copy();
+                auctions.addDelivery(removed.seller, stack, false);
+                NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.AH, removed.id,
+                        EconomyCraft.describeItem(stack.getCount(), stack.getHoverName().getString()),
+                        "expired");
+                notifyExpired(eco, removed, stack);
             }
-
-            ItemStack stack = removed.item.copy();
-            auctions.addDelivery(removed.seller, stack, false);
-            NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.AH, removed.id,
-                    EconomyCraft.describeItem(stack.getCount(), stack.getHoverName().getString()),
-                    "expired");
-            notifyExpired(eco, removed, stack);
-        }
-        if (anyExpired) {
-            auctions.save();
-            deliveries.save();
-        }
+            if (anyExpired) {
+                auctions.save();
+                deliveries.save();
+            }
+        });
         eco.getNotifications().flush();
     }
 
@@ -84,30 +91,34 @@ public final class AuctionExpiration {
     public static int clearAll(EconomyManager eco) {
         AuctionManager auctions = eco.getAuctions();
         DeliveryManager deliveries = eco.getDeliveries();
-        int cleared = 0;
-        for (AuctionListing listing : auctions.getListings()) {
-            AuctionListing removed = auctions.removeListing(listing.id, false);
-            if (removed == null) continue;
-            cleared++;
+        // Same one-transaction rule as the expiry sweep: a cleared listing's units move to quest
+        // stock or a delivery box in the same commit that removes the listing.
+        int[] cleared = {0};
+        Documents.atomic(eco.getDatabase(), () -> {
+            for (AuctionListing listing : auctions.getListings()) {
+                AuctionListing removed = auctions.removeListing(listing.id, false);
+                if (removed == null) continue;
+                cleared[0]++;
 
-            if (QuestManager.BOT_UUID.equals(removed.seller)) {
-                returnBuybackToStock(eco, removed);
-                continue;
+                if (QuestManager.BOT_UUID.equals(removed.seller)) {
+                    returnBuybackToStock(eco, removed);
+                    continue;
+                }
+
+                ItemStack stack = removed.item.copy();
+                auctions.addDelivery(removed.seller, stack, false);
+                NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.AH, removed.id,
+                        EconomyCraft.describeItem(stack.getCount(), stack.getHoverName().getString()),
+                        "was cleared by an admin");
+                notifyCleared(eco, removed, stack);
             }
-
-            ItemStack stack = removed.item.copy();
-            auctions.addDelivery(removed.seller, stack, false);
-            NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.AH, removed.id,
-                    EconomyCraft.describeItem(stack.getCount(), stack.getHoverName().getString()),
-                    "was cleared by an admin");
-            notifyCleared(eco, removed, stack);
-        }
-        if (cleared > 0) {
-            auctions.save();
-            deliveries.save();
-        }
+            if (cleared[0] > 0) {
+                auctions.save();
+                deliveries.save();
+            }
+        });
         eco.getNotifications().flush();
-        return cleared;
+        return cleared[0];
     }
 
     private static void notifyCleared(EconomyManager eco, AuctionListing listing, ItemStack stack) {
