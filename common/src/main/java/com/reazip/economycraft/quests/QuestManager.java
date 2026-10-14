@@ -95,7 +95,7 @@ public class QuestManager {
             rollover(eco, now);
         }
         if (!postedThisWeek) {
-            postDrawn(eco, now);
+            postDrawn(eco);
             postedThisWeek = true;
         }
         reconcilePricing(eco);
@@ -231,7 +231,7 @@ public class QuestManager {
             LOGGER.warn("[EconomyCraft] Bot could not fund the repriced quest for {}; it stays off the board this week.", key);
             return false;
         }
-        post(eco, proto, key, remainder, price, unit, System.currentTimeMillis(),
+        post(eco, proto, key, remainder, price, unit,
                 weekStartMs + QuestLogic.periodMillis(quests.periodDays), false);
         return true;
     }
@@ -268,7 +268,7 @@ public class QuestManager {
         backfillKeys.addAll(drawResult.backfill());
 
         postedThisWeek = false;
-        postDrawn(eco, now);
+        postDrawn(eco);
         postedThisWeek = true;
         save();
 
@@ -378,7 +378,7 @@ public class QuestManager {
         return candidatesWithMarket(eco).stream().map(QuestLogic.ScoredCandidate::key).toList();
     }
 
-    private void postDrawn(EconomyManager eco, long now) {
+    private void postDrawn(EconomyManager eco) {
         var quests = EconomyConfig.get().quests;
         long weekEnd = weekStartMs + QuestLogic.periodMillis(quests.periodDays);
         int targetCount = quests.weeklyCount;
@@ -440,7 +440,7 @@ public class QuestManager {
                 }
                 continue;
             }
-            post(eco, proto, key, amount, price, unit, now, weekEnd, true);
+            post(eco, proto, key, amount, price, unit, weekEnd, true);
         }
     }
 
@@ -476,23 +476,16 @@ public class QuestManager {
     }
 
     private void post(EconomyManager eco, ItemStack proto, String key, int amount, long price, long unit,
-                      long now, long weekEnd, boolean announce) {
-        String detail = amount + "x " + proto.getHoverName().getString();
-        if (!eco.removeMoney(BOT_UUID, price, EconomySources.ORDER_ESCROW_HOLD, detail).successful()) {
+                      long weekEnd, boolean announce) {
+        // Quests live exactly one board week, not the global order expiry: the rollover owns their
+        // end of life. The escrow debit and the funded order commit in one transactional save, so
+        // a crash can leave neither a debited bot without an order nor an unfunded quest.
+        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, BOT_UUID, proto, amount, price,
+                null, weekEnd, false);
+        if (request == null) {
             LOGGER.warn("[EconomyCraft] Bot could not lock {} in quest escrow for {}; skipping the quest.", price, key);
             return;
         }
-
-        OrderRequest request = new OrderRequest();
-        request.requester = BOT_UUID;
-        request.price = price;
-        request.item = proto.copy();
-        request.amount = amount;
-        request.escrow = price;
-        request.createdAt = now;
-        // Quests live exactly one board week, not the global order expiry: the rollover owns their end of life.
-        request.expiresAt = weekEnd;
-        eco.getOrders().addRequest(request);
 
         questOrderIds.add(request.id);
         postedKeys.add(key);

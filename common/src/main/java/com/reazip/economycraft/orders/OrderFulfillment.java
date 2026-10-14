@@ -72,10 +72,12 @@ public final class OrderFulfillment {
     }
 
     /**
-     * Reprices a request in place, adjusting the escrow to match. Raising the reward holds the
-     * difference up front (fails cleanly when the requester cannot afford it); lowering it
-     * refunds the difference (fails cleanly when the requester's balance cannot take it back).
-     * Either failure leaves the request untouched.
+     * Reprices a request in place, adjusting the escrow to match. The new order state is staged
+     * before the money mutation so the mutation's transactional save commits the price change and
+     * the balance movement together — a crash can leave neither a refund against the old reward
+     * nor a hold against the new one. A rejected mutation (or a thrown one) restores the previous
+     * in-memory state. Raising the reward holds the difference up front; lowering it refunds the
+     * difference. Either failure leaves the request untouched.
      */
     public static RepriceStatus setPrice(EconomyManager eco, UUID requester, int orderId, long newPrice) {
         OrderManager orders = eco.getOrders();
@@ -87,22 +89,55 @@ public final class OrderFulfillment {
         long delta = newPrice - peek.price;
         String detail = EconomyCraft.describeItem(peek.amount, peek.item.getHoverName().getString());
         if (delta > 0) {
-            if (!eco.removeMoney(requester, delta, EconomySources.ORDER_ESCROW_HOLD, detail).successful()) {
-                return RepriceStatus.CANT_AFFORD_RAISE;
-            }
+            long oldPrice = peek.price;
+            long oldEscrow = peek.escrow;
             peek.price = newPrice;
             peek.escrow += delta;
+            boolean debited;
+            try {
+                debited = eco.removeMoney(requester, delta, EconomySources.ORDER_ESCROW_HOLD, detail).successful();
+            } catch (RuntimeException e) {
+                peek.price = oldPrice;
+                peek.escrow = oldEscrow;
+                throw e;
+            }
+            if (!debited) {
+                peek.price = oldPrice;
+                peek.escrow = oldEscrow;
+                return RepriceStatus.CANT_AFFORD_RAISE;
+            }
+            // The debit's own save already persisted the raised request; refresh open UIs only.
+            orders.notifyChanged();
         } else if (delta < 0) {
             long refund = Math.min(-delta, Math.max(0, peek.escrow));
             if (refund > 0) {
-                if (!eco.addMoney(requester, refund, EconomySources.ORDER_ESCROW_REFUND, detail).successful()) {
+                long oldPrice = peek.price;
+                long oldEscrow = peek.escrow;
+                peek.price = newPrice;
+                peek.escrow -= refund;
+                boolean refunded;
+                try {
+                    refunded = eco.addMoney(requester, refund, EconomySources.ORDER_ESCROW_REFUND, detail).successful();
+                } catch (RuntimeException e) {
+                    peek.price = oldPrice;
+                    peek.escrow = oldEscrow;
+                    throw e;
+                }
+                if (!refunded) {
+                    peek.price = oldPrice;
+                    peek.escrow = oldEscrow;
                     return RepriceStatus.REFUND_FAILED;
                 }
-                peek.escrow -= refund;
+                // The refund's own save already persisted the lowered request; refresh open UIs only.
+                orders.notifyChanged();
+            } else {
+                // Nothing to move: no money mutation will persist the change, so do it here.
+                peek.price = newPrice;
+                orders.markChanged();
             }
-            peek.price = newPrice;
+        } else {
+            orders.markChanged();
         }
-        orders.markChanged();
         return RepriceStatus.OK;
     }
 
@@ -113,24 +148,57 @@ public final class OrderFulfillment {
     }
 
     public static OrderRequest createEscrowedRequest(EconomyManager eco, UUID requester, ItemStack item, int amount, long price, @org.jetbrains.annotations.Nullable String description) {
-        String detail = EconomyCraft.describeItem(amount, item.getHoverName().getString());
-        if (!eco.removeMoney(requester, price, EconomySources.ORDER_ESCROW_HOLD, detail).successful()) {
-            return null;
-        }
+        long now = System.currentTimeMillis();
+        return createEscrowedRequest(eco, requester, item, amount, price, description,
+                ExpirationUtil.expiresAt(now, EconomyConfig.get().orderExpirationHours), true);
+    }
 
+    /**
+     * Creates and funds an escrowed request. The order is staged before the debit so the debit's
+     * transactional save commits the funded order and the balance movement together — a crash can
+     * leave neither a charged requester without an order nor an unfunded order. A rejected debit
+     * (or a thrown mutation) unstages the order and leaves nothing behind.
+     *
+     * <p>The {@code broadcast = false} form with an explicit expiry is the seam the quest board
+     * posts through: quest orders live exactly one board week and announce themselves.
+     *
+     * @return the funded request, or {@code null} when the escrow debit was rejected.
+     */
+    public static OrderRequest createEscrowedRequest(EconomyManager eco, UUID requester, ItemStack item, int amount, long price,
+                                                     @org.jetbrains.annotations.Nullable String description, long expiresAt, boolean broadcast) {
         String desc = com.reazip.economycraft.util.ListingDescriptions.sanitize(description);
+        String detail = EconomyCraft.describeItem(amount, item.getHoverName().getString());
 
         OrderRequest request = new OrderRequest();
         request.requester = requester;
         request.price = price;
-        request.item = item;
+        request.item = item.copy();
         request.amount = amount;
+        // Escrow is recorded before the debit so the debit's transactional save persists both.
         request.escrow = price;
         request.createdAt = System.currentTimeMillis();
-        request.expiresAt = ExpirationUtil.expiresAt(request.createdAt, EconomyConfig.get().orderExpirationHours);
+        request.expiresAt = expiresAt;
         request.description = desc;
-        eco.getOrders().addRequest(request);
-        broadcastNewOrder(eco.getServer(), requester, item, amount, price);
+
+        OrderManager orders = eco.getOrders();
+        orders.stage(request);
+        boolean debited;
+        try {
+            debited = eco.removeMoney(requester, price, EconomySources.ORDER_ESCROW_HOLD, detail).successful();
+        } catch (RuntimeException e) {
+            orders.unstage(request.id);
+            throw e;
+        }
+        if (!debited) {
+            orders.unstage(request.id);
+            return null;
+        }
+
+        // The debit's own save already persisted the funded request; refresh open UIs only.
+        orders.notifyChanged();
+        if (broadcast) {
+            broadcastNewOrder(eco.getServer(), requester, item, amount, price);
+        }
         return request;
     }
 
@@ -261,11 +329,18 @@ public final class OrderFulfillment {
         if (!peek.requester.equals(requester)) return CancelStatus.NOT_OWNER;
 
         String desc = EconomyCraft.describeItem(peek.amount, peek.item.getHoverName().getString());
-        OrderRequest order = orders.removeRequest(orderId);
+        // The removal is not persisted up front: the escrow refund's transactional save commits the
+        // removal and the money movement together, so a crash can leave neither a vanished order
+        // without its refund nor a refund against a still-open order.
+        OrderRequest order = orders.removeRequest(orderId, false);
         if (order == null) return CancelStatus.ORDER_GONE;
 
         var refund = refundEscrow(eco, orders, order);
         if (refund != null && !refund.successful()) return CancelStatus.REFUND_FAILED;
+        if (refund == null) {
+            // No escrow moved, so no money mutation will persist the removal — do it here.
+            orders.save();
+        }
 
         NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.ORDER, orderId, desc, "was removed");
         return CancelStatus.OK;

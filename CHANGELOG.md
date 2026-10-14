@@ -5,6 +5,18 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Order escrow is crash-consistent
+
+Player orders and bot quest orders now commit their money movement and their order document
+together. Previously creation debited the requester before the order was persisted, repricing
+refunded before the order's price was updated, and cancellation persisted the removal before
+the refund — a crash in those windows could leave a charged requester with no order, a refund
+and the original escrow both honored, or an order that vanished with its escrow. Order creation,
+repricing, cancellation, expiry and admin clears now stage the order state first and let the
+escrow debit or refund's single transactional save commit both sides, restoring the previous
+state when a mutation is rejected. Failed debits and bounced refunds still leave orders
+untouched and nothing half-written on disk.
+
 ### Minecraft 26.3 is the only supported version
 
 Support for 1.21.1, 1.21.11, 26.1.2 and 26.2 is dropped. The build targets Minecraft 26.3 only, on both
