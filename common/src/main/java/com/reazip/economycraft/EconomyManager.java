@@ -570,8 +570,9 @@ public class EconomyManager {
     public void save() {
         // One SQLite transaction around every document this save writes. Every balance mutation
         // triggers a save, so this is what makes the settlement protocol work: a contract's terminal
-        // state and the money movement that settles it commit atomically, and a crash mid-save rolls
-        // back to the last consistent pair instead of leaving a half-flushed settlement behind.
+        // state, an order's escrow state, and the money movement that settles them commit atomically,
+        // and a crash mid-save rolls back to the last consistent pair instead of leaving a
+        // half-flushed settlement behind.
         database.runInTransaction(() -> {
             Documents.write(database, file, "balances.json", GSON.toJson(new HashMap<>(balances), TYPE));
             UuidLongMapStore.persist(database, dailyFile, "daily.json", lastDaily);
@@ -585,6 +586,7 @@ public class EconomyManager {
             quests.save();
             questStock.save();
             contracts.save();
+            orders.save();
         });
     }
 

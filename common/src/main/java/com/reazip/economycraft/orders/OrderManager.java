@@ -79,6 +79,23 @@ public class OrderManager {
         putAndPersist(request);
     }
 
+    /**
+     * Adds a request without persisting. Used by the create-and-fund flow: the escrow debit that
+     * follows commits both the balance movement and this request in one transactional save, so a
+     * crash can leave neither a charged requester nor an unfunded order.
+     */
+    public void stage(OrderRequest request) {
+        request.id = SequentialIdAllocator.nextId(nextId, requests, LOGGER, "Order request");
+        nextId = SequentialIdAllocator.advance(request.id);
+        requests.put(request.id, request);
+    }
+
+    /** Removes a staged request after a failed escrow debit; nothing was persisted for it. */
+    public void unstage(int id) {
+        requests.remove(id);
+        notifyListeners();
+    }
+
     private void putAndPersist(OrderRequest request) {
         requests.put(request.id, request);
         notifyListeners();
@@ -88,6 +105,14 @@ public class OrderManager {
     public void markChanged() {
         notifyListeners();
         save();
+    }
+
+    /**
+     * Fires the UI listeners without saving. Used after an escrow settlement whose money mutation
+     * already persisted the request in its own transactional save.
+     */
+    public void notifyChanged() {
+        notifyListeners();
     }
 
     public enum ClaimStatus { OK, ORDER_GONE, INVALID_AMOUNT, FULL_AMOUNT_REQUIRED, NOT_ENOUGH_ITEMS }
