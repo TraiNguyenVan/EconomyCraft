@@ -21,7 +21,11 @@ import java.util.UUID;
  *       snapshot already publishes in {@code players} — so the private block can never widen itself
  *       to a uuid the caller made up;</li>
  *   <li>{@code you.listings} / {@code you.orders} are derived from the rows in this very response,
- *       so an id in the private block always exists in the public one.</li>
+ *       so an id in the private block always exists in the public one;</li>
+ *   <li>{@code you.inventory} / {@code you.enderChest} are always present — empty arrays, never null
+ *       and never absent — because a consumer that has to test for the field before reading it will
+ *       eventually read it wrong. They are sparse: only occupied slots appear, each naming its own
+ *       container index.</li>
  * </ul>
  *
  * <p>Stacks arrive already encoded, because the item codec needs registry access that only the
@@ -62,8 +66,18 @@ public final class MarketSnapshotModel {
 
     public record Delivery(JsonElement stack) {}
 
+    /**
+     * One occupied container slot: the index the item sits at, and the stack in it.
+     *
+     * <p>The index travels with the row because a container is <em>sparse</em>: only occupied slots are
+     * sent, so the position of a row in the array is not the slot it came from and a consumer cannot
+     * recover it by counting. Without the index, slot 3 of an ender chest is unaddressable.
+     */
+    public record Slot(int slot, JsonElement stack) {}
+
     /** The single player's private view. Absent unless the request scoped itself to a known account. */
-    public record You(long balance, List<Delivery> deliveries, List<Integer> listings, List<Integer> orders) {}
+    public record You(long balance, List<Delivery> deliveries, List<Integer> listings, List<Integer> orders,
+                      List<Slot> inventory, List<Slot> enderChest) {}
 
     /**
      * @param you private view for {@code scope}, or null when the request named no known player
@@ -81,8 +95,15 @@ public final class MarketSnapshotModel {
         PrivateState forPlayer(UUID player);
     }
 
-    /** What {@link PrivateRows} hands back; the id lists are added here, not by the caller. */
-    public record PrivateState(long balance, List<Delivery> deliveries) {}
+    /**
+     * What {@link PrivateRows} hands back; the id lists are added here, not by the caller.
+     *
+     * <p>{@code inventory} and {@code enderChest} arrive as {@link Slot} rows already encoded and are
+     * copied through as they are — empty, but never null, so the two arrays are always in the
+     * response for a scope that has a {@code you} block at all.
+     */
+    public record PrivateState(long balance, List<Delivery> deliveries,
+                              List<Slot> inventory, List<Slot> enderChest) {}
 
     /**
      * Assembles one snapshot.
@@ -126,7 +147,8 @@ public final class MarketSnapshotModel {
 
         PrivateState state = privateRows.forPlayer(scope);
         return new You(state.balance(), List.copyOf(state.deliveries()),
-                List.copyOf(listingIds), List.copyOf(orderIds));
+                List.copyOf(listingIds), List.copyOf(orderIds),
+                List.copyOf(state.inventory()), List.copyOf(state.enderChest()));
     }
 
     private static boolean isPublished(UUID player, List<Player> roster) {
