@@ -212,13 +212,15 @@ public final class MarketSnapshotServer {
             players.add(new MarketSnapshotModel.Player(entry.getKey(), entry.getValue()));
         }
 
-        // Read through TaxPolicy rather than off EconomyConfig: a base of 1 makes the quote's rate the
-        // configured rate, and it keeps this endpoint subject to the same "no raw taxRate outside
-        // the tax package" invariant as every other caller.
-        double taxRate = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, 1L).rate();
+        // Resolved through TaxPolicy rather than read off EconomyConfig, so this endpoint is a
+        // consumer of the tax package like every other caller and a retune of the rate reaches it
+        // without a second source to keep in step. A base of 1 makes the quote's rate the configured
+        // rate; the value is the published number only, so no per-player discount or exemption is
+        // folded in and none can leak.
+        double auctionRate = TaxPolicy.resolve(TaxScope.TRANSACTION_AUCTION_BUY, 1L).rate();
 
         return MarketSnapshotModel.build(System.currentTimeMillis(), eco.getDynamicPriceMultiplier(),
-                taxRate, QuestManager.BOT_UUID, auctions, orders, players, scope,
+                auctionRate, QuestManager.BOT_UUID, auctions, orders, players, scope,
                 player -> readPrivateRows(eco, registries, player));
     }
 

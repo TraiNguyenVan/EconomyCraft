@@ -177,8 +177,8 @@ class TaxPolicyTest {
         List<String> offenders = new ArrayList<>();
         try (Stream<Path> files = Files.walk(sourceRoot)) {
             for (Path file : files.filter(p -> p.toString().endsWith(".java")).toList()) {
-                if (isAllowedToMentionTaxRate(file, sourceRoot)) continue;
                 String text = Files.readString(file);
+                if (isAllowedToMentionTaxRate(file, sourceRoot, text)) continue;
                 if (text.contains("taxRate")) {
                     offenders.add(sourceRoot.relativize(file).toString().replace('\\', '/'));
                 }
@@ -188,15 +188,17 @@ class TaxPolicyTest {
                 "taxRate must only be read by TaxPolicy and edited by AdminSettingsUi/EconomyConfig");
     }
 
-    private static boolean isAllowedToMentionTaxRate(Path file, Path sourceRoot) {
+    private static boolean isAllowedToMentionTaxRate(Path file, Path sourceRoot, String text) {
         String relative = sourceRoot.relativize(file).toString().replace('\\', '/');
         return relative.startsWith("com/reazip/economycraft/tax/")
                 || relative.endsWith("EconomyConfig.java")
                 || relative.endsWith("AdminSettingsUi.java")
-                // The HTTP market snapshot publishes the auction rate as a number so a consumer
-                // cannot drift from it. It resolves that number through TaxPolicy.resolve(..).rate()
-                // and never reads the configured key, so it is a reader here and not a second source.
-                || relative.startsWith("com/reazip/economycraft/market/");
+                // One file, not its package: MarketSnapshotModel is the wire record for the HTTP
+                // market snapshot, and its `taxRate` component *is* the published JSON key, which
+                // this text matcher cannot tell from a config read. It never imports EconomyConfig,
+                // and the exemption is void the moment it reads the field — `.taxRate` is what a raw
+                // read looks like, so a raw read here trips the same matcher as anywhere else.
+                || (relative.endsWith("market/MarketSnapshotModel.java") && !text.contains(".taxRate"));
     }
 
     private static Path findMainSourceRoot() {
