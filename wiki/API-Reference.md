@@ -481,7 +481,7 @@ Every command returns the same shape:
 | `index must be an integer` | `index` is present but is not a whole number |
 | `no delivery at index <n>` | `index` is outside that player's delivery list |
 | `inventory full` | the whole stack would not fit, so nothing was claimed |
-| `internal error: <detail>` | an unexpected fault while running the command |
+| `command failed` | an unexpected fault while running the command; the exception itself is written to the server log, never to the reply |
 | `command unavailable` | the server could not answer (returned with `500`) |
 
 Those are the reasons the route returns today. Branch on `ok`, not on the string — the reason is for

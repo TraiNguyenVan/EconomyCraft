@@ -143,7 +143,7 @@ public final class MarketSnapshotServer {
             return;
         }
         active = instance;
-        LOGGER.info("[EconomyCraft] Market snapshot on http://{}:{}{} and command endpoint {}{} (shared-secret auth).",
+        LOGGER.info("[EconomyCraft] Market snapshot on http://{}:{}{} and command endpoint {} (shared-secret auth).",
                 instance.http.getAddress().getAddress().getHostAddress(),
                 instance.http.getAddress().getPort(), ROUTE, COMMAND_ROUTE);
     }
@@ -227,7 +227,11 @@ public final class MarketSnapshotServer {
                 try {
                     pending.complete(dispatch(scope, cmd, body));
                 } catch (Throwable t) {
-                    pending.complete(new CommandResult(false, "internal error: " + t));
+                    // Logged here, never returned: an exception's own text can carry a filesystem
+                    // path or a class name, and that belongs in the server log, not in a reply to
+                    // whoever holds the shared secret.
+                    LOGGER.error("[EconomyCraft] Command '{}' failed for {}", cmd, scope, t);
+                    pending.complete(new CommandResult(false, "command failed"));
                 }
             });
             CommandResult result = pending.get(REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS);
