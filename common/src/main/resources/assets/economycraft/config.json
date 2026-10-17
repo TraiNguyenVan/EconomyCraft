@@ -41,9 +41,9 @@
   "wealth_tax_rebate_enabled": false,
   "wealth_tax_rebate_max_rate": 0.01,
   "wealth_tax_rebate_trigger_factor": 1.0,
-  "httpMarketEnabled": false,
-  "httpMarketPort": 0,
-  "httpMarketToken": "",
+  "http_market_enabled": false,
+  "http_market_port": 0,
+  "http_market_token": "",
   "factions": {
     "enabled": true,
     "selection_lockout_hours": 30,
@@ -272,4 +272,3 @@
     ]
   }
 }
-

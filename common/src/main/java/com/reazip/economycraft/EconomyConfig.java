@@ -152,12 +152,25 @@ public class EconomyConfig {
      * that leaves the process: an open listener with no secret would publish the whole market, and
      * the {@code ?player=} scoping is what keeps one player's balance and goods out of it.
      */
+    @SerializedName("http_market_enabled")
     public boolean httpMarketEnabled = false;
 
-    /** Bind port. {@code 0} binds an ephemeral port, which is then logged at server start. */
+    /**
+     * Bind port. {@code 0} binds an ephemeral port, which is then logged at server start.
+     *
+     * <p>The {@code @SerializedName} on each of these three is load-bearing. This class has no
+     * field-naming policy, so an unannotated field binds to its <em>Java</em> name and silently
+     * ignores the snake_case key the rest of the file uses and the log messages name. Without the
+     * annotation, {@code http_market_enabled: true} in config.json left this false and the route
+     * never bound, with no warning.
+     */
+    @SerializedName("http_market_port")
     public int httpMarketPort = 0;
 
-    /** Shared secret for {@code X-EconomyCraft-Token}. Empty means the route refuses to start. */
+    /**
+     * Shared secret for {@code X-EconomyCraft-Token}. Empty means the route refuses to start.
+     */
+    @SerializedName("http_market_token")
     public String httpMarketToken = "";
 
     public static final int MIN_TRANSACTION_LOG_RETENTION_DAYS = 1;
