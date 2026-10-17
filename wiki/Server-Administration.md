@@ -28,6 +28,22 @@ The tax tools move player balances. **Reset Entire Economy** also deletes transa
 
 Some configuration sections are file-only. Edit `config/economycraft/config.json` and use **Reload from disk** to apply them. The [bundled `config.json`](https://github.com/TraiNguyenVan/EconomyCraft/blob/main/common/src/main/resources/assets/economycraft/config.json) lists the exact setting names and shipped defaults; refer to that file when tuning values.
 
+## Read-only HTTP market snapshot
+
+EconomyCraft can publish the auction and order market as JSON for a consumer that is not an in-process mod. It is off by default, and the three keys that control it are:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `http_market_enabled` | `false` | Master switch for the listener. |
+| `http_market_port` | `0` | Bind port. `0` binds an ephemeral port, which is logged at server start. |
+| `http_market_token` | `""` | Shared secret for the `X-EconomyCraft-Token` request header. Empty means the route refuses to start. |
+
+Set a token before enabling it — an empty token leaves the route closed, because the snapshot's per-player scoping depends on knowing who is asking.
+
+The listener starts with the server and stops with it. These keys take effect on the next start; **Reload from disk** re-reads them but does not rebind a running listener.
+
+The route, its auth requirement and the data it deliberately never exposes are documented in the [API reference](API-Reference.md#http-market-snapshot). The port it binds is printed in the log at start; the token never is.
+
 ## Commands
 
 | Command | Purpose |

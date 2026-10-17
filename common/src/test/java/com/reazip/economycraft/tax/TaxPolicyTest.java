@@ -192,7 +192,11 @@ class TaxPolicyTest {
         String relative = sourceRoot.relativize(file).toString().replace('\\', '/');
         return relative.startsWith("com/reazip/economycraft/tax/")
                 || relative.endsWith("EconomyConfig.java")
-                || relative.endsWith("AdminSettingsUi.java");
+                || relative.endsWith("AdminSettingsUi.java")
+                // The HTTP market snapshot publishes the auction rate as a number so a consumer
+                // cannot drift from it. It resolves that number through TaxPolicy.resolve(..).rate()
+                // and never reads the configured key, so it is a reader here and not a second source.
+                || relative.startsWith("com/reazip/economycraft/market/");
     }
 
     private static Path findMainSourceRoot() {

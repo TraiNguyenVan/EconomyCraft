@@ -145,6 +145,21 @@ public class EconomyConfig {
     @SerializedName("motd")
     public com.reazip.economycraft.config.MotdSection motd = new com.reazip.economycraft.config.MotdSection();
 
+    /**
+     * The read-only HTTP market snapshot, {@code GET /economycraft/v1/market}.
+     *
+     * <p>Off by default and inert without a token, because the snapshot is the only thing in this mod
+     * that leaves the process: an open listener with no secret would publish the whole market, and
+     * the {@code ?player=} scoping is what keeps one player's balance and goods out of it.
+     */
+    public boolean httpMarketEnabled = false;
+
+    /** Bind port. {@code 0} binds an ephemeral port, which is then logged at server start. */
+    public int httpMarketPort = 0;
+
+    /** Shared secret for {@code X-EconomyCraft-Token}. Empty means the route refuses to start. */
+    public String httpMarketToken = "";
+
     public static final int MIN_TRANSACTION_LOG_RETENTION_DAYS = 1;
     public static final int WARN_TRANSACTION_LOG_RETENTION_DAYS = 90;
     public static final double MAX_DYNAMIC_PRICE_MULTIPLIER = 100.0;
@@ -210,6 +225,8 @@ public class EconomyConfig {
             parsed.wealthTaxMaxCatchupDays = clampNonNegative("wealth_tax_max_catchup_days", parsed.wealthTaxMaxCatchupDays);
             parsed.wealthTaxRebateMaxRate = clampPercentage("wealth_tax_rebate_max_rate", parsed.wealthTaxRebateMaxRate);
             parsed.wealthTaxRebateTriggerFactor = clampRange("wealth_tax_rebate_trigger_factor", parsed.wealthTaxRebateTriggerFactor, 0.0, MAX_REBATE_TRIGGER_FACTOR, "");
+            parsed.httpMarketPort = clampPort(parsed.httpMarketPort);
+            if (parsed.httpMarketToken == null) parsed.httpMarketToken = "";
             parsed.factions = requireSection("factions", parsed.factions, FactionsSection::new);
             parsed.professions = requireSection("professions", parsed.professions, ProfessionsSection::new);
             parsed.quests = requireSection("quests", parsed.quests, QuestsSection::new);
@@ -280,6 +297,16 @@ public class EconomyConfig {
     }
 
     /** A contract reward must be at least 1 and representable by the balance engine. */
+    /** A port the OS could never bind is a typo, not a preference; anything above 65535 is clamped. */
+    private static int clampPort(int port) {
+        int clamped = clampNonNegative("http_market_port", port);
+        if (clamped > 65535) {
+            LOGGER.warn("[EconomyCraft] http_market_port ({}) is above 65535; clamping to 65535.", port);
+            return 65535;
+        }
+        return clamped;
+    }
+
     private static long clampContractReward(long value) {
         long clamped = Math.clamp(value, 1, EconomyManager.MAX);
         if (clamped != value) {

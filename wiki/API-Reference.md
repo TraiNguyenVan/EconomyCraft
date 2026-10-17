@@ -299,6 +299,142 @@ public interface ListenerRegistration extends AutoCloseable {
 
 ---
 
+## HTTP market snapshot
+
+`api/v1` is for mods on the server thread. A consumer that is **not** an in-process mod — a
+dashboard, a companion plugin, an ops script — reads the market over HTTP instead:
+
+```text
+GET /economycraft/v1/market[?player=<uuid>]
+```
+
+Off by default. It is served from the JDK's built-in HTTP server, so it adds no dependency to the
+mod, and it binds inside the server process only — reaching it is a deployment decision, not
+something the mod configures.
+
+### Authentication
+
+Every request must carry the configured shared secret:
+
+| Header | Value |
+|---|---|
+| `X-EconomyCraft-Token` | exactly `http_market_token` |
+
+| Response | When |
+|---|---|
+| `200` | the snapshot, as JSON |
+| `403` | the header is missing or does not match |
+| `404` | a path under the route that is not the route |
+| `405` | any method other than `GET` |
+
+**There is no write route, and no route that can become one.** One context is registered; it answers
+`GET` and nothing else. The token is never logged and never echoed in a response body or an error
+message.
+
+### Response
+
+```jsonc
+{
+  "generatedAt": 1760000000000,       // epoch millis, when the snapshot was taken
+  "inflationMultiplier": 1.25,       // the same signal as EconomyCraftApi.inflationMultiplier()
+  "taxRate": 0.1,                    // the auction-purchase tax rate, see below
+
+  "auctions": [{
+    "id": 41,
+    "seller": "…uuid…",
+    "sellerName": "alice",
+    "price": 500,
+    "createdAt": 1759990000000,
+    "expiresAt": 1760594800000,
+    "description": "nice sword",     // absent when the seller wrote none
+    "system": false,                  // true for the quest board's own rows
+    "stack": { "id": "minecraft:diamond_sword", "count": 1, "components": { … } }
+  }],
+
+  "orders": [{
+    "id": 7,
+    "requester": "…uuid…",
+    "requesterName": "bob",
+    "price": 300,                     // the total posted for the whole amount
+    "amount": 4,
+    "escrow": 300,                    // how much of price is held right now
+    "unitPrice": 75,                  // price for one item
+    "createdAt": 1759990000000,
+    "expiresAt": 1760594800000,
+    "description": "note",            // absent when the requester wrote none
+    "system": false,
+    "stack": { "id": "minecraft:wheat", "count": 1 }
+  }],
+
+  "players": [{ "uuid": "…uuid…", "name": "alice" }],
+
+  "you": {                            // present only for a scoped request; see below
+    "balance": 4242,
+    "deliveries": [{ "stack": { "id": "minecraft:apple", "count": 3 } }],
+    "listings": [41],
+    "orders": [7]
+  }
+}
+```
+
+`stack` is the same shape the mod already persists, because it is the same `ItemStack.CODEC`
+encoding. `components` is present only when the item carries components.
+
+**`system` is a tag, not a filter.** The quest board's rows are in `auctions` and `orders` with
+`"system": true` rather than being removed, so a consumer that cannot filter still sees the whole
+board instead of a silently truncated market. Filter on the flag to hide them.
+
+**`taxRate` is the configured base rate**, so an effective auction cost is `price * (1 + taxRate)`
+without the consumer hard-coding a number that an admin can retune. It does **not** include a
+player's own discount or exemption, which are deliberately not published (see the exclusions below).
+
+### Scoping to one player
+
+Add `?player=<uuid>` and, **if that uuid is a player this snapshot already lists in `players`**, the
+response gains a `you` block with that player's balance, their waiting deliveries, and the ids of
+their own listings and orders.
+
+The ids in `you` are drawn from the `auctions` and `orders` arrays in the very same response, so an
+id you act on always names a row you can see. An unscoped request has no `you` block at all — not an
+empty one.
+
+A uuid that is not a known player, or the quest board's own uuid, yields no `you` block, and the
+private read is never performed for it.
+
+### What it deliberately does not expose
+
+This endpoint is a market view. It is **not** a second route into the economy's private state, and it
+never exposes, in any form:
+
+| Never exposed | Why not |
+|---|---|
+| another player's balance | `you` is the only place a balance appears, and it is the requested one |
+| another player's deliveries | `deliveries` only ever reads the requested uuid |
+| tolls, toll owners, toll prices | not part of a market view |
+| wealth tax settings or results | not part of a market view |
+| faction / party data | would leak who is in which party |
+| gossip or villager data | private to the server's own AI feature |
+| admin reset capability | there is no mutation path of any kind |
+
+### Configuration
+
+| Key | Default | Meaning |
+|---|---|---|
+| `http_market_enabled` | `false` | Master switch for the listener. |
+| `http_market_port` | `0` | Bind port. `0` binds an ephemeral port, which is logged at server start. |
+| `http_market_token` | `""` | The shared secret for `X-EconomyCraft-Token`. **Empty means the route refuses to start** — with no secret the `?player=` scoping could not be told apart from no scoping, so the market would be published unscoped. |
+
+These keys take effect on the next server start; `/eco reload` re-reads them but does not rebind an
+already-running listener.
+
+### Threading
+
+The listener runs on its own worker threads, so every snapshot read is marshalled onto the server
+thread with `server.execute(...)` and awaited there — the same contract as `api/v1`, which throws if
+called off the server thread. Nothing is read from the live stores off-thread.
+
+---
+
 ## Inflation signal
 
 ```java
