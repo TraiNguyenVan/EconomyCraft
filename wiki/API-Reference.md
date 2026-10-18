@@ -310,8 +310,8 @@ GET  /economycraft/v1/market[?player=<uuid>]
 POST /economycraft/v1/command?player=<uuid>
 ```
 
-`GET` reads the market. `POST` runs one command, `claimDelivery` — the only thing on either route
-that can change anything.
+`GET` reads the market. `POST` runs one command from the set the snapshot advertises in its
+`commands` field — the only thing on either route that can change anything.
 
 Off by default. The listener is the JDK's built-in HTTP server, so it adds no dependency to the
 mod, and it binds inside the server process only — reaching it is a deployment decision, not
@@ -339,17 +339,18 @@ Each route answers one verb and refuses every other, so a `GET` to the command r
 a `404`. On both routes the verb and the path are checked **before** the token, so a `404` or `405`
 never reads the secret.
 
-**The write route is one command, and nothing more.** `POST /economycraft/v1/command` exists to
-claim a delivery a player already owns: it moves a waiting item out of that player's delivery ledger
-and into that **same player's** inventory. It cannot buy, sell, list, bid, cancel, transfer or
-create anything, it has no argument that names a second player, and it cannot touch a balance. `GET
-/economycraft/v1/market` itself is still read-only by construction — the snapshot it returns has no
-field that reaches a mutation.
+**Every command is scoped to one player and to what that player already owns.** `listItem` moves an
+item out of the caller's own inventory, `buyListing` spends the caller's own balance to buy a listing
+somebody else posted, `cancelListing` returns the caller's own listing, and `claimDelivery` moves the
+caller's own waiting item out of their delivery ledger. No command has an argument that names a
+second player — the counterparty of a purchase is the listing's seller, read from the listing, never
+from the body — so one request still cannot act for, pay, or transfer anything to anybody else. `GET
+/economycraft/v1/market` itself is read-only by construction: the snapshot it returns has no field
+that reaches a mutation.
 
 The token is a shared secret, not a per-player credential: it says a caller is trusted, not which
 player it is. The player is named entirely by the `?player=` scope, and every effect stays inside
-that one uuid — so one request can never move anything between players. The token is never logged
-and never echoed in a response body or an error message.
+that one uuid. The token is never logged and never echoed in a response body or an error message.
 
 ### Response
 
@@ -358,6 +359,8 @@ and never echoed in a response body or an error message.
   "generatedAt": 1760000000000,       // epoch millis, when the snapshot was taken
   "inflationMultiplier": 1.25,       // the same signal as EconomyCraftApi.inflationMultiplier()
   "taxRate": 0.1,                    // the auction-purchase tax rate, see below
+
+  "commands": ["claimDelivery", "listItem", "buyListing", "cancelListing"],
 
   "auctions": [{
     "id": 41,
@@ -405,15 +408,41 @@ and never echoed in a response body or an error message.
 `stack` is the same shape the mod already persists, because it is the same `ItemStack.CODEC`
 encoding. `components` is present only when the item carries components.
 
+**`commands` is the capability signal, and it is always present.** It names the commands this server
+accepts on `POST /economycraft/v1/command`, in the shape `{"cmd": "<name>", ...}`. Gate a UI on it
+rather than on a route probing for a field: an array that is present is a promise that the command is
+served, and it never varies within one jar. This build advertises, in order:
+
+```jsonc
+["claimDelivery", "listItem", "buyListing", "cancelListing"]
+```
+
+A server whose snapshot has no `commands` field at all is an older jar: treat every command other
+than `claimDelivery` as unavailable, and derive `claimDelivery` from whether `you` carried an
+`inventory` or `enderChest` array, which is what Stage 2 published.
+
 **`inventory` and `enderChest` are sparse, and always present.** Each is an array of
 `{"slot": <int>, "stack": <encoded stack>}` in container order, where `slot` is the container index
-the item actually occupies (`0`–`35` for the player's inventory and `0`–`26` for the ender chest;
-armour and the offhand are outside both lists). Only **non-empty** slots are emitted, so a row's
-position in the array is not its slot — read `slot` off the row instead of counting. Both arrays are
-present in every `you` block, including one with nothing to report, where they are empty rather than
-`null` or absent. When the player is online this is their live inventory; when they are offline it is
-read from the server's own player data. The two are never mixed, so a field is either current or
-reported empty, never stale.
+the item actually occupies. Only **non-empty** slots are emitted, so a row's position in the array is
+not its slot — read `slot` off the row instead of counting. Both arrays are present in every `you`
+block, including one with nothing to report, where they are empty rather than `null` or absent. When
+the player is online this is their live inventory; when they are offline it is read from the server's
+own player data. The two are never mixed, so a field is either current or reported empty, never
+stale.
+
+**A `slot` from `inventory` is only addressable when it is below 36**, and that is the one place the
+two states do not agree:
+
+| State | `inventory` slots | Ender chest slots |
+|---|---|---|
+| offline | `0`–`35` only. The server stores armour and the offhand outside the `Inventory` list, so no offline row can name them at all. | `0`–`26` |
+| online | `0`–`40`: `0`–`35` main, `36`–`39` armour, `40` offhand — the live container read sees all 41. | `0`–`26` |
+
+So an **online** snapshot can show a row at `slot: 38`, and every slot-addressed command refuses
+`slot >= 36`. The index means the same thing in both states exactly for `0`–`35`, which is also the
+range the mod's own item picker walks; armour and offhand have no offline counterpart to address, so a
+command that accepted them would escrow a chestplate over HTTP and mean something else entirely to an
+offline player.
 
 **`system` is a tag, not a filter.** The quest board's rows are in `auctions` and `orders` with
 `"system": true` rather than being removed, so a consumer that cannot filter still sees the whole
@@ -439,7 +468,8 @@ private read is never performed for it.
 The same `?player=` scope, parsed the same way, selects the player the command route acts for. Every
 delivery row has a stable `id`, retained when the server saves the delivery ledger. The command uses
 that ID instead of a list position, so a retry cannot silently select the next delivery after an
-earlier request finishes late.
+earlier request finishes late. `you.inventory[].stack` is exactly the stack a `listItem` names, so
+the snapshot and command route agree on which item is which.
 
 ### Command route
 
@@ -448,6 +478,10 @@ POST /economycraft/v1/command?player=<uuid>
 X-EconomyCraft-Token: <http_market_token>
 
 { "cmd": "claimDelivery", "deliveryId": "<delivery-uuid>" }
+{ "cmd": "listItem", "slot": 12, "count": 8, "price": 250,
+  "item": { "id": "minecraft:diamond", "count": 8 }, "description": "spare" }
+{ "cmd": "buyListing", "id": 293 }
+{ "cmd": "cancelListing", "id": 293 }
 ```
 
 The `?player=` scope is **required** here and names the account every command acts for; a missing or
@@ -458,6 +492,18 @@ command and whose remaining fields are its arguments. Bodies larger than 64 KiB 
 | `cmd` | Arguments | Effect |
 |---|---|---|
 | `claimDelivery` | `deliveryId` (UUID, required) | Moves the delivery with that ID in **that player's own** `you.deliveries` into that player's own inventory, then removes it from the delivery ledger. |
+command and whose remaining fields are its arguments. `cmd` must be one of the names in the
+snapshot's `commands` array; anything else is `unknown command: <cmd>`. Bodies larger than 64 KiB are
+rejected with `413`.
+
+| `cmd` | Arguments | Effect |
+|---|---|---|
+| `claimDelivery` | `deliveryId` (UUID, required) | Moves the delivery with that ID in **that player's own** `you.deliveries` into that player's own inventory, then removes it from the delivery ledger. |
+| `listItem` | `slot` (integer, required), `count` (integer, required), `price` (integer, required), `item` (encoded stack, required), `description` (string, optional) | Takes `count` items out of `slot` of **that player's own** `you.inventory`, and posts them as a new listing for `price` with `description` as its text. The reply's `id` is the new listing. |
+| `buyListing` | `id` (integer, required) | Buys the listing `id` for **that player**. The caller pays the ask plus the auction-purchase tax; the seller receives the ask and is told who bought it. The item is delivered to the caller's inventory or, if that will not take it, to their deliveries mailbox. |
+| `cancelListing` | `id` (integer, required) | Removes the caller's own listing `id`. The escrowed stack returns to the caller's inventory or, if that will not take it, to their deliveries mailbox. |
+
+#### `claimDelivery`
 
 Use the `id` from the delivery row in a recent snapshot. If the request times out after the claim has
 run, retrying that ID cannot claim a different delivery; the server returns `no delivery with id`
@@ -468,12 +514,69 @@ ledger, and a placement that does not fully fit is rolled back, so a refusal lea
 and the inventory exactly as they were. A refused claim is therefore safe to retry, and a successful
 one cannot hand the same item out twice.
 
-Every command returns the same shape:
+#### `listItem`
+
+`slot` must be `0`–`35` — see the slot table above; armour and the offhand are refused. `item` is the
+encoded stack exactly as `you.inventory[].stack` gave it: send the whole object back, not just its id.
+
+The mod re-reads the slot from whichever inventory is authoritative **at execution time** and refuses
+if it no longer holds that item. The comparison is on the item and its components, so a request built
+from a stale page cannot list the wrong thing; the count is deliberately **not** compared, so listing
+fewer than you hold is legitimate. `count` is refused only when it exceeds what the slot holds, and
+`price` follows the same bounds `/ah sell` enforces (`1` upward).
+
+`description` runs through the same sanitiser the in-game command uses: line breaks are stripped, it
+is trimmed, blank becomes no description, and it is capped at 100 characters.
+
+Ordering, so that no item can be lost or duplicated: the slot is validated first, the listing is
+created only after the item has left the inventory, and if creating the listing fails the stack is
+placed in the caller's **deliveries mailbox** instead — a delivery the caller can claim, never a lost
+stack. A double-submit is harmless here for the same reason: the second request finds the stack gone
+or reduced and refuses. Because the route never retries a write, that re-read is the whole
+protection.
+
+The caller is charged nothing for a listing, so a successful `listItem` reports `total: 0`.
+
+#### `buyListing`
+
+The listing is claimed before anything is paid, and put back if the payment fails, so a refusal costs
+nothing. A caller cannot buy their own listing.
+
+`total` in the reply is what the caller was actually charged, tax included. The tax is the buyer's,
+as it is in the game, and the seller receives the whole ask. A Monarchy import surcharge or a
+per-player Merchant discount means the client cannot compute `total` in advance from `taxRate` alone
+— show the ask on a confirmation step and the reply's `total` on the receipt.
+
+The sale is the mod's own auction purchase, the one the in-game menu runs, so the buyback rules, the
+seller's sale notification and the delivery fallback behave identically over HTTP. Quest-board
+listings (those with `system: true`) are buyable and are tax-free by design, as they are in the game.
+
+#### `cancelListing`
+
+Only the caller's own listing can be cancelled: an id that belongs to somebody else is refused, with
+the same reason the in-game menu uses. No money moves either way, and `total` and `paid` are `0`.
+
+#### Replies
+
+Every command returns the same shape, with `COMMAND_GSON`'s nulls serialised, so every field is
+present on every answer:
 
 ```jsonc
-{ "ok": true,  "error": null }        // success: `error` is always present, and null here
-{ "ok": false, "error": "inventory full" }
+{ "ok": true,  "error": null,  "id": 1031, "total": 0, "paid": 0, "stored": false }
+{ "ok": false, "error": "not enough balance", "id": null, "total": 0, "paid": 0, "stored": false }
 ```
+
+- `error` — the refusal, or `null`
+- `id` — the created or acted-on listing id on success; `null` on a refusal
+- `total` — what the caller was charged: the buy's price plus tax, `0` for the others
+- `paid` — what the caller received net of tax. Nothing on this route pays the caller, so it is `0`
+  for all four commands today; the field exists because the shape is shared with the order commands.
+- `stored` — `true` when an item went to the deliveries mailbox instead of the caller's inventory.
+  This can be `true` on a refusal: a `listItem` whose listing could not be created returns
+  `ok:false` **and** `stored:true`, and the caller's item is waiting in their deliveries.
+
+`ok` is the only thing to branch on. A `200` means `ok:true` and a `400` means `ok:false`, and the
+reason is for diagnosis — the set of reasons can grow without the contract changing.
 
 | `error` | When |
 |---|---|
@@ -484,16 +587,39 @@ Every command returns the same shape:
 | `deliveryId must be a UUID` | `deliveryId` is not a UUID |
 | `no delivery with id <uuid>` | that delivery is no longer in the player's ledger |
 | `inventory full` | the whole stack would not fit, so nothing was claimed |
+| `the auction house is disabled` | `auction_enabled` is off, so `listItem`, `buyListing` and `cancelListing` are refused |
+| `listItem requires an integer slot` / `slot must be an integer` | `listItem` was called with no `slot`, or one that is not a whole number |
+| `slot must be between 0 and 35` | the slot is outside the addressable range, e.g. armour online |
+| `listItem requires an integer count` / `count must be an integer` | `listItem` was called with no `count`, or one that is not a whole number |
+| `count must be at least 1` | the count is zero or negative |
+| `you only have <n> in that slot` | the count exceeds what the slot held at execution time |
+| `listItem requires an integer price` / `price must be an integer` | `listItem` was called with no `price`, or one that is not a whole number |
+| `price must be at least 1` / `price must be at most <max>` | the price is outside the bounds `/ah sell` enforces |
+| `listItem requires an encoded item` | `item` is missing or is not the encoded stack object |
+| `description must be text` | `description` was sent as something other than a string |
+| `the slot no longer holds that item` | the slot's contents no longer match the `item` that was sent — a stale page |
+| `you have reached your limit of <n> active listing(s)` | the caller is at their per-player listing limit |
+| `that item could not be taken out of your inventory` | an offline player's player data could not be rewritten, so nothing was listed |
+| `could not list that item` | the listing could not be created; the item is in the caller's deliveries, and `stored` is `true` |
+| `buyListing requires an integer id` / `id must be an integer` | `buyListing` was called with no `id`, or one that is not a whole number |
+| `cancelListing requires an integer id` | as above, for `cancelListing` |
+| `id must be at least 1` | the id is zero or negative |
+| `you cannot buy your own listing` | `buyListing` named a listing the caller is selling |
+| `not enough balance` | the caller cannot afford the ask plus tax |
+| `seller cannot receive this payment` | the seller is at the balance ceiling, so the sale was rolled back |
+| `listing no longer available` | the id names no listing, or it is gone, or — for `buyListing` — it went while the request was in flight |
+| `you don't own this listing` | `cancelListing` named somebody else's listing |
 | `command failed` | an unexpected fault while running the command; the exception itself is written to the server log, never to the reply |
 | `command unavailable` | the server could not answer (returned with `500`) |
 
 Those are the reasons the route returns today. Branch on `ok`, not on the string — the reason is for
 diagnosis, and the set of reasons can grow without the contract changing.
 
-**What it is not.** The route moves a delivery and does nothing else. It cannot buy, sell, list, bid,
-cancel, transfer or create a listing, an order or a delivery; it cannot change a balance; and it has
-no argument that names a second player, so a request can only ever put a player's own waiting item
-into that same player's own inventory. There is no command to act on another player's behalf.
+**What it is not.** The route acts only on what the caller already has. It has no argument that names
+a second player, so it cannot pay, gift or transfer to anybody else; it cannot place a buy-order or
+deliver into one; it cannot bid, offer or negotiate a price; and it cannot touch another player's
+balance, inventory, deliveries or listings. There is no command to act on another player's behalf,
+and every effect stays inside the `?player=` uuid.
 
 ### What it deliberately does not expose
 
@@ -509,7 +635,7 @@ it never exposes, in any form:
 | wealth tax settings or results | not part of a market view |
 | faction / party data | would leak who is in which party |
 | gossip or villager data | private to the server's own AI feature |
-| admin reset capability | the one command moves a delivery a player already owns into that player's own inventory; it cannot reset, erase, or grant anything, and it cannot reach a balance |
+| admin reset capability | no command can reset, erase or grant anything. `listItem` and `cancelListing` move stacks the caller already owned; `buyListing` spends the caller's own balance, and both of those go through the same implementations the in-game menus use, so neither can do more than the game already could |
 
 ### Configuration
 
