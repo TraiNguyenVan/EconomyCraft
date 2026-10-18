@@ -32,10 +32,19 @@ class MarketSnapshotModelTest {
     private static final UUID STRANGER = UUID.fromString("00000000-0000-4000-8000-000000000009");
 
     private static JsonObject stack(String id) {
+        return stack(id, 1);
+    }
+
+    private static JsonObject stack(String id, int count) {
         JsonObject json = new JsonObject();
         json.addProperty("id", id);
-        json.addProperty("count", 1);
+        json.addProperty("count", count);
         return json;
+    }
+
+    /** A container row: the encoded stack the caller supplies, and the slot it was read from. */
+    private static MarketSnapshotModel.Slot slot(int index, String id, int count) {
+        return new MarketSnapshotModel.Slot(index, stack(id, count));
     }
 
     private static MarketSnapshotModel.Auction auction(int id, UUID seller, long price) {
@@ -59,13 +68,30 @@ class MarketSnapshotModelTest {
     }
 
     private static MarketSnapshotModel.PrivateRows owned(long balance, int deliveries) {
+        return owned(balance, deliveries, List.of(), List.of());
+    }
+
+    private static MarketSnapshotModel.PrivateRows owned(long balance, int deliveries,
+                                                         List<MarketSnapshotModel.Slot> inventory,
+                                                         List<MarketSnapshotModel.Slot> enderChest) {
         return player -> {
             List<MarketSnapshotModel.Delivery> stacks = new ArrayList<>();
             for (int i = 0; i < deliveries; i++) {
                 stacks.add(new MarketSnapshotModel.Delivery(stack("minecraft:apple")));
             }
-            return new MarketSnapshotModel.PrivateState(balance, stacks);
+            return new MarketSnapshotModel.PrivateState(balance, stacks, inventory, enderChest);
         };
+    }
+
+    /** The serialised {@code you} block, which is where the container contract lives. */
+    private static JsonObject privateBlock(MarketSnapshotModel.PrivateRows rows) {
+        return privateBlock(ALICE, rows);
+    }
+
+    private static JsonObject privateBlock(UUID scope, MarketSnapshotModel.PrivateRows rows) {
+        return JsonParser.parseString(new Gson().toJson(build(scope, rows)))
+                .getAsJsonObject()
+                .getAsJsonObject("you");
     }
 
     private static List<MarketSnapshotModel.Player> roster() {
@@ -132,6 +158,66 @@ class MarketSnapshotModelTest {
         assertEquals(1L, you.balance());
         assertTrue(you.listings().isEmpty());
         assertTrue(you.orders().isEmpty());
+    }
+
+    @Test
+    @DisplayName("inventory and ender chest rows carry the slot they were read from")
+    void containerRowsNameTheirSlot() {
+        JsonObject you = privateBlock(owned(20191L, 1,
+                List.of(slot(0, "minecraft:diamond_hoe", 1)),
+                List.of(slot(3, "minecraft:amethyst_shard", 7))));
+
+        JsonObject held = you.getAsJsonArray("inventory").get(0).getAsJsonObject();
+        assertEquals(List.of("slot", "stack"), held.keySet().stream().sorted().toList(),
+                "an inventory row is a slot index and a stack, and nothing else");
+        assertEquals(0, held.get("slot").getAsInt(), "the row must name the slot it came from");
+        assertEquals(stack("minecraft:diamond_hoe", 1), held.get("stack"),
+                "the container row's stack is the encoded stack the caller supplied, unwrapped");
+
+        JsonObject stored = you.getAsJsonArray("enderChest").get(0).getAsJsonObject();
+        assertEquals(List.of("slot", "stack"), stored.keySet().stream().sorted().toList());
+        assertEquals(3, stored.get("slot").getAsInt());
+        assertEquals(stack("minecraft:amethyst_shard", 7), stored.get("stack"));
+    }
+
+    @Test
+    @DisplayName("the deliveries shape is unchanged beside the new container rows")
+    void deliveriesShapeIsUnchanged() {
+        JsonObject you = privateBlock(owned(4242L, 1, List.of(slot(9, "minecraft:stone", 4)), List.of()));
+
+        JsonObject delivery = you.getAsJsonArray("deliveries").get(0).getAsJsonObject();
+        assertEquals(List.of("stack"), delivery.keySet().stream().sorted().toList(),
+                "a delivery row must still be a bare stack, with no slot added to it");
+        assertEquals(stack("minecraft:apple", 1), delivery.get("stack"));
+    }
+
+    @Test
+    @DisplayName("an empty container is an empty array, never null and never absent")
+    void emptyContainersAreEmptyArrays() {
+        JsonObject you = privateBlock(owned(4242L, 0));
+
+        assertTrue(you.has("inventory"), "`you.inventory` must be present even when the player holds nothing");
+        assertTrue(you.has("enderChest"), "`you.enderChest` must be present even when the ender chest is empty");
+        assertFalse(you.get("inventory").isJsonNull(), "`you.inventory` must be an array, not null");
+        assertFalse(you.get("enderChest").isJsonNull(), "`you.enderChest` must be an array, not null");
+        assertEquals(0, you.getAsJsonArray("inventory").size());
+        assertEquals(0, you.getAsJsonArray("enderChest").size());
+    }
+
+    @Test
+    @DisplayName("a private block with no rows at all is still the documented six keys")
+    void privateBlockWithoutRowsCarriesBothContainers() {
+        // Bob sells nothing, orders nothing and holds nothing: every list here is empty, which is the
+        // case a consumer reads before it has any reason to expect a container field to exist.
+        JsonObject you = privateBlock(BOB, owned(0L, 0));
+
+        assertEquals(List.of("balance", "deliveries", "enderChest", "inventory", "listings", "orders"),
+                you.keySet().stream().sorted().toList(),
+                "the private block's keys are the contract; a new or missing one is a breaking change");
+        for (String list : List.of("deliveries", "listings", "orders", "inventory", "enderChest")) {
+            assertTrue(you.has(list), "`you." + list + "` went missing");
+            assertEquals(0, you.getAsJsonArray(list).size(), "`you." + list + "` should be empty");
+        }
     }
 
     @Test

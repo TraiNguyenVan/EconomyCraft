@@ -28,21 +28,21 @@ The tax tools move player balances. **Reset Entire Economy** also deletes transa
 
 Some configuration sections are file-only. Edit `config/economycraft/config.json` and use **Reload from disk** to apply them. The [bundled `config.json`](https://github.com/TraiNguyenVan/EconomyCraft/blob/main/common/src/main/resources/assets/economycraft/config.json) lists the exact setting names and shipped defaults; refer to that file when tuning values.
 
-## Read-only HTTP market snapshot
+## HTTP market snapshot and command endpoint
 
-EconomyCraft can publish the auction and order market as JSON for a consumer that is not an in-process mod. It is off by default, and the three keys that control it are:
+EconomyCraft can publish the auction and order market as JSON, and accept one player-scoped command, for a consumer that is not an in-process mod. Both are off by default and share one listener and the three keys that control it:
 
 | Key | Default | Meaning |
 |---|---|---|
 | `http_market_enabled` | `false` | Master switch for the listener. |
 | `http_market_port` | `0` | Bind port. `0` binds an ephemeral port, which is logged at server start. |
-| `http_market_token` | `""` | Shared secret for the `X-EconomyCraft-Token` request header. Empty means the route refuses to start. |
+| `http_market_token` | `""` | Shared secret for the `X-EconomyCraft-Token` request header, on both routes. Empty means the listener refuses to start. |
 
-Set a token before enabling it — an empty token leaves the route closed, because the snapshot's per-player scoping depends on knowing who is asking.
+Set a token before enabling it — an empty token leaves both routes closed, because per-player scoping and the command route both depend on knowing who is asking.
 
 The listener starts with the server and stops with it. These keys take effect on the next start; **Reload from disk** re-reads them but does not rebind a running listener.
 
-The route, its auth requirement and the data it deliberately never exposes are documented in the [API reference](API-Reference.md#http-market-snapshot). The port it binds is printed in the log at start; the token never is.
+The market route serves `GET /economycraft/v1/market`, which reads and never writes. The command route serves `POST /economycraft/v1/command`, which runs one command — `claimDelivery`, moving a delivery a player already owns into that same player's own inventory. It cannot buy, sell, list, bid, cancel or transfer anything. Both routes, their auth requirement and the data they deliberately never expose are documented in the [API reference](API-Reference.md#http-market-snapshot). The port the listener binds is printed in the log at start; the token never is.
 
 ## Commands
 
