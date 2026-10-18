@@ -317,6 +317,26 @@ class MarketSnapshotModelTest {
                 "Bob's uuid leaked into the private block");
     }
 
+    @Test
+    @DisplayName("the commands this jar serves are advertised, present in every snapshot")
+    void commandsAreAlwaysAdvertised() {
+        // A consumer gates a whole UI on this array, so it is present even for an unscoped request
+        // with no `you` block, and it does not vary between two snapshots of the same jar.
+        JsonObject unscoped = JsonParser.parseString(new Gson().toJson(build(null, refusing()))).getAsJsonObject();
+        JsonObject scoped = JsonParser.parseString(new Gson().toJson(build(ALICE, owned(1L, 0)))).getAsJsonObject();
+
+        for (JsonObject json : List.of(unscoped, scoped)) {
+            assertTrue(json.has("commands"), "`commands` went missing from the snapshot");
+            assertEquals(List.of("claimDelivery", "listItem", "buyListing", "cancelListing",
+                            "placeOrder", "cancelOrder", "deliverOrder"),
+                    json.getAsJsonArray("commands").asList().stream()
+                            .map(element -> element.getAsString()).toList(),
+                    "the advertised command list is the contract a consumer gates on");
+        }
+        assertEquals(MarketSnapshotModel.COMMANDS, build(null, refusing()).commands(),
+                "the published array is the model's own list, not a copy of it");
+    }
+
     private static JsonObject findAuction(JsonObject json, int id) {
         for (var element : json.getAsJsonArray("auctions")) {
             JsonObject row = element.getAsJsonObject();

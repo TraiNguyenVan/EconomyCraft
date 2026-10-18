@@ -2,7 +2,6 @@ package com.reazip.economycraft.market;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mojang.logging.LogUtils;
 import com.mojang.serialization.JsonOps;
@@ -10,6 +9,9 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.auction.AuctionListing;
+import com.reazip.economycraft.auction.AuctionManager;
+import com.reazip.economycraft.auction.AuctionTrade;
+import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.orders.OrderRequest;
 import com.reazip.economycraft.util.DeliveryLedger;
@@ -19,17 +21,9 @@ import com.reazip.economycraft.tax.TaxScope;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.Tag;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.Container;
-import net.minecraft.world.ItemStackWithSlot;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.storage.LevelResource;
@@ -42,9 +36,6 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,15 +48,20 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * {@code GET /economycraft/v1/market} — the market as JSON — and {@code POST /economycraft/v1/command}
- * — one write, {@code claimDelivery} — for a consumer that is not an in-process mod. Started with the
- * server and stopped with it.
+ * — the write commands the snapshot advertises in {@code commands} — for a consumer that is not an
+ * in-process mod. Started with the server and stopped with it.
  *
  * <p>Two contexts, each answering one verb and refusing every other: the market route is read-only by
  * construction, because the snapshot it returns has no field that reaches a mutation, and the command
- * route accepts exactly the one command named below and refuses every other name. Both demand the
- * shared secret before the route is resolved, and it is never logged or echoed back. Writes never
- * happen on a worker thread: the command hops to the server thread and waits there, so a mutation can
- * only ever run where every other mutation in this mod runs.
+ * route accepts exactly the names in {@link MarketSnapshotModel#COMMANDS} and refuses every other
+ * name. Both demand the shared secret before the route is resolved, and it is never logged or echoed
+ * back. Writes never happen on a worker thread: the command hops to the server thread and waits
+ * there, so a mutation can only ever run where every other mutation in this mod runs.
+ *
+ * <p>What this class keeps for itself is only the part that needs the server: reading the live state
+ * a command is validated against and running the mutation. Parsing and validation are
+ * {@link MarketCommandArgs}, offline player data is {@link OfflineInventory}, and the one ordering
+ * that must not lose an item is {@link ListingTransaction}.
  *
  * <p>The listener binds in the server's own network namespace. Reaching it is a deployment decision
  * — this class publishes nothing and opens nothing outside the process.
@@ -87,16 +83,6 @@ public final class MarketSnapshotServer {
     private static final Gson COMMAND_GSON = new GsonBuilder().serializeNulls().create();
     /** Long enough for a tick to answer, short enough that a wedged server thread frees the worker. */
     private static final long REQUEST_TIMEOUT_MS = 5_000L;
-    /** The player-data NBT keys, spelled as the server's own save/load spell them. */
-    private static final String INVENTORY_KEY = "Inventory";
-    private static final String ENDER_ITEMS_KEY = "EnderItems";
-    private static final String SLOT_KEY = "Slot";
-    /**
-     * Slots 0–35 of a player's inventory. Armour and offhand are 36–40 live, but the server stores
-     * them outside the {@code Inventory} list, so an offline player's own list can only ever name
-     * these.
-     */
-    private static final int OFFLINE_INVENTORY_SLOTS = 36;
 
     private static volatile MarketSnapshotServer active;
 
@@ -181,13 +167,13 @@ public final class MarketSnapshotServer {
     }
 
     /**
-     * {@code POST /economycraft/v1/command} — a single synchronous write, executed on the server
-     * thread and answered with the outcome. The body names the command and its arguments; the
+     * {@code POST /economycraft/v1/command} — one synchronous write per request, executed on the
+     * server thread and answered with the outcome. The body names the command and its arguments; the
      * {@code ?player=} scope names the account it acts for, exactly as the snapshot does.
      *
      * <p>Every command is validated against the live state before anything is mutated, and the
      * mutation itself is the last step — a failure anywhere above it leaves the world untouched.
-     * The response is always {@code {ok:true}} or {@code {ok:false,error:"..."}}; there is no
+     * The response is always {@code {ok:true,...}} or {@code {ok:false,error:"..."}}; there is no
      * partial success.
      *
      * <p>The verb and path are checked before the token, so a caller that has not worked out the
@@ -282,8 +268,17 @@ public final class MarketSnapshotServer {
     private CommandResult dispatch(UUID scope, String cmd, JsonObject json) {
         EconomyManager eco = EconomyCraft.getManager(server);
         eco.requireServerThread();
+        // The names here and MarketSnapshotModel.COMMANDS are one advertisement: a command this
+        // switch serves but the snapshot does not name is invisible to a consumer, and one the
+        // snapshot names but this switch does not serve is a broken promise. Change both together.
         return switch (cmd) {
             case "claimDelivery" -> claimDelivery(eco, scope, json);
+            case "listItem" -> listItem(eco, scope, json);
+            case "buyListing" -> buyListing(eco, scope, json);
+            case "cancelListing" -> cancelListing(eco, scope, json);
+            case "placeOrder" -> placeOrder(eco, scope, json);
+            case "cancelOrder" -> cancelOrder(eco, scope, json);
+            case "deliverOrder" -> deliverOrder(eco, scope, json);
             default -> new CommandResult(false, "unknown command: " + cmd);
         };
     }
@@ -294,17 +289,9 @@ public final class MarketSnapshotServer {
      * were, because a caller cannot tell a duplicate from a delivery it already had.
      */
     private CommandResult claimDelivery(EconomyManager eco, UUID player, JsonObject json) {
-        JsonElement requested = json.get("deliveryId");
-        if (requested == null || !requested.isJsonPrimitive()
-                || !requested.getAsJsonPrimitive().isString()) {
-            return new CommandResult(false, "claimDelivery requires a deliveryId UUID");
-        }
-        UUID deliveryId;
-        try {
-            deliveryId = UUID.fromString(requested.getAsString());
-        } catch (IllegalArgumentException notAnId) {
-            return new CommandResult(false, "deliveryId must be a UUID");
-        }
+        MarketCommandArgs.Parsed<MarketCommandArgs.ClaimDelivery> parsed = MarketCommandArgs.claimDelivery(json);
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        UUID deliveryId = parsed.value().deliveryId();
 
         // A stable id keeps retries tied to this delivery even if an earlier timed-out request ran
         // after the caller received its 500 response. A list index could silently select the next row.
@@ -323,6 +310,245 @@ public final class MarketSnapshotServer {
         // Only now that the item is somewhere safe do we drop it from the delivery ledger.
         eco.getDeliveries().removeDelivery(player, deliveryId);
         return new CommandResult(true, null);
+    }
+
+    /**
+     * Lists one stack out of the caller's own inventory and answers with the new listing's id.
+     *
+     * <p>The order is the whole safety argument, and it is not the obvious one. There is no
+     * transaction spanning a player's inventory and the auction store, so:
+     * <ol>
+     *   <li>the slot is re-read <em>here</em>, on the server thread, from whichever inventory is
+     *       authoritative, and the range, count, price, per-player limit and item fingerprint are all
+     *       checked against that read — never against the page the request was built from;</li>
+     *   <li>only then is the item taken out of the inventory;</li>
+     *   <li>and only then is the listing created, with {@link ListingTransaction} owning what happens
+     *       if that write fails.</li>
+     * </ol>
+     * The invariant across all three: <strong>the item is always in the inventory, in a listing, or
+     * in the deliveries mailbox</strong> — never lost, never duplicated. A refusal anywhere above step
+     * 2 leaves the inventory exactly as it was, which is also what makes a double-submit harmless: the
+     * second request finds the stack gone or reduced and refuses.
+     */
+    private CommandResult listItem(EconomyManager eco, UUID player, JsonObject json) {
+        if (!EconomyConfig.get().auctionEnabled) {
+            return new CommandResult(false, "the auction house is disabled");
+        }
+
+        ServerPlayer online = server.getPlayerList().getPlayer(player);
+        OfflineInventory offline = offlineInventory();
+
+        // (a) Everything the request claims is checked against the slot's live contents. The held count
+        // the parser caps `count` with is that same live count.
+        MarketCommandArgs.Parsed<MarketCommandArgs.ListItem> parsed =
+                MarketCommandArgs.listItem(json, slot -> liveStack(online, offline, player, slot).getCount());
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        MarketCommandArgs.ListItem args = parsed.value();
+
+        ItemStack expected = ItemStack.CODEC
+                .parse(RegistryOps.create(JsonOps.INSTANCE, server.registryAccess()), args.item())
+                .result()
+                .orElse(ItemStack.EMPTY);
+        ItemStack live = liveStack(online, offline, player, args.slot());
+        if (expected.isEmpty() || live.isEmpty() || live.getCount() != expected.getCount()
+                || !ItemStack.isSameItemSameComponents(live, expected)) {
+            // The encoded stack is also the request's snapshot of how many were in the slot when it
+            // was built. Requiring that count to remain unchanged makes a delayed retry of a partial
+            // listing refuse after the first request has reduced the stack. `args.count()` may still
+            // be smaller than the held count. An unreadable `item` is the same refusal, because a
+            // fingerprint that cannot be computed is not one that matched.
+            return new CommandResult(false, "the slot no longer holds that item");
+        }
+
+        AuctionManager auctions = eco.getAuctions();
+        if (auctions.hasReachedLimit(player)) {
+            return new CommandResult(false, "you have reached your limit of "
+                    + auctions.getEffectiveLimit(player) + " active listing(s)");
+        }
+
+        // (b) Take the item. It now belongs to nobody, so every exit from here must place it.
+        ItemStack taken;
+        if (online != null) {
+            ItemStack slotStack = online.getInventory().getItem(args.slot());
+            taken = slotStack.copyWithCount(args.count());
+            slotStack.shrink(args.count());
+            // shrink() leaves a zero-count stack behind; clearing it keeps the slot as visibly empty
+            // to every other reader as it is to the inventory.
+            if (slotStack.isEmpty()) online.getInventory().setItem(args.slot(), ItemStack.EMPTY);
+        } else {
+            taken = live.copyWithCount(args.count());
+            if (!offline.removeFromSlot(player, args.slot(), args.count())) {
+                return new CommandResult(false, "that item could not be taken out of your inventory");
+            }
+        }
+
+        // (c)/(d) Create the listing, or compensate into the mailbox. The item is never left nowhere.
+        ListingTransaction.Result listed = ListingTransaction.list(auctions, player, taken, args.price(),
+                args.description(), EconomyConfig.get().auctionExpirationHours);
+        if (!listed.ok()) {
+            return new CommandResult(false, listed.error(), null, 0L, 0L, listed.stored());
+        }
+        return new CommandResult(true, null, listed.id(), 0L, 0L, false);
+    }
+
+    /**
+     * Buys someone else's listing for the caller. Delegates to the one purchase implementation, so
+     * the web route cannot diverge from the menu on tax, the buyback branch or the seller's
+     * notification. `total` is what the caller was charged, including the buyer's tax.
+     */
+    private CommandResult buyListing(EconomyManager eco, UUID buyer, JsonObject json) {
+        if (!EconomyConfig.get().auctionEnabled) {
+            return new CommandResult(false, "the auction house is disabled");
+        }
+        MarketCommandArgs.Parsed<Integer> parsed = MarketCommandArgs.listingId(json, "buyListing");
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        int id = parsed.value();
+
+        AuctionTrade.PurchaseResult result = AuctionTrade.purchaseFor(eco, buyer, id);
+        return switch (result.status()) {
+            case OK -> new CommandResult(true, null, id, result.totalPaid(), 0L, result.stored());
+            case OWN_LISTING -> new CommandResult(false, "you cannot buy your own listing");
+            case CANT_AFFORD -> new CommandResult(false, "not enough balance");
+            case SELLER_CANT_RECEIVE -> new CommandResult(false, "seller cannot receive this payment");
+            case LISTING_GONE -> new CommandResult(false, "listing no longer available");
+        };
+    }
+
+    /**
+     * Un-lists one of the caller's own listings, returning the item. Delegates to the one
+     * cancellation implementation; no money is involved either way, and an offline seller gets the
+     * stack in their deliveries mailbox instead of an inventory.
+     */
+    private CommandResult cancelListing(EconomyManager eco, UUID seller, JsonObject json) {
+        if (!EconomyConfig.get().auctionEnabled) {
+            return new CommandResult(false, "the auction house is disabled");
+        }
+        MarketCommandArgs.Parsed<Integer> parsed = MarketCommandArgs.listingId(json, "cancelListing");
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        int id = parsed.value();
+
+        AuctionTrade.CancelResult result = AuctionTrade.cancelFor(eco.getAuctions(), seller, id);
+        return switch (result.status()) {
+            case OK -> new CommandResult(true, null, id, 0L, 0L, result.stored());
+            case NOT_OWNER -> new CommandResult(false, "you don't own this listing");
+            case LISTING_GONE -> new CommandResult(false, "listing no longer available");
+        };
+    }
+
+    /**
+     * Posts a buy-order: escrows {@code price} up front and answers with the new order's id.
+     * The item is only a prototype read from the slot — nothing is taken from the inventory.
+     */
+    private CommandResult placeOrder(EconomyManager eco, UUID player, JsonObject json) {
+        if (!EconomyConfig.get().ordersEnabled) {
+            return new CommandResult(false, "orders are disabled");
+        }
+        ServerPlayer online = server.getPlayerList().getPlayer(player);
+        OfflineInventory offline = offlineInventory();
+
+        MarketCommandArgs.Parsed<MarketCommandArgs.PlaceOrder> parsed = MarketCommandArgs.placeOrder(json);
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        MarketCommandArgs.PlaceOrder args = parsed.value();
+
+        ItemStack expected = ItemStack.CODEC
+                .parse(RegistryOps.create(JsonOps.INSTANCE, server.registryAccess()), args.item())
+                .result()
+                .orElse(ItemStack.EMPTY);
+        ItemStack live = liveStack(online, offline, player, args.slot());
+        if (expected.isEmpty() || live.isEmpty() || !ItemStack.isSameItemSameComponents(live, expected)) {
+            return new CommandResult(false, "the slot no longer holds that item");
+        }
+
+        OrderManager orders = eco.getOrders();
+        if (orders.hasReachedLimit(player)) {
+            return new CommandResult(false, "you have reached your limit of "
+                    + orders.getEffectiveLimit(player) + " active order request(s)");
+        }
+        int maxAmount = MarketCommandArgs.MAIN_INVENTORY_SLOTS * live.getMaxStackSize();
+        if (args.amount() > maxAmount) {
+            return new CommandResult(false, "amount exceeds " + MarketCommandArgs.MAIN_INVENTORY_SLOTS + " stacks (max " + maxAmount + ")");
+        }
+
+        ItemStack prototype = live.copyWithCount(1);
+        String desc = args.description();
+        if (desc != null) {
+            desc = desc.replace("\r", "").replace("\n", "").trim();
+            if (desc.isEmpty()) desc = null;
+            else if (desc.length() > 100) desc = desc.substring(0, 100);
+        }
+
+        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, player, prototype, args.amount(),
+                args.price(), desc);
+        if (request == null) {
+            return new CommandResult(false, "you can't afford to reserve " + EconomyCraft.formatMoney(args.price()));
+        }
+        return new CommandResult(true, null, request.id, 0L, 0L, false);
+    }
+
+    /**
+     * Cancels one of the caller's own orders and refunds the escrow.
+     */
+    private CommandResult cancelOrder(EconomyManager eco, UUID player, JsonObject json) {
+        if (!EconomyConfig.get().ordersEnabled) {
+            return new CommandResult(false, "orders are disabled");
+        }
+        MarketCommandArgs.Parsed<Integer> parsed = MarketCommandArgs.listingId(json, "cancelOrder");
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        int id = parsed.value();
+
+        OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(eco, player, id);
+        return switch (status) {
+            case OK -> new CommandResult(true, null, id, 0L, 0L, false);
+            case NOT_OWNER -> new CommandResult(false, "you don't own this order");
+            case ORDER_GONE -> new CommandResult(false, "order no longer available");
+            case REFUND_FAILED -> new CommandResult(false, "the escrow could not be refunded");
+        };
+    }
+
+    /**
+     * Delivers into someone else's order. Online players only for this cut — an offline fulfiller's
+     * items would have to come out of player-data NBT, and that write can fail after the payout.
+     */
+    private CommandResult deliverOrder(EconomyManager eco, UUID player, JsonObject json) {
+        if (!EconomyConfig.get().ordersEnabled) {
+            return new CommandResult(false, "orders are disabled");
+        }
+        ServerPlayer online = server.getPlayerList().getPlayer(player);
+        if (online == null) {
+            return new CommandResult(false, "you must be online to deliver an order");
+        }
+        MarketCommandArgs.Parsed<MarketCommandArgs.DeliverOrder> parsed = MarketCommandArgs.deliverOrder(json);
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        MarketCommandArgs.DeliverOrder args = parsed.value();
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, online, args.id(), args.amount());
+        return switch (result.status()) {
+            case OK -> new CommandResult(true, null, args.id(), result.payment(), result.payout(), false);
+            case OWN_ORDER -> new CommandResult(false, "you cannot fulfill your own request");
+            case ORDER_GONE -> new CommandResult(false, "order no longer available");
+            case INVALID_AMOUNT -> new CommandResult(false, "invalid amount");
+            case FULL_AMOUNT_REQUIRED -> new CommandResult(false, "this request must be fulfilled all at once.");
+            case NOT_ENOUGH_ITEMS -> new CommandResult(false, "you don't have enough of that item");
+            case REQUESTER_CANT_PAY -> new CommandResult(false, "requester can't pay");
+            case FULFILLER_CANT_RECEIVE -> new CommandResult(false, "your balance is too high to receive this payout");
+        };
+    }
+
+    /**
+     * The stack one slot holds in whichever inventory is authoritative for this player right now, or
+     * empty for a slot a command may not address. The live container for an online player, the
+     * player-data NBT for an offline one — the same split the snapshot reads through, so a command
+     * validates against the very rows it was built from.
+     */
+    private ItemStack liveStack(@Nullable ServerPlayer online, OfflineInventory offline, UUID player, int slot) {
+        if (slot < 0 || slot >= MarketCommandArgs.MAIN_INVENTORY_SLOTS) return ItemStack.EMPTY;
+        if (online != null) return online.getInventory().getItem(slot);
+        return offline.readSlot(player, slot);
+    }
+
+    /** The player-data machinery for this server. Server thread only: it reads the registries. */
+    private OfflineInventory offlineInventory() {
+        return new OfflineInventory(server.getWorldPath(LevelResource.PLAYER_DATA_DIR), server.registryAccess());
     }
 
     /**
@@ -370,10 +596,7 @@ public final class MarketSnapshotServer {
     }
 
     /**
-     * Appends one whole stack to an offline player's inventory, in the same player-data NBT the
-     * server writes when they log out. The file is only rewritten once the stack has a slot to go in,
-     * and it is written through a temp file and an atomic rename, so a crash mid-write cannot leave a
-     * truncated player behind and a refusal leaves the file as it was.
+     * Appends one whole stack to an offline player's inventory, through {@link OfflineInventory}.
      *
      * <p>An online player is never written to: their authoritative inventory is in memory, so a write
      * here would be silently overwritten by their next save and the item would vanish with nothing to
@@ -383,68 +606,20 @@ public final class MarketSnapshotServer {
      */
     private boolean addToOfflineInventory(UUID player, ItemStack stack) {
         if (server.getPlayerList().getPlayer(player) != null) return false;
-        if (stack.isEmpty() || stack.getCount() > stack.getMaxStackSize()) return false;
-
-        Path file = playerDataFile(player);
-        if (!Files.isRegularFile(file)) return false;
-        try {
-            CompoundTag tag = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
-            Tag stored = tag.get(INVENTORY_KEY);
-            if (stored != null && !(stored instanceof ListTag)) return false;
-            ListTag inventory = tag.getListOrEmpty(INVENTORY_KEY);
-
-            // The server writes only occupied slots, so a free slot is an index no entry claims. The
-            // existing entries are left exactly as they are and the new one is appended: an entry this
-            // build cannot read is still the player's data, and rewriting it would throw it away.
-            boolean[] occupied = new boolean[OFFLINE_INVENTORY_SLOTS];
-            for (int i = 0; i < inventory.size(); i++) {
-                int slot = inventory.getCompoundOrEmpty(i).getByteOr(SLOT_KEY, (byte) -1) & 0xFF;
-                if (slot < occupied.length) occupied[slot] = true;
-            }
-            int free = -1;
-            for (int i = 0; i < occupied.length && free < 0; i++) {
-                if (!occupied[i]) free = i;
-            }
-            if (free < 0) return false;
-
-            // Encoded by the server's own slot+stack codec, so the entry is byte-for-byte the shape
-            // the server writes and reads: a Slot plus the item's fields beside it.
-            Tag encoded = ItemStackWithSlot.CODEC
-                    .encodeStart(nbtOps(server.registryAccess()), new ItemStackWithSlot(free, stack))
-                    .result()
-                    .orElse(null);
-            if (!(encoded instanceof CompoundTag entry)) return false;
-
-            inventory.add(entry);
-            tag.put(INVENTORY_KEY, inventory);
-
-            Path temp = Files.createTempFile(file.getParent(), file.getFileName().toString(), ".tmp");
-            try {
-                NbtIo.writeCompressed(tag, temp);
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } finally {
-                Files.deleteIfExists(temp);
-            }
-            return true;
-        } catch (Exception e) {
-            LOGGER.error("[EconomyCraft] Could not add an item to the offline inventory of {} ({}): {}",
-                    player, file, e.toString());
-            return false;
-        }
-    }
-
-    /** Where the server keeps a player's data, named as the server itself names it. */
-    private Path playerDataFile(UUID player) {
-        return server.getWorldPath(LevelResource.PLAYER_DATA_DIR).resolve(player + ".dat");
-    }
-
-    /** NBT with the registries in reach, so components resolve by id exactly as the server's loader does. */
-    private static RegistryOps<Tag> nbtOps(HolderLookup.Provider registries) {
-        return RegistryOps.create(NbtOps.INSTANCE, registries);
+        return offlineInventory().add(player, stack);
     }
 
     /** The one shape every command returns. */
-    private record CommandResult(boolean ok, @Nullable String error) {}
+    private record CommandResult(boolean ok, @Nullable String error, @Nullable Integer id, long total,
+                                 long paid, boolean stored) {
+        /**
+         * A refusal, or a success with nothing to report: no id, nothing charged, nothing received
+         * and nothing put in the mailbox. The overwhelming majority of answers.
+         */
+        CommandResult(boolean ok, @Nullable String error) {
+            this(ok, error, null, 0L, 0L, false);
+        }
+    }
 
     /**
      * Compares in constant time so a wrong token cannot be discovered one byte at a time. The token
@@ -497,12 +672,13 @@ public final class MarketSnapshotServer {
         // detached JSON tree before it leaves the server thread, so the live mutable reference the
         // stores hand out cannot be observed changing underneath the response.
         HolderLookup.Provider registries = server.registryAccess();
+        OfflineInventory playerData = offlineInventory();
 
         List<MarketSnapshotModel.Auction> auctions = new ArrayList<>();
         for (AuctionListing listing : eco.getAuctions().getListings()) {
             auctions.add(new MarketSnapshotModel.Auction(listing.id, listing.seller,
                     name(eco, listing.seller), listing.price, listing.createdAt, listing.expiresAt,
-                    listing.description, false, encode(registries, listing.item)));
+                    listing.description, false, OfflineInventory.encode(registries, listing.item)));
         }
 
         List<MarketSnapshotModel.Order> orders = new ArrayList<>();
@@ -511,7 +687,7 @@ public final class MarketSnapshotServer {
                     name(eco, request.requester), request.price, request.amount, request.escrow,
                     OrderManager.rewardPerItem(request.price, request.amount),
                     request.createdAt, request.expiresAt, request.description, false,
-                    encode(registries, request.item)));
+                    OfflineInventory.encode(registries, request.item)));
         }
 
         List<MarketSnapshotModel.Player> players = new ArrayList<>();
@@ -528,7 +704,7 @@ public final class MarketSnapshotServer {
 
         return MarketSnapshotModel.build(System.currentTimeMillis(), eco.getDynamicPriceMultiplier(),
                 auctionRate, QuestManager.BOT_UUID, auctions, orders, players, scope,
-                player -> readPrivateRows(eco, registries, player));
+                player -> readPrivateRows(eco, registries, playerData, player));
     }
 
     /**
@@ -539,89 +715,30 @@ public final class MarketSnapshotServer {
      * <p>Inventory and ender chest come from the live {@link ServerPlayer} when the player is online,
      * and from the server's player-data NBT when they are offline. The two never mix: an online
      * player's authoritative state is the in-memory inventory the server saves on logout, so reading
-     * their file would publish stale contents, and writing it — as a claim does — would be
-     * overwritten by that save.
+     * their file would publish stale contents, and writing it — as a claim or a listing does — would
+     * be overwritten by that save.
      */
     private MarketSnapshotModel.PrivateState readPrivateRows(EconomyManager eco,
                                                              HolderLookup.Provider registries,
+                                                             OfflineInventory playerData,
                                                              UUID player) {
         Long balance = eco.getBalance(player, false);
         List<MarketSnapshotModel.Delivery> deliveries = new ArrayList<>();
         for (DeliveryLedger.Entry entry : eco.getDeliveries().getDeliveryEntries(player)) {
-            deliveries.add(new MarketSnapshotModel.Delivery(entry.id(), encode(registries, entry.stack())));
+            deliveries.add(new MarketSnapshotModel.Delivery(entry.id(), OfflineInventory.encode(registries, entry.stack())));
         }
 
         List<MarketSnapshotModel.Slot> inventory = new ArrayList<>();
         List<MarketSnapshotModel.Slot> enderChest = new ArrayList<>();
         ServerPlayer online = server.getPlayerList().getPlayer(player);
         if (online != null) {
-            collectSlots(online.getInventory(), inventory, registries);
-            collectSlots(online.getEnderChestInventory(), enderChest, registries);
+            playerData.collectSlots(online.getInventory(), inventory);
+            playerData.collectSlots(online.getEnderChestInventory(), enderChest);
         } else {
-            readOfflineInventory(registries, player, inventory, enderChest);
+            playerData.read(player, inventory, enderChest);
         }
         return new MarketSnapshotModel.PrivateState(balance == null ? 0L : balance, deliveries,
                 inventory, enderChest);
-    }
-
-    /** Appends every non-empty slot of a live container, each naming its own container index. */
-    private static void collectSlots(Container container, List<MarketSnapshotModel.Slot> out,
-                                      HolderLookup.Provider registries) {
-        for (int i = 0; i < container.getContainerSize(); i++) {
-            ItemStack stack = container.getItem(i);
-            if (!stack.isEmpty()) out.add(new MarketSnapshotModel.Slot(i, encode(registries, stack)));
-        }
-    }
-
-    /**
-     * Reads an offline player's inventory and ender chest out of the server's player-data NBT. A
-     * missing file is not an error — it means the player has never joined this world, so both lists
-     * stay empty.
-     */
-    private void readOfflineInventory(HolderLookup.Provider registries, UUID player,
-                                      List<MarketSnapshotModel.Slot> inventory,
-                                      List<MarketSnapshotModel.Slot> enderChest) {
-        Path file = playerDataFile(player);
-        if (!Files.isRegularFile(file)) return;
-        try {
-            CompoundTag tag = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
-            readSlots(registries, tag.getListOrEmpty(INVENTORY_KEY), inventory);
-            readSlots(registries, tag.getListOrEmpty(ENDER_ITEMS_KEY), enderChest);
-        } catch (Exception e) {
-            LOGGER.warn("[EconomyCraft] Could not read the offline inventory for {} from {}: {}",
-                    player, file, e.toString());
-        }
-    }
-
-    /**
-     * Parses the entries of one per-player container — each a compound of a {@code Slot} plus the item
-     * — through the server's own {@code ItemStackWithSlot} codec, so the index and the stack are read
-     * by the very code that writes them.
-     *
-     * <p>No special handling of the extra {@code Slot} key is needed, and that is not an assumption:
-     * the codec feeds the whole entry, {@code Slot} and all, to {@code ItemStack.MAP_CODEC}, so the
-     * server could not load a player's inventory at all if that key were rejected. An entry that does
-     * not decode costs its own row and nothing else.
-     */
-    private static void readSlots(HolderLookup.Provider registries, ListTag slots,
-                                  List<MarketSnapshotModel.Slot> out) {
-        for (int i = 0; i < slots.size(); i++) {
-            CompoundTag entry = slots.getCompoundOrEmpty(i);
-            if (entry.isEmpty()) continue;
-            ItemStackWithSlot parsed = ItemStackWithSlot.CODEC
-                    .parse(nbtOps(registries), entry)
-                    .result()
-                    .orElse(null);
-            if (parsed == null || parsed.stack().isEmpty()) continue;
-            out.add(new MarketSnapshotModel.Slot(parsed.slot(), encode(registries, parsed.stack())));
-        }
-    }
-
-    private static JsonElement encode(HolderLookup.Provider registries, @Nullable ItemStack stack) {
-        if (stack == null) return new JsonObject();
-        return ItemStack.CODEC.encodeStart(RegistryOps.create(JsonOps.INSTANCE, registries), stack)
-                .result()
-                .orElseGet(JsonObject::new);
     }
 
     /** Unknown names read as empty rather than absent: the uuid beside them is already authoritative. */

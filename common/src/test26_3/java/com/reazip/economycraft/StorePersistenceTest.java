@@ -70,6 +70,7 @@ class StorePersistenceTest {
         when(server.getWorldPath(LevelResource.ROOT)).thenReturn(world);
         when(server.registryAccess())
                 .thenReturn(RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
+        when(server.isSameThread()).thenReturn(true);
         db = openDatabase();
         auctions = new AuctionManager(server, mock(DeliveryManager.class), db);
         orders = new OrderManager(server, mock(DeliveryManager.class), db);
