@@ -721,13 +721,8 @@ public final class MarketSnapshotServer {
                                                              UUID player) {
         Long balance = eco.getBalance(player, false);
         List<MarketSnapshotModel.Delivery> deliveries = new ArrayList<>();
-<<<<<<< HEAD
         for (DeliveryLedger.Entry entry : eco.getDeliveries().getDeliveryEntries(player)) {
             deliveries.add(new MarketSnapshotModel.Delivery(entry.id(), encode(registries, entry.stack())));
-=======
-        for (ItemStack stack : eco.getDeliveries().getDeliveries(player)) {
-            deliveries.add(new MarketSnapshotModel.Delivery(OfflineInventory.encode(registries, stack)));
->>>>>>> 41f8f58 (feat(market): list, buy and cancel listings over the command route)
         }
 
         List<MarketSnapshotModel.Slot> inventory = new ArrayList<>();

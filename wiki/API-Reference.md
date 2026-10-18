@@ -311,7 +311,7 @@ POST /economycraft/v1/command?player=<uuid>
 ```
 
 `GET` reads the market. `POST` runs one command from the set the snapshot advertises in its
-`commands` field — the only thing on either route that can change anything.
+`commands` field; these are the only writes exposed by either route.
 
 Off by default. The listener is the JDK's built-in HTTP server, so it adds no dependency to the
 mod, and it binds inside the server process only — reaching it is a deployment decision, not
@@ -339,18 +339,14 @@ Each route answers one verb and refuses every other, so a `GET` to the command r
 a `404`. On both routes the verb and the path are checked **before** the token, so a `404` or `405`
 never reads the secret.
 
-**Every command is scoped to one player and to what that player already owns.** `listItem` moves an
-item out of the caller's own inventory, `buyListing` spends the caller's own balance to buy a listing
-somebody else posted, `cancelListing` returns the caller's own listing, and `claimDelivery` moves the
-caller's own waiting item out of their delivery ledger. No command has an argument that names a
-second player — the counterparty of a purchase is the listing's seller, read from the listing, never
-from the body — so one request still cannot act for, pay, or transfer anything to anybody else. `GET
-/economycraft/v1/market` itself is read-only by construction: the snapshot it returns has no field
-that reaches a mutation.
+**Every command is scoped to the player named by `?player=`.** It cannot act on behalf of an
+arbitrary second player. Market counterparties come from the selected listing or order, not from a
+player UUID supplied in the request: `buyListing` pays that listing's seller, and `deliverOrder`
+fulfills that order's requester. `GET /economycraft/v1/market` remains read-only by construction.
 
 The token is a shared secret, not a per-player credential: it says a caller is trusted, not which
-player it is. The player is named entirely by the `?player=` scope, and every effect stays inside
-that one uuid. The token is never logged and never echoed in a response body or an error message.
+player it is. The player whose inventory or balance a command uses is named by the `?player=` scope.
+The token is never logged and never echoed in a response body or an error message.
 
 ### Response
 
@@ -360,7 +356,8 @@ that one uuid. The token is never logged and never echoed in a response body or 
   "inflationMultiplier": 1.25,       // the same signal as EconomyCraftApi.inflationMultiplier()
   "taxRate": 0.1,                    // the auction-purchase tax rate, see below
 
-  "commands": ["claimDelivery", "listItem", "buyListing", "cancelListing"],
+  "commands": ["claimDelivery", "listItem", "buyListing", "cancelListing",
+               "placeOrder", "cancelOrder", "deliverOrder"],
 
   "auctions": [{
     "id": 41,
@@ -414,12 +411,11 @@ rather than on a route probing for a field: an array that is present is a promis
 served, and it never varies within one jar. This build advertises, in order:
 
 ```jsonc
-["claimDelivery", "listItem", "buyListing", "cancelListing"]
+["claimDelivery", "listItem", "buyListing", "cancelListing", "placeOrder", "cancelOrder", "deliverOrder"]
 ```
 
-A server whose snapshot has no `commands` field at all is an older jar: treat every command other
-than `claimDelivery` as unavailable, and derive `claimDelivery` from whether `you` carried an
-`inventory` or `enderChest` array, which is what Stage 2 published.
+A server whose snapshot has no `commands` field at all is an older jar. Treat the order commands as
+unavailable; derive earlier command support from the snapshot version and available `you` fields.
 
 **`inventory` and `enderChest` are sparse, and always present.** Each is an array of
 `{"slot": <int>, "stack": <encoded stack>}` in container order, where `slot` is the container index
@@ -482,16 +478,14 @@ X-EconomyCraft-Token: <http_market_token>
   "item": { "id": "minecraft:diamond", "count": 8 }, "description": "spare" }
 { "cmd": "buyListing", "id": 293 }
 { "cmd": "cancelListing", "id": 293 }
+{ "cmd": "placeOrder", "slot": 12, "amount": 16, "price": 1200,
+  "item": { "id": "minecraft:diamond", "count": 8 }, "description": "for crafting" }
+{ "cmd": "cancelOrder", "id": 7 }
+{ "cmd": "deliverOrder", "id": 7, "amount": 4 }
 ```
 
 The `?player=` scope is **required** here and names the account every command acts for; a missing or
 unparseable scope is a `400` before the body is read. The body is a JSON object whose `cmd` names the
-command and whose remaining fields are its arguments. Bodies larger than 64 KiB are rejected with
-`413`.
-
-| `cmd` | Arguments | Effect |
-|---|---|---|
-| `claimDelivery` | `deliveryId` (UUID, required) | Moves the delivery with that ID in **that player's own** `you.deliveries` into that player's own inventory, then removes it from the delivery ledger. |
 command and whose remaining fields are its arguments. `cmd` must be one of the names in the
 snapshot's `commands` array; anything else is `unknown command: <cmd>`. Bodies larger than 64 KiB are
 rejected with `413`.
@@ -502,6 +496,9 @@ rejected with `413`.
 | `listItem` | `slot` (integer, required), `count` (integer, required), `price` (integer, required), `item` (encoded stack, required), `description` (string, optional) | Takes `count` items out of `slot` of **that player's own** `you.inventory`, and posts them as a new listing for `price` with `description` as its text. The reply's `id` is the new listing. |
 | `buyListing` | `id` (integer, required) | Buys the listing `id` for **that player**. The caller pays the ask plus the auction-purchase tax; the seller receives the ask and is told who bought it. The item is delivered to the caller's inventory or, if that will not take it, to their deliveries mailbox. |
 | `cancelListing` | `id` (integer, required) | Removes the caller's own listing `id`. The escrowed stack returns to the caller's inventory or, if that will not take it, to their deliveries mailbox. |
+| `placeOrder` | `slot`, `amount`, `price` (integers, required), `item` (encoded stack, required), `description` (string, optional) | Posts a buy order for the caller. The item is a prototype from the caller's inventory; it is not taken. `price` is escrowed when the order is created. |
+| `cancelOrder` | `id` (integer, required) | Cancels the caller's own order and refunds its remaining escrow. |
+| `deliverOrder` | `id` (integer, required), `amount` (integer, optional; `0` or omitted means as many as held) | Delivers matching items from the caller's inventory to someone else's order. The caller must be online. |
 
 #### `claimDelivery`
 
@@ -513,6 +510,24 @@ The command is all-or-nothing. The item is placed in the inventory **before** it
 ledger, and a placement that does not fully fit is rolled back, so a refusal leaves both the ledger
 and the inventory exactly as they were. A refused claim is therefore safe to retry, and a successful
 one cannot hand the same item out twice.
+
+#### `placeOrder`
+
+The server verifies that `item` still matches the named inventory slot, then escrows `price` and
+creates the order. The item remains in the caller's inventory as a prototype. `amount` is the total
+number requested and is limited to at most 36 stacks.
+
+#### `cancelOrder`
+
+Only the caller's own order can be cancelled. The remaining escrow is refunded; a failed refund leaves
+the order in place.
+
+#### `deliverOrder`
+
+Only an online caller can deliver an order. The server takes matching items from the caller's
+inventory and pays the fulfiller from the order's escrow. On success, `total` is the gross payment
+drawn from escrow and `paid` is the net payout received by the caller. A zero or omitted `amount`
+means deliver as many as the caller holds, subject to the order's remaining amount.
 
 #### `listItem`
 
@@ -568,9 +583,9 @@ present on every answer:
 
 - `error` — the refusal, or `null`
 - `id` — the created or acted-on listing id on success; `null` on a refusal
-- `total` — what the caller was charged: the buy's price plus tax, `0` for the others
-- `paid` — what the caller received net of tax. Nothing on this route pays the caller, so it is `0`
-  for all four commands today; the field exists because the shape is shared with the order commands.
+- `total` — what the caller was charged (`buyListing`) or the gross amount paid from order escrow
+  (`deliverOrder`); `0` for the other commands
+- `paid` — net amount the caller received from `deliverOrder`; `0` for the other commands
 - `stored` — `true` when an item went to the deliveries mailbox instead of the caller's inventory.
   This can be `true` on a refusal: a `listItem` whose listing could not be created returns
   `ok:false` **and** `stored:true`, and the caller's item is waiting in their deliveries.
@@ -588,6 +603,7 @@ reason is for diagnosis — the set of reasons can grow without the contract cha
 | `no delivery with id <uuid>` | that delivery is no longer in the player's ledger |
 | `inventory full` | the whole stack would not fit, so nothing was claimed |
 | `the auction house is disabled` | `auction_enabled` is off, so `listItem`, `buyListing` and `cancelListing` are refused |
+| `orders are disabled` | `orders_enabled` is off, so the order commands are refused |
 | `listItem requires an integer slot` / `slot must be an integer` | `listItem` was called with no `slot`, or one that is not a whole number |
 | `slot must be between 0 and 35` | the slot is outside the addressable range, e.g. armour online |
 | `listItem requires an integer count` / `count must be an integer` | `listItem` was called with no `count`, or one that is not a whole number |
@@ -609,17 +625,23 @@ reason is for diagnosis — the set of reasons can grow without the contract cha
 | `seller cannot receive this payment` | the seller is at the balance ceiling, so the sale was rolled back |
 | `listing no longer available` | the id names no listing, or it is gone, or — for `buyListing` — it went while the request was in flight |
 | `you don't own this listing` | `cancelListing` named somebody else's listing |
+| `placeOrder requires an encoded item` / `placeOrder requires an integer slot` / `placeOrder requires an integer amount` / `placeOrder requires an integer price` | a required `placeOrder` argument is missing or has the wrong JSON type |
+| `amount exceeds 36 stacks` / `price must be at most <max>` | `placeOrder` exceeds its bounds |
+| `you can't afford to reserve <amount>` | the caller cannot escrow the order's price |
+| `you don't own this order` / `order no longer available` | `cancelOrder` named another player's order or a missing order |
+| `deliverOrder requires an integer id` / `id must be an integer` / `amount must be an integer` | a `deliverOrder` argument is missing or malformed |
+| `you must be online to deliver an order` | `deliverOrder` was called for an offline player |
+| `you cannot fulfill your own request` / `invalid amount` / `this request must be fulfilled all at once.` | `deliverOrder` conflicts with the order or requested amount |
+| `you don't have enough of that item` / `requester can't pay` / `your balance is too high to receive this payout` | `deliverOrder` cannot complete its item or payment transfer |
 | `command failed` | an unexpected fault while running the command; the exception itself is written to the server log, never to the reply |
 | `command unavailable` | the server could not answer (returned with `500`) |
 
 Those are the reasons the route returns today. Branch on `ok`, not on the string — the reason is for
 diagnosis, and the set of reasons can grow without the contract changing.
 
-**What it is not.** The route acts only on what the caller already has. It has no argument that names
-a second player, so it cannot pay, gift or transfer to anybody else; it cannot place a buy-order or
-deliver into one; it cannot bid, offer or negotiate a price; and it cannot touch another player's
-balance, inventory, deliveries or listings. There is no command to act on another player's behalf,
-and every effect stays inside the `?player=` uuid.
+**What it is not.** The route has no argument that names a second player and cannot act on another
+player's behalf. It only exposes the listed market operations; it has no admin reset, arbitrary
+balance adjustment, direct gift, bid, offer, or negotiation command.
 
 ### What it deliberately does not expose
 

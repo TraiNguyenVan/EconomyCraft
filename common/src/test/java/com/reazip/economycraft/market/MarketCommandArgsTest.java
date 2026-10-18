@@ -48,7 +48,7 @@ class MarketCommandArgsTest {
         assertEquals("claimDelivery requires a deliveryId UUID",
                 refusal(MarketCommandArgs.claimDelivery(new JsonObject())));
         JsonObject body = new JsonObject();
-        set(body, "index", "{\"nope\":1}");
+        set(body, "deliveryId", "{\"nope\":1}");
         assertEquals("claimDelivery requires a deliveryId UUID", refusal(MarketCommandArgs.claimDelivery(body)));
     }
 
