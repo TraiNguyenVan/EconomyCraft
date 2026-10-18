@@ -93,6 +93,7 @@ class TollUiTest {
         when(level.getServer()).thenReturn(server);
         when(level.dimension()).thenReturn(Level.OVERWORLD);
         when(server.getAllLevels()).thenReturn(List.of(level));
+        when(server.isSameThread()).thenReturn(true);
         player = mock(ServerPlayer.class);
         when(player.level()).thenReturn(level);
         when(player.getUUID()).thenReturn(ACTOR);

@@ -82,17 +82,25 @@ public class AuctionManager {
 
     public MinecraftServer getServer() {
         return server;
+    }
+
+    public void requireServerThread() {
+        if (!server.isSameThread()) {
+            throw new IllegalStateException("EconomyCraft AuctionManager must be called from the server thread");
+        }
     }    public AuctionListing getListing(int id) {
         return listings.get(id);
     }
 
     public void addListing(AuctionListing listing) {
+        requireServerThread();
         listing.id = SequentialIdAllocator.nextId(nextId, listings, LOGGER, "Auction listing");
         nextId = SequentialIdAllocator.advance(listing.id);
         putAndPersist(listing);
     }
 
     public AuctionListing removeListing(int id) {
+        requireServerThread();
         return removeListing(id, true);
     }
 
@@ -106,6 +114,7 @@ public class AuctionManager {
     }
 
     public void restoreListing(AuctionListing listing) {
+        requireServerThread();
         putAndPersist(listing);
     }
 
@@ -114,6 +123,7 @@ public class AuctionManager {
      * else's price; listeners fire so open menus refresh on the new value.
      */
     public boolean setPrice(int id, UUID seller, long price) {
+        requireServerThread();
         if (price < 1) return false;
         AuctionListing listing = listings.get(id);
         if (listing == null || !seller.equals(listing.seller)) return false;
@@ -128,6 +138,7 @@ public class AuctionManager {
      * move someone else's listing; listeners fire so open menus refresh on the new value.
      */
     public boolean setDescription(int id, UUID seller, @org.jetbrains.annotations.Nullable String description) {
+        requireServerThread();
         AuctionListing listing = listings.get(id);
         if (listing == null || !seller.equals(listing.seller)) return false;
         listing.description = com.reazip.economycraft.util.ListingDescriptions.sanitize(description);
@@ -185,6 +196,7 @@ public class AuctionManager {
     }
 
     public void addDelivery(UUID player, ItemStack stack) {
+        requireServerThread();
         deliveries.addDelivery(player, stack);
     }
 
@@ -205,6 +217,7 @@ public class AuctionManager {
     }
 
     public void setLimitOverride(UUID player, Integer limit) {
+        requireServerThread();
         limitOverrides.set(player, limit);
         save();
     }
@@ -217,7 +230,7 @@ public class AuctionManager {
         return limitOverrides.hasReachedLimit(player, countActive(player), EconomyConfig.get().maxActiveAuctionsPerPlayer);
     }
 
-    public void load() {
+    private void load() {
         String json = Documents.read(db, file, "auctions.json");
         if (json == null) return;
         try {
@@ -262,6 +275,7 @@ public class AuctionManager {
     }
 
     public void save() {
+        requireServerThread();
         JsonObject root = new JsonObject();
         root.addProperty("nextId", nextId);
         JsonArray listArr = new JsonArray();
@@ -274,10 +288,12 @@ public class AuctionManager {
     }
 
     public void addListener(Runnable run) {
+        requireServerThread();
         listeners.add(run);
     }
 
     public void removeListener(Runnable run) {
+        requireServerThread();
         listeners.remove(run);
     }
 
