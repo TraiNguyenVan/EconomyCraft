@@ -65,9 +65,9 @@ public final class ListingTransaction {
         try {
             auctions.addListing(listing);
         } catch (Exception e) {
-            // The one place this can fail is the store write, and the item is in the seller's hands
-            // no longer. Handing it to the delivery ledger is the only remaining exit, and it cannot
-            // fail; a listing that half-wrote its id costs nothing, because the item is not in it.
+            // AuctionManager rolls back the in-memory insertion when its store write fails. The item
+            // is still out of the seller's inventory, so hand it to the delivery ledger; this is the
+            // only remaining exit and cannot fail.
             LOGGER.error("[EconomyCraft] Could not create a listing for {}; the item goes to their deliveries instead",
                     sellerId, e);
             auctions.addDelivery(sellerId, item);

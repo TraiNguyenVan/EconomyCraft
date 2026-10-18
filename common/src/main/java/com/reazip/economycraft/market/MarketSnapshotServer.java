@@ -350,9 +350,12 @@ public final class MarketSnapshotServer {
                 .result()
                 .orElse(ItemStack.EMPTY);
         ItemStack live = liveStack(online, offline, player, args.slot());
-        if (expected.isEmpty() || live.isEmpty() || !ItemStack.isSameItemSameComponents(live, expected)) {
-            // The count is deliberately not part of this: listing fewer than you hold is legitimate,
-            // listing a different item is not. An unreadable `item` is the same refusal, because a
+        if (expected.isEmpty() || live.isEmpty() || live.getCount() != expected.getCount()
+                || !ItemStack.isSameItemSameComponents(live, expected)) {
+            // The encoded stack is also the request's snapshot of how many were in the slot when it
+            // was built. Requiring that count to remain unchanged makes a delayed retry of a partial
+            // listing refuse after the first request has reduced the stack. `args.count()` may still
+            // be smaller than the held count. An unreadable `item` is the same refusal, because a
             // fingerprint that cannot be computed is not one that matched.
             return new CommandResult(false, "the slot no longer holds that item");
         }

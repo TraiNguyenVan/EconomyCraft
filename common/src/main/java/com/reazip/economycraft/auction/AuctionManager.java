@@ -94,9 +94,28 @@ public class AuctionManager {
 
     public void addListing(AuctionListing listing) {
         requireServerThread();
+        int previousNextId = nextId;
         listing.id = SequentialIdAllocator.nextId(nextId, listings, LOGGER, "Auction listing");
         nextId = SequentialIdAllocator.advance(listing.id);
-        putAndPersist(listing);
+        listings.put(listing.id, listing);
+        try {
+            save();
+        } catch (RuntimeException failure) {
+            // The caller still owns the item until this method returns successfully. If persistence
+            // fails, remove the in-memory listing before ListingTransaction puts that item in the
+            // seller's deliveries mailbox.
+            listings.remove(listing.id, listing);
+            nextId = previousNextId;
+            throw failure;
+        }
+        try {
+            notifyListeners();
+        } catch (RuntimeException failure) {
+            // The listing is already durable; a UI refresh failure must not make the caller treat
+            // the item as unlisted and put it in the delivery mailbox as well.
+            LOGGER.error("[EconomyCraft] Could not refresh auction listeners after adding listing {}", listing.id,
+                    failure);
+        }
     }
 
     public AuctionListing removeListing(int id) {

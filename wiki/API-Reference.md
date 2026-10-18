@@ -535,10 +535,10 @@ means deliver as many as the caller holds, subject to the order's remaining amou
 encoded stack exactly as `you.inventory[].stack` gave it: send the whole object back, not just its id.
 
 The mod re-reads the slot from whichever inventory is authoritative **at execution time** and refuses
-if it no longer holds that item. The comparison is on the item and its components, so a request built
-from a stale page cannot list the wrong thing; the count is deliberately **not** compared, so listing
-fewer than you hold is legitimate. `count` is refused only when it exceeds what the slot holds, and
-`price` follows the same bounds `/ah sell` enforces (`1` upward).
+if its item, components, or count no longer match the encoded stack. This makes a request from a stale
+page refuse instead of listing a different stack or applying a delayed retry twice. `count` may still
+be smaller than the held stack, and is refused when it exceeds what the slot holds. `price` follows
+the same bounds `/ah sell` enforces (`1` upward).
 
 `description` runs through the same sanitiser the in-game command uses: line breaks are stripped, it
 is trimmed, blank becomes no description, and it is capped at 100 characters.
@@ -547,8 +547,7 @@ Ordering, so that no item can be lost or duplicated: the slot is validated first
 created only after the item has left the inventory, and if creating the listing fails the stack is
 placed in the caller's **deliveries mailbox** instead — a delivery the caller can claim, never a lost
 stack. A double-submit is harmless here for the same reason: the second request finds the stack gone
-or reduced and refuses. Because the route never retries a write, that re-read is the whole
-protection.
+or changed and refuses.
 
 The caller is charged nothing for a listing, so a successful `listItem` reports `total: 0`.
 
@@ -613,7 +612,7 @@ reason is for diagnosis — the set of reasons can grow without the contract cha
 | `price must be at least 1` / `price must be at most <max>` | the price is outside the bounds `/ah sell` enforces |
 | `listItem requires an encoded item` | `item` is missing or is not the encoded stack object |
 | `description must be text` | `description` was sent as something other than a string |
-| `the slot no longer holds that item` | the slot's contents no longer match the `item` that was sent — a stale page |
+| `the slot no longer holds that item` | the slot's item, components, or count no longer match the encoded `item` — a stale page or repeated request |
 | `you have reached your limit of <n> active listing(s)` | the caller is at their per-player listing limit |
 | `that item could not be taken out of your inventory` | an offline player's player data could not be rewritten, so nothing was listed |
 | `could not list that item` | the listing could not be created; the item is in the caller's deliveries, and `stored` is `true` |
