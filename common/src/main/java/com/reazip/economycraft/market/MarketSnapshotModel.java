@@ -50,7 +50,8 @@ public final class MarketSnapshotModel {
      * pair so the advertisement cannot drift from what is served.
      */
     public static final List<String> COMMANDS =
-            List.of("claimDelivery", "listItem", "buyListing", "cancelListing");
+            List.of("claimDelivery", "listItem", "buyListing", "cancelListing",
+                    "placeOrder", "cancelOrder", "deliverOrder");
 
     /**
      * @param description free text from the seller; absent when unset

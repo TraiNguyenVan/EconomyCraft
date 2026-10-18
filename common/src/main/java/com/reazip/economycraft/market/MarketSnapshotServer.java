@@ -11,6 +11,7 @@ import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.auction.AuctionManager;
 import com.reazip.economycraft.auction.AuctionTrade;
+import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.orders.OrderRequest;
 import com.reazip.economycraft.util.DeliveryLedger;
@@ -275,6 +276,9 @@ public final class MarketSnapshotServer {
             case "listItem" -> listItem(eco, scope, json);
             case "buyListing" -> buyListing(eco, scope, json);
             case "cancelListing" -> cancelListing(eco, scope, json);
+            case "placeOrder" -> placeOrder(eco, scope, json);
+            case "cancelOrder" -> cancelOrder(eco, scope, json);
+            case "deliverOrder" -> deliverOrder(eco, scope, json);
             default -> new CommandResult(false, "unknown command: " + cmd);
         };
     }
@@ -425,6 +429,105 @@ public final class MarketSnapshotServer {
             case OK -> new CommandResult(true, null, id, 0L, 0L, result.stored());
             case NOT_OWNER -> new CommandResult(false, "you don't own this listing");
             case LISTING_GONE -> new CommandResult(false, "listing no longer available");
+        };
+    }
+
+    /**
+     * Posts a buy-order: escrows {@code price} up front and answers with the new order's id.
+     * The item is only a prototype read from the slot — nothing is taken from the inventory.
+     */
+    private CommandResult placeOrder(EconomyManager eco, UUID player, JsonObject json) {
+        if (!EconomyConfig.get().ordersEnabled) {
+            return new CommandResult(false, "orders are disabled");
+        }
+        ServerPlayer online = server.getPlayerList().getPlayer(player);
+        OfflineInventory offline = offlineInventory();
+
+        MarketCommandArgs.Parsed<MarketCommandArgs.PlaceOrder> parsed = MarketCommandArgs.placeOrder(json);
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        MarketCommandArgs.PlaceOrder args = parsed.value();
+
+        ItemStack expected = ItemStack.CODEC
+                .parse(RegistryOps.create(JsonOps.INSTANCE, server.registryAccess()), args.item())
+                .result()
+                .orElse(ItemStack.EMPTY);
+        ItemStack live = liveStack(online, offline, player, args.slot());
+        if (expected.isEmpty() || live.isEmpty() || !ItemStack.isSameItemSameComponents(live, expected)) {
+            return new CommandResult(false, "the slot no longer holds that item");
+        }
+
+        OrderManager orders = eco.getOrders();
+        if (orders.hasReachedLimit(player)) {
+            return new CommandResult(false, "you have reached your limit of "
+                    + orders.getEffectiveLimit(player) + " active order request(s)");
+        }
+        int maxAmount = MarketCommandArgs.MAIN_INVENTORY_SLOTS * live.getMaxStackSize();
+        if (args.amount() > maxAmount) {
+            return new CommandResult(false, "amount exceeds " + MarketCommandArgs.MAIN_INVENTORY_SLOTS + " stacks (max " + maxAmount + ")");
+        }
+
+        ItemStack prototype = live.copyWithCount(1);
+        String desc = args.description();
+        if (desc != null) {
+            desc = desc.replace("\r", "").replace("\n", "").trim();
+            if (desc.isEmpty()) desc = null;
+            else if (desc.length() > 100) desc = desc.substring(0, 100);
+        }
+
+        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, player, prototype, args.amount(),
+                args.price(), desc);
+        if (request == null) {
+            return new CommandResult(false, "you can't afford to reserve " + EconomyCraft.formatMoney(args.price()));
+        }
+        return new CommandResult(true, null, request.id, 0L, 0L, false);
+    }
+
+    /**
+     * Cancels one of the caller's own orders and refunds the escrow.
+     */
+    private CommandResult cancelOrder(EconomyManager eco, UUID player, JsonObject json) {
+        if (!EconomyConfig.get().ordersEnabled) {
+            return new CommandResult(false, "orders are disabled");
+        }
+        MarketCommandArgs.Parsed<Integer> parsed = MarketCommandArgs.listingId(json, "cancelOrder");
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        int id = parsed.value();
+
+        OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(eco, player, id);
+        return switch (status) {
+            case OK -> new CommandResult(true, null, id, 0L, 0L, false);
+            case NOT_OWNER -> new CommandResult(false, "you don't own this order");
+            case ORDER_GONE -> new CommandResult(false, "order no longer available");
+            case REFUND_FAILED -> new CommandResult(false, "the escrow could not be refunded");
+        };
+    }
+
+    /**
+     * Delivers into someone else's order. Online players only for this cut — an offline fulfiller's
+     * items would have to come out of player-data NBT, and that write can fail after the payout.
+     */
+    private CommandResult deliverOrder(EconomyManager eco, UUID player, JsonObject json) {
+        if (!EconomyConfig.get().ordersEnabled) {
+            return new CommandResult(false, "orders are disabled");
+        }
+        ServerPlayer online = server.getPlayerList().getPlayer(player);
+        if (online == null) {
+            return new CommandResult(false, "you must be online to deliver an order");
+        }
+        MarketCommandArgs.Parsed<MarketCommandArgs.DeliverOrder> parsed = MarketCommandArgs.deliverOrder(json);
+        if (!parsed.ok()) return new CommandResult(false, parsed.error());
+        MarketCommandArgs.DeliverOrder args = parsed.value();
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, online, args.id(), args.amount());
+        return switch (result.status()) {
+            case OK -> new CommandResult(true, null, args.id(), result.payment(), result.payout(), false);
+            case OWN_ORDER -> new CommandResult(false, "you cannot fulfill your own request");
+            case ORDER_GONE -> new CommandResult(false, "order no longer available");
+            case INVALID_AMOUNT -> new CommandResult(false, "invalid amount");
+            case FULL_AMOUNT_REQUIRED -> new CommandResult(false, "this request must be fulfilled all at once.");
+            case NOT_ENOUGH_ITEMS -> new CommandResult(false, "you don't have enough of that item");
+            case REQUESTER_CANT_PAY -> new CommandResult(false, "requester can't pay");
+            case FULFILLER_CANT_RECEIVE -> new CommandResult(false, "your balance is too high to receive this payout");
         };
     }
 

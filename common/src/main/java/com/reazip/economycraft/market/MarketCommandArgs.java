@@ -49,6 +49,11 @@ public final class MarketCommandArgs {
     /** {@code claimDelivery}'s arguments: the stable id of the caller's own delivery. */
     public record ClaimDelivery(UUID deliveryId) {}
 
+    public record PlaceOrder(int slot, int amount, long price, JsonObject item,
+                            @Nullable String description) {}
+
+    public record DeliverOrder(int id, int amount) {}
+
     /**
      * {@code listItem}'s arguments.
      *
@@ -140,6 +145,78 @@ public final class MarketCommandArgs {
         if (id == null) return refused("id must be an integer");
         if (id < 1) return refused("id must be at least 1");
         return ok(id);
+    }
+
+    /**
+     * {@code placeOrder}: which slot to take the prototype from, how many, and for how much escrow.
+     * Mirrors {@link #listItem}: slot 0-35, count >= 1 capped by the held count, price 1..MAX.
+     */
+    public static Parsed<PlaceOrder> placeOrder(JsonObject body) {
+        JsonElement item = body.get("item");
+        if (item == null || !item.isJsonObject()) return refused("placeOrder requires an encoded item");
+
+        JsonElement requestedSlot = body.get("slot");
+        if (requestedSlot == null || !requestedSlot.isJsonPrimitive()) {
+            return refused("placeOrder requires an integer slot");
+        }
+        Integer slot = wholeInt(requestedSlot);
+        if (slot == null) return refused("slot must be an integer");
+        if (slot < 0 || slot >= MAIN_INVENTORY_SLOTS) {
+            return refused("slot must be between 0 and " + (MAIN_INVENTORY_SLOTS - 1));
+        }
+
+        JsonElement requestedAmount = body.get("amount");
+        if (requestedAmount == null || !requestedAmount.isJsonPrimitive()) {
+            return refused("placeOrder requires an integer amount");
+        }
+        Integer amount = wholeInt(requestedAmount);
+        if (amount == null) return refused("amount must be an integer");
+        if (amount < 1) return refused("amount must be at least 1");
+        if (amount > (long) MAIN_INVENTORY_SLOTS * 64) {
+            return refused("amount exceeds " + MAIN_INVENTORY_SLOTS + " stacks");
+        }
+
+        JsonElement requestedPrice = body.get("price");
+        if (requestedPrice == null || !requestedPrice.isJsonPrimitive()) {
+            return refused("placeOrder requires an integer price");
+        }
+        Long price = wholeLong(requestedPrice);
+        if (price == null) return refused("price must be an integer");
+        if (price < 1) return refused("price must be at least 1");
+        if (price > EconomyManager.MAX) return refused("price must be at most " + EconomyManager.MAX);
+
+        String description = null;
+        JsonElement requestedDescription = body.get("description");
+        if (requestedDescription != null && !requestedDescription.isJsonNull()) {
+            if (!requestedDescription.isJsonPrimitive() || !requestedDescription.getAsJsonPrimitive().isString()) {
+                return refused("description must be text");
+            }
+            description = requestedDescription.getAsString();
+        }
+
+        return ok(new PlaceOrder(slot, amount, price, (JsonObject) item, description));
+    }
+
+    /** {@code deliverOrder}: the order id and an optional count (0 means "as many as I hold"). */
+    public static Parsed<DeliverOrder> deliverOrder(JsonObject body) {
+        JsonElement requestedId = body.get("id");
+        if (requestedId == null || !requestedId.isJsonPrimitive()) {
+            return refused("deliverOrder requires an integer id");
+        }
+        Integer id = wholeInt(requestedId);
+        if (id == null) return refused("id must be an integer");
+        if (id < 1) return refused("id must be at least 1");
+
+        int amount = 0;
+        JsonElement requestedAmount = body.get("amount");
+        if (requestedAmount != null && !requestedAmount.isJsonNull()) {
+            if (!requestedAmount.isJsonPrimitive()) return refused("amount must be an integer");
+            Integer a = wholeInt(requestedAmount);
+            if (a == null) return refused("amount must be an integer");
+            if (a < 0) return refused("amount must be at least 0");
+            amount = a;
+        }
+        return ok(new DeliverOrder(id, amount));
     }
 
     /** The element as a JSON number, or null when it is absent, not primitive, or not a number. */

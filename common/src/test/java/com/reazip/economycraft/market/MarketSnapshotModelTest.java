@@ -327,7 +327,8 @@ class MarketSnapshotModelTest {
 
         for (JsonObject json : List.of(unscoped, scoped)) {
             assertTrue(json.has("commands"), "`commands` went missing from the snapshot");
-            assertEquals(List.of("claimDelivery", "listItem", "buyListing", "cancelListing"),
+            assertEquals(List.of("claimDelivery", "listItem", "buyListing", "cancelListing",
+                            "placeOrder", "cancelOrder", "deliverOrder"),
                     json.getAsJsonArray("commands").asList().stream()
                             .map(element -> element.getAsString()).toList(),
                     "the advertised command list is the contract a consumer gates on");
