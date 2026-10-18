@@ -142,8 +142,20 @@ public class AuctionManager {
         save();
     }
 
+    /** The in-game form: the buyer is standing right here, so their own name is the authoritative one. */
     public void notifySellerSale(AuctionListing listing, ServerPlayer buyer) {
-        if (listing == null || buyer == null) return;
+        if (buyer == null) return;
+        notifySellerSale(listing, buyer.getUUID(), IdentityCompat.of(buyer).name());
+    }
+
+    /**
+     * The same notification for a buyer the caller only knows by uuid — the HTTP route's buyer may be
+     * logged out, and the seller has to be told either way. The name is supplied by the caller because
+     * resolving it is {@code EconomyManager.getBestName}'s job, not this store's; an unknown buyer
+     * reads as "someone" rather than as a blank or a uuid in the message.
+     */
+    public void notifySellerSale(AuctionListing listing, UUID buyerId, @org.jetbrains.annotations.Nullable String buyerName) {
+        if (listing == null || buyerId == null) return;
 
         UUID sellerId = listing.seller;
         if (sellerId == null) return;
@@ -155,10 +167,10 @@ public class AuctionManager {
                 ? "item"
                 : stack.getHoverName().getString();
 
-        String buyerName = IdentityCompat.of(buyer).name();
+        String from = (buyerName == null || buyerName.isBlank()) ? "someone" : buyerName;
         long price = listing.price;
 
-        String message = "Sold " + amount + "x " + itemName + " to " + buyerName
+        String message = "Sold " + amount + "x " + itemName + " to " + from
                 + " for " + EconomyCraft.formatMoney(price);
 
         if (seller == null) {

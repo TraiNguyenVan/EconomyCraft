@@ -26,6 +26,10 @@ import java.util.UUID;
  *       and never absent — because a consumer that has to test for the field before reading it will
  *       eventually read it wrong. They are sparse: only occupied slots appear, each naming its own
  *       container index.</li>
+ *   <li>{@code commands} is always present and never varies within one jar, so a consumer can gate
+ *       its whole UI on it once instead of probing for a field shape. It is the list of names
+ *       {@code POST /economycraft/v1/command} serves, and it must be kept in step with
+ *       {@code MarketSnapshotServer.dispatch} — see {@link #COMMANDS}.</li>
  * </ul>
  *
  * <p>Stacks arrive already encoded, because the item codec needs registry access that only the
@@ -33,6 +37,20 @@ import java.util.UUID;
  */
 public final class MarketSnapshotModel {
     private MarketSnapshotModel() {}
+
+    /**
+     * The command names this jar serves on {@code POST /economycraft/v1/command}, in the order the
+     * route dispatches them. The snapshot publishes it verbatim as {@code commands}: the capability
+     * signal a consumer gates its UI on, replacing the {@code containerFields} shape heuristic that
+     * breaks when a field and a route ship apart.
+     *
+     * <p>Deliberately a constant rather than a parameter: it can never be missing and never changes
+     * within one jar, which is the whole point of a consumer reading it instead of probing. Adding a
+     * case to {@code MarketSnapshotServer.dispatch} means adding its name here, and a test pins the
+     * pair so the advertisement cannot drift from what is served.
+     */
+    public static final List<String> COMMANDS =
+            List.of("claimDelivery", "listItem", "buyListing", "cancelListing");
 
     /**
      * @param description free text from the seller; absent when unset
@@ -80,11 +98,12 @@ public final class MarketSnapshotModel {
                       List<Slot> inventory, List<Slot> enderChest) {}
 
     /**
+     * @param commands    the commands this jar serves, from {@link #COMMANDS}; always present
      * @param you private view for {@code scope}, or null when the request named no known player
      */
     public record Snapshot(long generatedAt, double inflationMultiplier, double taxRate,
-                           List<Auction> auctions, List<Order> orders, List<Player> players,
-                           @Nullable You you) {}
+                           List<String> commands, List<Auction> auctions, List<Order> orders,
+                           List<Player> players, @Nullable You you) {}
 
     /**
      * The money and goods one player owns. Supplied through a callback rather than passed in, so the
@@ -130,7 +149,7 @@ public final class MarketSnapshotModel {
         List<Player> roster = new ArrayList<>(players);
         roster.sort(Comparator.comparing(player -> player.uuid().toString()));
 
-        return new Snapshot(generatedAt, inflationMultiplier, taxRate, taggedAuctions, taggedOrders,
+        return new Snapshot(generatedAt, inflationMultiplier, taxRate, COMMANDS, taggedAuctions, taggedOrders,
                 roster, you(scope, system, taggedAuctions, taggedOrders, roster, privateRows));
     }
 
