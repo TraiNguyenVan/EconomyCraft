@@ -722,7 +722,7 @@ public final class MarketSnapshotServer {
         Long balance = eco.getBalance(player, false);
         List<MarketSnapshotModel.Delivery> deliveries = new ArrayList<>();
         for (DeliveryLedger.Entry entry : eco.getDeliveries().getDeliveryEntries(player)) {
-            deliveries.add(new MarketSnapshotModel.Delivery(entry.id(), encode(registries, entry.stack())));
+            deliveries.add(new MarketSnapshotModel.Delivery(entry.id(), OfflineInventory.encode(registries, entry.stack())));
         }
 
         List<MarketSnapshotModel.Slot> inventory = new ArrayList<>();
