@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
 import com.mojang.logging.LogUtils;
 import com.mojang.serialization.JsonOps;
 import com.reazip.economycraft.EconomyConfig;
@@ -13,6 +12,7 @@ import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.orders.OrderManager;
 import com.reazip.economycraft.orders.OrderRequest;
+import com.reazip.economycraft.util.DeliveryLedger;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
@@ -37,6 +37,7 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -75,6 +76,7 @@ public final class MarketSnapshotServer {
     private static final String COMMAND_ROUTE = "/economycraft/v1/command";
     private static final String TOKEN_HEADER = "X-EconomyCraft-Token";
     private static final String PLAYER_PARAM = "player";
+    private static final int MAX_COMMAND_BODY_BYTES = 64 * 1024;
     private static final Gson GSON = new Gson();
     /**
      * Only the command responses. {@code Gson} leaves null fields out by default and the command
@@ -214,7 +216,13 @@ public final class MarketSnapshotServer {
                 return;
             }
 
-            JsonObject body = commandBody(exchange);
+            JsonObject body;
+            try {
+                body = commandBody(exchange);
+            } catch (RequestBodyTooLargeException tooLarge) {
+                respond(exchange, 413, "{\"error\":\"request body too large\"}");
+                return;
+            }
             if (body == null) {
                 respond(exchange, 400, COMMAND_GSON.toJson(
                         new CommandResult(false, "body must be JSON with a cmd field")));
@@ -250,15 +258,25 @@ public final class MarketSnapshotServer {
     @Nullable
     private static JsonObject commandBody(HttpExchange exchange) throws IOException {
         try {
+            byte[] bytes = readBounded(exchange.getRequestBody());
             JsonObject json = GSON.fromJson(
-                    new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8),
-                    JsonObject.class);
+                    new String(bytes, StandardCharsets.UTF_8), JsonObject.class);
             if (json == null || !json.has("cmd") || !json.get("cmd").isJsonPrimitive()) return null;
             return json;
+        } catch (RequestBodyTooLargeException tooLarge) {
+            throw tooLarge;
         } catch (RuntimeException malformed) {
             return null;
         }
     }
+
+    private static byte[] readBounded(InputStream body) throws IOException {
+        byte[] bytes = body.readNBytes(MAX_COMMAND_BODY_BYTES + 1);
+        if (bytes.length > MAX_COMMAND_BODY_BYTES) throw new RequestBodyTooLargeException();
+        return bytes;
+    }
+
+    private static final class RequestBodyTooLargeException extends IOException {}
 
     /** Runs one command on the server thread. Returns the outcome; throws nothing. */
     private CommandResult dispatch(UUID scope, String cmd, JsonObject json) {
@@ -276,29 +294,25 @@ public final class MarketSnapshotServer {
      * were, because a caller cannot tell a duplicate from a delivery it already had.
      */
     private CommandResult claimDelivery(EconomyManager eco, UUID player, JsonObject json) {
-        JsonElement requested = json.get("index");
-        if (requested == null || !requested.isJsonPrimitive()) {
-            return new CommandResult(false, "claimDelivery requires an integer index");
+        JsonElement requested = json.get("deliveryId");
+        if (requested == null || !requested.isJsonPrimitive()
+                || !requested.getAsJsonPrimitive().isString()) {
+            return new CommandResult(false, "claimDelivery requires a deliveryId UUID");
         }
-        JsonPrimitive primitive = requested.getAsJsonPrimitive();
-        int index;
+        UUID deliveryId;
         try {
-            if (!primitive.isNumber()) throw new NumberFormatException(primitive.toString());
-            index = primitive.getAsBigDecimal().intValueExact();
-        } catch (NumberFormatException | ArithmeticException notAnIndex) {
-            return new CommandResult(false, "index must be an integer");
+            deliveryId = UUID.fromString(requested.getAsString());
+        } catch (IllegalArgumentException notAnId) {
+            return new CommandResult(false, "deliveryId must be a UUID");
         }
 
-        // The ledger's own stack object, addressed by position — the same ordering the snapshot
-        // publishes, so the index resolves to the item the caller saw. Nothing here is allowed to
-        // mutate it: DeliveryLedger.remove() matches by identity (ItemStack does not override
-        // equals), so handing the inventory a copy is what keeps this the object that gets removed,
-        // and two identical deliveries can never take each other's place.
-        List<ItemStack> deliveries = eco.getDeliveries().getDeliveries(player);
-        if (index < 0 || index >= deliveries.size()) {
-            return new CommandResult(false, "no delivery at index " + index);
+        // A stable id keeps retries tied to this delivery even if an earlier timed-out request ran
+        // after the caller received its 500 response. A list index could silently select the next row.
+        DeliveryLedger.Entry delivery = eco.getDeliveries().getDeliveryEntry(player, deliveryId);
+        if (delivery == null) {
+            return new CommandResult(false, "no delivery with id " + deliveryId);
         }
-        ItemStack delivered = deliveries.get(index);
+        ItemStack delivered = delivery.stack();
 
         ServerPlayer online = server.getPlayerList().getPlayer(player);
         boolean moved = online != null
@@ -307,7 +321,7 @@ public final class MarketSnapshotServer {
         if (!moved) return new CommandResult(false, "inventory full");
 
         // Only now that the item is somewhere safe do we drop it from the delivery ledger.
-        eco.getDeliveries().removeDelivery(player, delivered);
+        eco.getDeliveries().removeDelivery(player, deliveryId);
         return new CommandResult(true, null);
     }
 
@@ -533,8 +547,8 @@ public final class MarketSnapshotServer {
                                                              UUID player) {
         Long balance = eco.getBalance(player, false);
         List<MarketSnapshotModel.Delivery> deliveries = new ArrayList<>();
-        for (ItemStack stack : eco.getDeliveries().getDeliveries(player)) {
-            deliveries.add(new MarketSnapshotModel.Delivery(encode(registries, stack)));
+        for (DeliveryLedger.Entry entry : eco.getDeliveries().getDeliveryEntries(player)) {
+            deliveries.add(new MarketSnapshotModel.Delivery(entry.id(), encode(registries, entry.stack())));
         }
 
         List<MarketSnapshotModel.Slot> inventory = new ArrayList<>();

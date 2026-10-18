@@ -64,7 +64,7 @@ public final class MarketSnapshotModel {
     /** One entry of the uuid/name roster, and deliberately the whole of it: no balance, no role. */
     public record Player(UUID uuid, String name) {}
 
-    public record Delivery(JsonElement stack) {}
+    public record Delivery(UUID id, JsonElement stack) {}
 
     /**
      * One occupied container slot: the index the item sits at, and the stack in it.

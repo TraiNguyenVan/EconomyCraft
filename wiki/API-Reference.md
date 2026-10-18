@@ -332,6 +332,7 @@ Every request, on either route, must carry the configured shared secret:
 | `403` | both | the header is missing or does not match |
 | `404` | both | a path under the route that is not the route |
 | `405` | both | any method other than the route's own verb (`GET` for the market, `POST` for the command) |
+| `413` | `POST` only | the command body is larger than 64 KiB |
 | `500` | both | the server could not answer; the body is `{"error":"snapshot unavailable"}` or `{"ok":false,"error":"command unavailable"}` |
 
 Each route answers one verb and refuses every other, so a `GET` to the command route is a `405`, not
@@ -389,7 +390,7 @@ and never echoed in a response body or an error message.
 
   "you": {                            // present only for a scoped request; see below
     "balance": 4242,
-    "deliveries": [{ "stack": { "id": "minecraft:apple", "count": 3 } }],
+    "deliveries": [{ "id": "<delivery-uuid>", "stack": { "id": "minecraft:apple", "count": 3 } }],
     "listings": [41],
     "orders": [7],
     "inventory": [                    // always present; empty when the player holds nothing
@@ -435,9 +436,10 @@ empty one.
 A uuid that is not a known player, or the quest board's own uuid, yields no `you` block, and the
 private read is never performed for it.
 
-The same `?player=` scope, parsed the same way, selects the player the command route acts for.
-`you.deliveries` is exactly the array a `claimDelivery` index counts through, so the two routes agree
-on which delivery is which.
+The same `?player=` scope, parsed the same way, selects the player the command route acts for. Every
+delivery row has a stable `id`, retained when the server saves the delivery ledger. The command uses
+that ID instead of a list position, so a retry cannot silently select the next delivery after an
+earlier request finishes late.
 
 ### Command route
 
@@ -445,20 +447,21 @@ on which delivery is which.
 POST /economycraft/v1/command?player=<uuid>
 X-EconomyCraft-Token: <http_market_token>
 
-{ "cmd": "claimDelivery", "index": 0 }
+{ "cmd": "claimDelivery", "deliveryId": "<delivery-uuid>" }
 ```
 
 The `?player=` scope is **required** here and names the account every command acts for; a missing or
 unparseable scope is a `400` before the body is read. The body is a JSON object whose `cmd` names the
-command and whose remaining fields are its arguments.
+command and whose remaining fields are its arguments. Bodies larger than 64 KiB are rejected with
+`413`.
 
 | `cmd` | Arguments | Effect |
 |---|---|---|
-| `claimDelivery` | `index` (integer, required) | Moves the delivery at `index` in **that player's own** `you.deliveries` into that player's own inventory, then removes it from the delivery ledger. |
+| `claimDelivery` | `deliveryId` (UUID, required) | Moves the delivery with that ID in **that player's own** `you.deliveries` into that player's own inventory, then removes it from the delivery ledger. |
 
-`index` is `0`-based and counts the same array the snapshot publishes as `you.deliveries` for the same
-scope, so an index is only meaningful next to a snapshot taken shortly before it. An `index` that is
-missing, not a whole number, or outside the array is refused.
+Use the `id` from the delivery row in a recent snapshot. If the request times out after the claim has
+run, retrying that ID cannot claim a different delivery; the server returns `no delivery with id`
+once that ID has been removed.
 
 The command is all-or-nothing. The item is placed in the inventory **before** it is dropped from the
 ledger, and a placement that does not fully fit is rolled back, so a refusal leaves both the ledger
@@ -477,9 +480,9 @@ Every command returns the same shape:
 | `missing or invalid ?player= scope` | the `?player=` parameter is absent or not a uuid |
 | `body must be JSON with a cmd field` | the body is not a JSON object carrying a `cmd` |
 | `unknown command: <cmd>` | `cmd` names no command this route serves |
-| `claimDelivery requires an integer index` | `claimDelivery` was called with no `index` |
-| `index must be an integer` | `index` is present but is not a whole number |
-| `no delivery at index <n>` | `index` is outside that player's delivery list |
+| `claimDelivery requires a deliveryId UUID` | `claimDelivery` was called without a string `deliveryId` |
+| `deliveryId must be a UUID` | `deliveryId` is not a UUID |
+| `no delivery with id <uuid>` | that delivery is no longer in the player's ledger |
 | `inventory full` | the whole stack would not fit, so nothing was claimed |
 | `command failed` | an unexpected fault while running the command; the exception itself is written to the server log, never to the reply |
 | `command unavailable` | the server could not answer (returned with `500`) |

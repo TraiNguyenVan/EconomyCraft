@@ -77,7 +77,7 @@ class MarketSnapshotModelTest {
         return player -> {
             List<MarketSnapshotModel.Delivery> stacks = new ArrayList<>();
             for (int i = 0; i < deliveries; i++) {
-                stacks.add(new MarketSnapshotModel.Delivery(stack("minecraft:apple")));
+                stacks.add(new MarketSnapshotModel.Delivery(new UUID(0L, i + 1L), stack("minecraft:apple")));
             }
             return new MarketSnapshotModel.PrivateState(balance, stacks, inventory, enderChest);
         };
@@ -181,13 +181,13 @@ class MarketSnapshotModelTest {
     }
 
     @Test
-    @DisplayName("the deliveries shape is unchanged beside the new container rows")
-    void deliveriesShapeIsUnchanged() {
+    @DisplayName("delivery rows include a stable id beside the encoded stack")
+    void deliveryRowsIncludeStableIds() {
         JsonObject you = privateBlock(owned(4242L, 1, List.of(slot(9, "minecraft:stone", 4)), List.of()));
 
         JsonObject delivery = you.getAsJsonArray("deliveries").get(0).getAsJsonObject();
-        assertEquals(List.of("stack"), delivery.keySet().stream().sorted().toList(),
-                "a delivery row must still be a bare stack, with no slot added to it");
+        assertEquals(List.of("id", "stack"), delivery.keySet().stream().sorted().toList());
+        assertEquals(new UUID(0L, 1L).toString(), delivery.get("id").getAsString());
         assertEquals(stack("minecraft:apple", 1), delivery.get("stack"));
     }
 
