@@ -160,8 +160,9 @@ public final class TagUi {
                 list.add(addition("(Tỉ lệ 1% ở Học nghề / 5% ở Thợ thầy)"));
                 list.add(Component.empty());
                 list.add(header("[Điều kiện thăng cấp]"));
-                list.add(bullet("Đạt 300 lượt thao tác nông nghiệp"));
-                list.add(addition("(Trồng cây, thu hoạch, cho ăn hoặc phối giống)"));
+                list.add(bullet("Đạt 300 điểm (chia đều 2 nhóm, tối đa 150/nhóm)"));
+                list.add(addition("• Nông nghiệp: Trồng trọt, thu hoạch, chăn nuôi (tối đa 150)"));
+                list.add(addition("• Lâm nghiệp: Trồng sapling, chặt cây gỗ (tối đa 150)"));
             }
             case MINER -> {
                 list.add(perk("Lanh lợi", "Nhận Haste II khi đào đá, deepslate & quặng"));
@@ -483,6 +484,17 @@ public final class TagUi {
                         long ahBuys = store.progressOf(viewer.getUUID()).progress;
                         int neededAh = EconomyConfig.get().professions.merchant.auctionPurchaseCount;
                         lore.add(MenuUiSupport.line("Tiến độ: " + trades + "/" + neededTrades + " giao dịch | " + ahBuys + "/" + neededAh + " mua AH", ChatFormatting.AQUA));
+                    } else if (profession == ProfessionId.FARMER) {
+                        var progObj = store.progressOf(viewer.getUUID());
+                        int farmCap = ProfessionStore.farmerFarmingCap();
+                        int treeCap = ProfessionStore.farmerTreeCap();
+                        int totalNeeded = ProfessionStore.levelUpCountFor(ProfessionId.FARMER);
+                        long treeProg = Math.min(treeCap, Math.max(0, progObj.farmerTreeProgress));
+                        long farmProg = Math.min(farmCap, Math.max(0, progObj.progress - progObj.farmerTreeProgress));
+                        long totalProg = Math.min(totalNeeded, Math.max(0, progObj.progress));
+                        lore.add(MenuUiSupport.line("Tiến độ nông nghiệp: " + farmProg + " / " + farmCap + " điểm", ChatFormatting.AQUA));
+                        lore.add(MenuUiSupport.line("Tiến độ lâm nghiệp: " + treeProg + " / " + treeCap + " điểm (cây & gỗ)", ChatFormatting.AQUA));
+                        lore.add(MenuUiSupport.line("Tổng tiến độ thăng cấp: " + totalProg + " / " + totalNeeded, ChatFormatting.DARK_AQUA));
                     } else {
                         long prog = store.progressOf(viewer.getUUID()).progress;
                         int needed = ProfessionStore.levelUpCountFor(profession);

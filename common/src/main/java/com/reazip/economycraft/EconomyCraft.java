@@ -82,9 +82,11 @@ public final class EconomyCraft {
         LifecycleEvent.SERVER_STARTED.register(server -> {
             EconomyCraft.getManager(server);
             reloadGossipService(server);
+            com.reazip.economycraft.market.MarketSnapshotServer.start(server);
         });
 
         LifecycleEvent.SERVER_STOPPING.register(server -> {
+            com.reazip.economycraft.market.MarketSnapshotServer.stop(server);
             VillagerGossipListener.setMemoryService(null);
             if (villagerDatabase != null) {
                 try {

@@ -46,6 +46,12 @@ public class OrderManager {
         load();
     }
 
+    public void requireServerThread() {
+        if (!server.isSameThread()) {
+            throw new IllegalStateException("EconomyCraft OrderManager must be called from the server thread");
+        }
+    }
+
     public List<OrderRequest> getRequests() {
         List<OrderRequest> out = new ArrayList<>(requests.values());
         out.sort((a, b) -> Integer.compare(b.id, a.id));
@@ -57,12 +63,14 @@ public class OrderManager {
     }
 
     public void addRequest(OrderRequest r) {
+        requireServerThread();
         r.id = SequentialIdAllocator.nextId(nextId, requests, LOGGER, "Order request");
         nextId = SequentialIdAllocator.advance(r.id);
         putAndPersist(r);
     }
 
     public OrderRequest removeRequest(int id) {
+        requireServerThread();
         return removeRequest(id, true);
     }
 
@@ -76,6 +84,7 @@ public class OrderManager {
     }
 
     public void restoreRequest(OrderRequest request) {
+        requireServerThread();
         putAndPersist(request);
     }
 
@@ -86,6 +95,7 @@ public class OrderManager {
     }
 
     public void markChanged() {
+        requireServerThread();
         notifyListeners();
         save();
     }
@@ -99,6 +109,7 @@ public class OrderManager {
     }
 
     public ClaimResult claim(int id, int requestedAmount, int held, boolean clampToHeld) {
+        requireServerThread();
         ClaimResult[] outcome = new ClaimResult[1];
         requests.computeIfPresent(id, (key, order) -> {
             int give = requestedAmount <= 0 ? order.amount : Math.min(requestedAmount, order.amount);
@@ -136,6 +147,7 @@ public class OrderManager {
     }
 
     public void rollbackClaim(OrderRequest order, int give, long payment, long escrowUsed, boolean exhausted) {
+        requireServerThread();
         requests.compute(order.id, (key, existing) -> {
             if (existing == null && !exhausted) {
                 return null;
@@ -174,6 +186,7 @@ public class OrderManager {
     }
 
     public void setLimitOverride(UUID player, Integer limit) {
+        requireServerThread();
         limitOverrides.set(player, limit);
         save();
     }
@@ -187,10 +200,11 @@ public class OrderManager {
     }
 
     public void addDelivery(UUID player, ItemStack stack) {
+        requireServerThread();
         deliveries.addDelivery(player, stack);
     }
 
-    public void load() {
+    private void load() {
         String json = Documents.read(db, file, "orders.json");
         if (json == null) return;
         try {
@@ -235,6 +249,7 @@ public class OrderManager {
     }
 
     public void save() {
+        requireServerThread();
         JsonObject root = new JsonObject();
         root.addProperty("nextId", nextId);
         JsonArray reqArr = new JsonArray();
@@ -247,10 +262,12 @@ public class OrderManager {
     }
 
     public void addListener(Runnable run) {
+        requireServerThread();
         listeners.add(run);
     }
 
     public void removeListener(Runnable run) {
+        requireServerThread();
         listeners.remove(run);
     }
 

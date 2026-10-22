@@ -55,6 +55,19 @@ public class EconomyConfig {
     public int orderExpirationHours = 168;
     @SerializedName("auction_expiration_hours")
     public int auctionExpirationHours = 168;
+    /**
+     * Master switch for the {@code /ah} chat notices: a line when a listing appears and a SALE line when
+     * its price drops. Both are sent to online players and, within the window below, queued for offline
+     * ones.
+     */
+    @SerializedName("auction_listing_broadcast")
+    public boolean auctionListingBroadcast = true;
+    /**
+     * How long after their last login an offline player still receives new-listing and price-drop notices.
+     * {@code 0} keeps the notices online-only.
+     */
+    @SerializedName("auction_listing_notify_active_days")
+    public int auctionListingNotifyActiveDays = 30;
     @SerializedName("max_active_orders_per_player")
     public int maxActiveOrdersPerPlayer = 0;
     @SerializedName("max_active_auctions_per_player")
@@ -145,6 +158,34 @@ public class EconomyConfig {
     @SerializedName("motd")
     public com.reazip.economycraft.config.MotdSection motd = new com.reazip.economycraft.config.MotdSection();
 
+    /**
+     * The read-only HTTP market snapshot, {@code GET /economycraft/v1/market}.
+     *
+     * <p>Off by default and inert without a token, because the snapshot is the only thing in this mod
+     * that leaves the process: an open listener with no secret would publish the whole market, and
+     * the {@code ?player=} scoping is what keeps one player's balance and goods out of it.
+     */
+    @SerializedName("http_market_enabled")
+    public boolean httpMarketEnabled = false;
+
+    /**
+     * Bind port. {@code 0} binds an ephemeral port, which is then logged at server start.
+     *
+     * <p>The {@code @SerializedName} on each of these three is load-bearing. This class has no
+     * field-naming policy, so an unannotated field binds to its <em>Java</em> name and silently
+     * ignores the snake_case key the rest of the file uses and the log messages name. Without the
+     * annotation, {@code http_market_enabled: true} in config.json left this false and the route
+     * never bound, with no warning.
+     */
+    @SerializedName("http_market_port")
+    public int httpMarketPort = 0;
+
+    /**
+     * Shared secret for {@code X-EconomyCraft-Token}. Empty means the route refuses to start.
+     */
+    @SerializedName("http_market_token")
+    public String httpMarketToken = "";
+
     public static final int MIN_TRANSACTION_LOG_RETENTION_DAYS = 1;
     public static final int WARN_TRANSACTION_LOG_RETENTION_DAYS = 90;
     public static final double MAX_DYNAMIC_PRICE_MULTIPLIER = 100.0;
@@ -186,6 +227,7 @@ public class EconomyConfig {
             parsed.transactionLogRetentionDays = clampRetentionDays(parsed.transactionLogRetentionDays);
             parsed.orderExpirationHours = clampNonNegative("order_expiration_hours", parsed.orderExpirationHours);
             parsed.auctionExpirationHours = clampNonNegative("auction_expiration_hours", parsed.auctionExpirationHours);
+            parsed.auctionListingNotifyActiveDays = clampNonNegative("auction_listing_notify_active_days", parsed.auctionListingNotifyActiveDays);
             parsed.maxActiveOrdersPerPlayer = clampNonNegative("max_active_orders_per_player", parsed.maxActiveOrdersPerPlayer);
             parsed.maxActiveAuctionsPerPlayer = clampNonNegative("max_active_auctions_per_player", parsed.maxActiveAuctionsPerPlayer);
             parsed.maxActiveTollsPerPlayer = clampNonNegative("max_active_tolls_per_player", parsed.maxActiveTollsPerPlayer);
@@ -210,6 +252,8 @@ public class EconomyConfig {
             parsed.wealthTaxMaxCatchupDays = clampNonNegative("wealth_tax_max_catchup_days", parsed.wealthTaxMaxCatchupDays);
             parsed.wealthTaxRebateMaxRate = clampPercentage("wealth_tax_rebate_max_rate", parsed.wealthTaxRebateMaxRate);
             parsed.wealthTaxRebateTriggerFactor = clampRange("wealth_tax_rebate_trigger_factor", parsed.wealthTaxRebateTriggerFactor, 0.0, MAX_REBATE_TRIGGER_FACTOR, "");
+            parsed.httpMarketPort = clampPort(parsed.httpMarketPort);
+            if (parsed.httpMarketToken == null) parsed.httpMarketToken = "";
             parsed.factions = requireSection("factions", parsed.factions, FactionsSection::new);
             parsed.professions = requireSection("professions", parsed.professions, ProfessionsSection::new);
             parsed.quests = requireSection("quests", parsed.quests, QuestsSection::new);
@@ -280,6 +324,16 @@ public class EconomyConfig {
     }
 
     /** A contract reward must be at least 1 and representable by the balance engine. */
+    /** A port the OS could never bind is a typo, not a preference; anything above 65535 is clamped. */
+    private static int clampPort(int port) {
+        int clamped = clampNonNegative("http_market_port", port);
+        if (clamped > 65535) {
+            LOGGER.warn("[EconomyCraft] http_market_port ({}) is above 65535; clamping to 65535.", port);
+            return 65535;
+        }
+        return clamped;
+    }
+
     private static long clampContractReward(long value) {
         long clamped = Math.clamp(value, 1, EconomyManager.MAX);
         if (clamped != value) {

@@ -38,7 +38,7 @@ public final class OrderFulfillment {
         FULFILLER_CANT_RECEIVE, FULL_AMOUNT_REQUIRED
     }
 
-    public record Result(Status status, int given, long payout, int remaining, ItemStack item, UUID requester) {
+    public record Result(Status status, int given, long payout, long payment, int remaining, ItemStack item, UUID requester) {
         public boolean success() {
             return status == Status.OK;
         }
@@ -157,10 +157,10 @@ public final class OrderFulfillment {
         OrderManager orders = eco.getOrders();
         OrderRequest peek = orders.getRequest(orderId);
         if (peek == null || peek.item == null || peek.item.isEmpty()) {
-            return new Result(Status.ORDER_GONE, 0, 0, 0, ItemStack.EMPTY, null);
+            return new Result(Status.ORDER_GONE, 0, 0, 0, 0, ItemStack.EMPTY, null);
         }
         if (fulfiller.getUUID().equals(peek.requester)) {
-            return new Result(Status.OWN_ORDER, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+            return new Result(Status.OWN_ORDER, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
         }
 
         ItemStack itemProto = peek.item.copy();
@@ -175,13 +175,13 @@ public final class OrderFulfillment {
         OrderManager orders = eco.getOrders();
         OrderRequest peek = orders.getRequest(orderId);
         if (peek == null || peek.item == null || peek.item.isEmpty()) {
-            return new Result(Status.ORDER_GONE, 0, 0, 0, ItemStack.EMPTY, null);
+            return new Result(Status.ORDER_GONE, 0, 0, 0, 0, ItemStack.EMPTY, null);
         }
         if (fulfiller.getUUID().equals(peek.requester)) {
-            return new Result(Status.OWN_ORDER, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+            return new Result(Status.OWN_ORDER, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
         }
         if (sourceStack == null || !ItemStack.isSameItemSameComponents(sourceStack, peek.item)) {
-            return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+            return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
         }
 
         ItemStack itemProto = peek.item.copy();
@@ -193,16 +193,16 @@ public final class OrderFulfillment {
                                             UUID requester, UUID fulfillerId, ItemStack itemProto, IntConsumer takeItems) {
         switch (claim.status()) {
             case ORDER_GONE -> {
-                return new Result(Status.ORDER_GONE, 0, 0, 0, ItemStack.EMPTY, null);
+                return new Result(Status.ORDER_GONE, 0, 0, 0, 0, ItemStack.EMPTY, null);
             }
             case INVALID_AMOUNT -> {
-                return new Result(Status.INVALID_AMOUNT, 0, 0, claim.order().amount, itemProto, requester);
+                return new Result(Status.INVALID_AMOUNT, 0, 0, 0, claim.order().amount, itemProto, requester);
             }
             case FULL_AMOUNT_REQUIRED -> {
-                return new Result(Status.FULL_AMOUNT_REQUIRED, 0, 0, claim.order().amount, itemProto, requester);
+                return new Result(Status.FULL_AMOUNT_REQUIRED, 0, 0, 0, claim.order().amount, itemProto, requester);
             }
             case NOT_ENOUGH_ITEMS -> {
-                return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, claim.order().amount, itemProto, requester);
+                return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, claim.order().amount, itemProto, requester);
             }
             default -> {}
         }
@@ -211,7 +211,7 @@ public final class OrderFulfillment {
         PaymentOutcome outcome = settleOrderPayment(eco, requester, fulfillerId, claim.payment(), claim.escrowUsed(), detail);
         if (!outcome.success()) {
             orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
-            return new Result(outcome.failureStatus(), 0, 0, claim.order().amount, itemProto, requester);
+            return new Result(outcome.failureStatus(), 0, 0, 0, claim.order().amount, itemProto, requester);
         }
 
         takeItems.accept(claim.given());
@@ -229,7 +229,7 @@ public final class OrderFulfillment {
         orders.markChanged();
 
         int remaining = claim.exhausted() ? 0 : claim.order().amount;
-        return new Result(Status.OK, claim.given(), outcome.payout(), remaining, itemProto, requester);
+        return new Result(Status.OK, claim.given(), outcome.payout(), claim.payment(), remaining, itemProto, requester);
     }
 
     private static PaymentOutcome settleOrderPayment(EconomyManager eco, UUID requester, UUID fulfillerId, long payment,

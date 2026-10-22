@@ -53,8 +53,20 @@ public final class DeliveryManager {
         return ledger.get(player);
     }
 
+    public List<DeliveryLedger.Entry> getDeliveryEntries(UUID player) {
+        return ledger.getEntries(player);
+    }
+
+    public DeliveryLedger.Entry getDeliveryEntry(UUID player, UUID deliveryId) {
+        return ledger.get(player, deliveryId);
+    }
+
     public void removeDelivery(UUID player, ItemStack stack) {
         if (ledger.remove(player, stack)) save();
+    }
+
+    public void removeDelivery(UUID player, UUID deliveryId) {
+        if (ledger.remove(player, deliveryId)) save();
     }
 
     public boolean hasDeliveries(UUID player) {
@@ -76,7 +88,7 @@ public final class DeliveryManager {
         if (json != null) {
             try {
                 JsonObject root = GSON.fromJson(json, JsonObject.class);
-                if (root != null) ledger.load(root, server.registryAccess());
+                if (root != null && ledger.load(root, server.registryAccess())) save();
             } catch (Exception ex) {
                 LOGGER.error("[EconomyCraft] Failed to load {}", file, ex);
             }

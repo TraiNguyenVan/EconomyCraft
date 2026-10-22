@@ -28,6 +28,22 @@ The tax tools move player balances. **Reset Entire Economy** also deletes transa
 
 Some configuration sections are file-only. Edit `config/economycraft/config.json` and use **Reload from disk** to apply them. The [bundled `config.json`](https://github.com/TraiNguyenVan/EconomyCraft/blob/main/common/src/main/resources/assets/economycraft/config.json) lists the exact setting names and shipped defaults; refer to that file when tuning values.
 
+## HTTP market snapshot and command endpoint
+
+EconomyCraft can publish the auction and order market as JSON, and accept one player-scoped command, for a consumer that is not an in-process mod. Both are off by default and share one listener and the three keys that control it:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `http_market_enabled` | `false` | Master switch for the listener. |
+| `http_market_port` | `0` | Bind port. `0` binds an ephemeral port, which is logged at server start. |
+| `http_market_token` | `""` | Shared secret for the `X-EconomyCraft-Token` request header, on both routes. Empty means the listener refuses to start. |
+
+Set a token before enabling it — an empty token leaves both routes closed, because per-player scoping and the command route both depend on knowing who is asking.
+
+The listener starts with the server and stops with it. These keys take effect on the next start; **Reload from disk** re-reads them but does not rebind a running listener.
+
+The market route serves `GET /economycraft/v1/market`, which reads and never writes. The command route serves `POST /economycraft/v1/command`, with `claimDelivery` using a delivery's stable ID and the listing and order commands described in the [API reference](API-Reference.md#command-route). The request names the player whose inventory or balance is used; counterparties come from the selected listing or order, not a caller-supplied player UUID. Both routes, their auth requirement, every refusal and the data they deliberately never expose are documented there. The port the listener binds is printed in the log at start; the token never is.
+
 ## Commands
 
 | Command | Purpose |
