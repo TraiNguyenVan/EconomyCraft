@@ -14,7 +14,9 @@ interrupted write can no longer withdraw units that never reach a listing, or re
 ledger while the old listing is still on the board.
 
 A transfer that fails also reloads the live ledger, auction house and delivery mailboxes from the
-rolled-back documents, so a later save cannot commit half of a move the database refused.
+rolled-back documents, so a later save cannot commit half of a move the database refused. A document
+write that fails inside a transaction now aborts that transaction instead of being logged and committed,
+so an I/O or SQLite error cannot leave the withdrawal committed without its listing.
 
 ### Minecraft 26.3 is the only supported version
 

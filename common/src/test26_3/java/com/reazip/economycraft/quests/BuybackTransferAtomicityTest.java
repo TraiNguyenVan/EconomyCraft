@@ -27,7 +27,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -191,6 +194,29 @@ class BuybackTransferAtomicityTest {
                 "the open lot keeps the units it already had");
     }
 
+    @Test
+    @DisplayName("A failed database write rolls the transfer back instead of committing the withdrawal")
+    void failedAuctionWriteRollsTheTransferBack() throws Exception {
+        AuctionManager auctions = new AuctionManager(server, deliveries, db);
+        auctions.addListing(botListing(10)); // room in its lot, so the sweep tops it up
+        QuestStock stock = new QuestStock(server, db);
+        stock.deposit(KEY, 10L);
+        when(eco.getQuestStock()).thenReturn(stock);
+        when(eco.getAuctions()).thenReturn(auctions);
+
+        // Unlike the interruption tests above, this failure comes from SQLite itself, below the
+        // catch in writeDocument: the auction row exists and rejects the UPDATE.
+        failUpdatesTo("auctions.json");
+
+        assertThrows(RuntimeException.class, () -> QuestBuyback.sweep(eco));
+
+        assertEquals(10L, stock.get(KEY), "the live ledger keeps units the failed write could not move");
+        assertEquals(10, auctions.getListings().get(0).item.getCount(),
+                "the live lot keeps only what the auction document holds");
+        assertEquals(10L, restartStock().get(KEY), "the withdrawal rolled back with the failed write");
+        assertEquals(10, restartAuctions().getListings().get(0).item.getCount());
+    }
+
     // ---- listing -> stock ----
 
     @Test
@@ -294,6 +320,19 @@ class BuybackTransferAtomicityTest {
         listing.createdAt = 1_000L;
         listing.expiresAt = 1L;
         return listing;
+    }
+
+    /**
+     * Makes the next update of {@code key} fail inside SQLite, so {@code writeDocument} sees a real
+     * {@code SQLException} rather than one thrown above its catch.
+     */
+    private void failUpdatesTo(String key) throws SQLException {
+        Path file = EconomyPaths.dataDir(server).resolve(EconomyDatabase.DB_FILE_NAME);
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + file.toAbsolutePath());
+             Statement st = conn.createStatement()) {
+            st.execute("CREATE TRIGGER fail_document_update BEFORE UPDATE ON documents " +
+                    "WHEN OLD.name = '" + key + "' BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END");
+        }
     }
 
     private EconomyDatabase openDatabase() throws SQLException {
