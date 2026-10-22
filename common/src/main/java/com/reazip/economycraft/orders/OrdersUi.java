@@ -15,6 +15,8 @@ import com.reazip.economycraft.util.ContainerPreviewUi;
 import com.reazip.economycraft.util.EconomyPermissions;
 import com.reazip.economycraft.util.EconomyPermissions.Nodes;
 import com.reazip.economycraft.util.EconomySounds;
+import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.util.DeliveryLedger;
 import com.reazip.economycraft.util.ExpirationUtil;
 import com.reazip.economycraft.util.IdentityCompat;
 import com.reazip.economycraft.util.ItemPickerUi;
@@ -23,6 +25,7 @@ import com.reazip.economycraft.util.MenuUiSupport;
 import com.reazip.economycraft.util.NumberInputUi;
 import com.reazip.economycraft.util.SortMode;
 import com.reazip.economycraft.util.TextInputUi;
+import org.slf4j.Logger;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -1191,10 +1194,11 @@ public final class OrdersUi {
     }
 
     private static class ClaimMenu extends CompatMenu {
+        private static final Logger LOGGER = LogUtils.getLogger();
         private final EconomyManager eco;
         private final UUID owner;
         private final SimpleContainer container = new SimpleContainer(54);
-        private final List<ItemStack> items = new ArrayList<>();
+        private final List<DeliveryLedger.Entry> items = new ArrayList<>();
         private int page;
         private final int navRowStart = 45;
 
@@ -1222,14 +1226,14 @@ public final class OrdersUi {
 
         private void updatePage() {
             items.clear();
-            items.addAll(eco.getDeliveries().getDeliveries(owner));
+            items.addAll(eco.getDeliveries().getDeliveryEntries(owner));
             container.clearContent();
             int start = page * 45;
             int totalPages = MenuUiSupport.totalPages(items.size(), 45);
             for (int i = 0; i < 45; i++) {
                 int index = start + i;
                 if (index >= items.size()) break;
-                container.setItem(i, items.get(index));
+                container.setItem(i, items.get(index).stack());
             }
 
             if (items.isEmpty()) {
@@ -1254,16 +1258,33 @@ public final class OrdersUi {
             return eco.getServer().getPlayerList().getPlayer(owner);
         }
 
-        private int claimStack(Player player, ItemStack stack) {
-            ItemStack remainder = stack.copy();
+        private DeliveryLedger.Entry deliveryAt(int slot) {
+            int index = page * 45 + slot;
+            if (index < 0 || index >= items.size()) return null;
+            return items.get(index);
+        }
+
+        private int claimStack(Player player, DeliveryLedger.Entry entry) {
+            if (entry == null) return 0;
+            DeliveryLedger.Entry current = eco.getDeliveries().getDeliveryEntry(owner, entry.id());
+            if (current == null) return 0; // gone — stale reference, do nothing
+
+            ItemStack ledgerStack = current.stack();
+            ItemStack remainder = ledgerStack.copy();
             player.getInventory().add(remainder);
-            int taken = stack.getCount() - remainder.getCount();
+            int taken = ledgerStack.getCount() - remainder.getCount();
             if (taken <= 0) return 0;
 
             if (remainder.isEmpty()) {
-                eco.getDeliveries().removeDelivery(owner, stack);
+                eco.getDeliveries().removeDelivery(owner, current.id());
+                DeliveryLedger.Entry stillThere = eco.getDeliveries().getDeliveryEntry(owner, current.id());
+                if (stillThere != null) {
+                    LOGGER.warn("[EconomyCraft] INVARIANT FAILURE: delivery {} for {} was added to "
+                            + "inventory but could not be removed from the ledger — duplicate item",
+                            current.id(), owner);
+                }
             } else {
-                stack.shrink(taken);
+                ledgerStack.shrink(taken);
                 eco.getDeliveries().save();
             }
             return taken;
@@ -1288,8 +1309,8 @@ public final class OrdersUi {
             if (kind == ClickKind.PICKUP) {
                 if (slot < 45) {
                     if (isDeliverySlot(slot)) {
-                        Slot s = this.slots.get(slot);
-                        if (claimStack(player, s.getItem()) > 0) {
+                        DeliveryLedger.Entry entry = deliveryAt(slot);
+                        if (entry != null && claimStack(player, entry) > 0) {
                             EconomySounds.itemPickedUp((ServerPlayer) player);
                             updatePage();
                         }
@@ -1314,9 +1335,10 @@ public final class OrdersUi {
             Slot slot = this.slots.get(idx);
             if (!slot.hasItem()) return ItemStack.EMPTY;
             if (isDeliverySlot(idx)) {
-                ItemStack stack = slot.getItem();
-                ItemStack claimed = stack.copy();
-                int taken = claimStack(player, stack);
+                DeliveryLedger.Entry entry = deliveryAt(idx);
+                if (entry == null) return ItemStack.EMPTY;
+                ItemStack claimed = entry.stack().copy();
+                int taken = claimStack(player, entry);
                 if (taken <= 0) return ItemStack.EMPTY;
 
                 EconomySounds.itemPickedUp((ServerPlayer) player);

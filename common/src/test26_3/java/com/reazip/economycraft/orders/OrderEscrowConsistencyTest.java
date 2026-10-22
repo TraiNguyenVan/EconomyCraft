@@ -113,6 +113,8 @@ class OrderEscrowConsistencyTest {
         when(server.getWorldPath(LevelResource.ROOT)).thenReturn(world);
         when(server.registryAccess())
                 .thenReturn(RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
+        // The OrderManager's server-thread guard runs during its saves; the test thread plays it.
+        when(server.isSameThread()).thenReturn(true);
         PlayerList players = mock(PlayerList.class);
         when(server.getPlayerList()).thenReturn(players);
         when(players.getPlayers()).thenReturn(List.of());

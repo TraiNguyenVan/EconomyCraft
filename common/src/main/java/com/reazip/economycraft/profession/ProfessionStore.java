@@ -503,8 +503,8 @@ public final class ProfessionStore {
     /** Writes pending changes if anything changed since the last write. */
     public void flush() {
         if (!dirty) return;
-        dirty = false;
         Documents.write(db, file, "professions.json", GSON.toJson(new HashMap<>(progressByPlayer), TYPE));
+        Documents.afterCommit(db, () -> dirty = false);
     }
 
     private void load() {

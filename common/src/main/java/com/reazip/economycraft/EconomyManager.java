@@ -1090,6 +1090,16 @@ public class EconomyManager {
         return Map.copyOf(balances);
     }
 
+    /**
+     * The cached uuid-to-name map, and nothing else — no balance, no faction, no profession. It backs
+     * the market snapshot's roster, which is why it is a copy of the names rather than a lookup that
+     * could be widened into an account.
+     */
+    public Map<UUID, String> getPlayerNames() {
+        requireServerThread();
+        return Map.copyOf(playerNames);
+    }
+
     public void removePlayer(UUID id) {
         requireServerThread();
         balanceMutations.delete(id);

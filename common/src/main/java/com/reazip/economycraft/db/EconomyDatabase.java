@@ -13,6 +13,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -76,6 +77,13 @@ public final class EconomyDatabase implements AutoCloseable {
     private Connection connection;
     private boolean initialized;
     private boolean inTransaction;
+    /**
+     * The first document-write failure seen inside the open transaction, kept so the transaction can
+     * never commit even if the body catches the exception.
+     */
+    private RuntimeException transactionWriteFailure;
+    /** Actions to run once the open transaction commits; discarded when it rolls back. */
+    private final List<Runnable> afterCommit = new ArrayList<>();
 
     public EconomyDatabase(Path dbPath) {
         this.dbPath = dbPath.toAbsolutePath();
@@ -231,7 +239,15 @@ public final class EconomyDatabase implements AutoCloseable {
         }
     }
 
-    /** Upserts one document. Synchronous: when this returns, the row is committed. */
+    /**
+     * Upserts one document. Synchronous: when this returns outside a transaction, the row is
+     * committed.
+     *
+     * <p>Inside a transaction a failed write is thrown, not logged and swallowed: the transaction
+     * would otherwise commit the other documents in the group while this one silently kept its old
+     * content, which is exactly the half-written state atomic callers exist to prevent. The failure
+     * is also remembered so a body that catches it still cannot let the transaction commit.
+     */
     public synchronized void writeDocument(String key, String content) {
         ensureOpen();
         try (PreparedStatement ps = connection.prepareStatement(
@@ -243,6 +259,11 @@ public final class EconomyDatabase implements AutoCloseable {
             ps.executeUpdate();
         } catch (SQLException e) {
             LOGGER.error("[EconomyCraft-DB] Failed to write document {}", key, e);
+            if (!inTransaction) return;
+            DocumentWriteException failure =
+                    new DocumentWriteException("Failed to write document " + key, e);
+            if (transactionWriteFailure == null) transactionWriteFailure = failure;
+            throw failure;
         }
     }
 
@@ -259,10 +280,16 @@ public final class EconomyDatabase implements AutoCloseable {
             return;
         }
         inTransaction = true;
+        transactionWriteFailure = null;
+        afterCommit.clear();
         try {
             connection.setAutoCommit(false);
             body.run();
+            // A body may catch a write failure and carry on; committing then would persist the rest
+            // of the group beside a document that kept its old content. Refuse the commit instead.
+            if (transactionWriteFailure != null) throw transactionWriteFailure;
             connection.commit();
+            runAfterCommitActions();
         } catch (RuntimeException | SQLException e) {
             try {
                 connection.rollback();
@@ -272,10 +299,49 @@ public final class EconomyDatabase implements AutoCloseable {
             throw e instanceof RuntimeException runtime ? runtime : new IllegalStateException(e);
         } finally {
             inTransaction = false;
+            transactionWriteFailure = null;
+            afterCommit.clear();
             try {
                 connection.setAutoCommit(true);
             } catch (SQLException ignored) {
             }
+        }
+    }
+
+    /**
+     * Runs {@code action} once the open transaction commits, or immediately when none is open.
+     *
+     * <p>Stores use this to clear their dirty flags only after the data is durable: clearing them
+     * inside the transaction would make a rolled-back write look saved, and the next flush would
+     * skip it. Actions registered in a transaction that rolls back are discarded.
+     */
+    public synchronized void afterCommit(Runnable action) {
+        if (inTransaction) {
+            afterCommit.add(action);
+        } else {
+            action.run();
+        }
+    }
+
+    private void runAfterCommitActions() {
+        if (afterCommit.isEmpty()) return;
+        List<Runnable> actions = new ArrayList<>(afterCommit);
+        afterCommit.clear();
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (RuntimeException e) {
+                // The transaction is already durable; a bookkeeping failure must not look like a
+                // failed commit to the caller.
+                LOGGER.error("[EconomyCraft-DB] A post-commit action failed", e);
+            }
+        }
+    }
+
+    /** A document write failed inside a transaction, so the transaction cannot commit. */
+    public static final class DocumentWriteException extends RuntimeException {
+        DocumentWriteException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 

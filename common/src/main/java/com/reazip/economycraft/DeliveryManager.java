@@ -53,6 +53,14 @@ public final class DeliveryManager {
         return ledger.get(player);
     }
 
+    public List<DeliveryLedger.Entry> getDeliveryEntries(UUID player) {
+        return ledger.getEntries(player);
+    }
+
+    public DeliveryLedger.Entry getDeliveryEntry(UUID player, UUID deliveryId) {
+        return ledger.get(player, deliveryId);
+    }
+
     public void removeDelivery(UUID player, ItemStack stack) {
         removeDelivery(player, stack, true);
     }
@@ -61,8 +69,22 @@ public final class DeliveryManager {
         if (ledger.remove(player, stack) && persist) save();
     }
 
+    public void removeDelivery(UUID player, UUID deliveryId) {
+        if (ledger.remove(player, deliveryId)) save();
+    }
+
     public boolean hasDeliveries(UUID player) {
         return ledger.has(player);
+    }
+
+    /**
+     * Drops the mailbox and re-reads it from disk. A transfer moves items into the mailbox in memory
+     * before its transaction commits; when that transaction rolls back, this brings the mailbox back
+     * in step with the documents it reads.
+     */
+    public synchronized void reload() {
+        ledger.clear();
+        load(EconomyPaths.dataDir(server));
     }
 
     private void load(Path dataDir) {
@@ -70,7 +92,7 @@ public final class DeliveryManager {
         if (json != null) {
             try {
                 JsonObject root = GSON.fromJson(json, JsonObject.class);
-                if (root != null) ledger.load(root, server.registryAccess());
+                if (root != null && ledger.load(root, server.registryAccess())) save();
             } catch (Exception ex) {
                 LOGGER.error("[EconomyCraft] Failed to load {}", file, ex);
             }

@@ -69,6 +69,74 @@ class EconomyDatabaseTest {
     }
 
     @Test
+    void failedDocumentWriteRollsBackTheWholeTransaction(@TempDir Path dataDir) throws Exception {
+        Path dbFile = dataDir.resolve(EconomyDatabase.DB_FILE_NAME);
+        try (EconomyDatabase db = new EconomyDatabase(dbFile)) {
+            db.initialize();
+            db.writeDocument("stock.json", "{\"units\":10}");
+            db.writeDocument("auctions.json", "{\"listings\":0}");
+            failUpdatesTo(dbFile, "auctions.json");
+
+            // The second write fails at the database, after the first already ran in the transaction.
+            assertThrows(RuntimeException.class, () -> db.runInTransaction(() -> {
+                db.writeDocument("stock.json", "{\"units\":0}");
+                db.writeDocument("auctions.json", "{\"listings\":1}");
+            }));
+
+            assertEquals("{\"units\":10}", db.readDocument("stock.json"),
+                    "the write before the failure rolls back with it");
+            assertEquals("{\"listings\":0}", db.readDocument("auctions.json"),
+                    "the failed write leaves its document unchanged");
+        }
+    }
+
+    @Test
+    void caughtDocumentWriteFailureStillRollsBackTheTransaction(@TempDir Path dataDir) throws Exception {
+        Path dbFile = dataDir.resolve(EconomyDatabase.DB_FILE_NAME);
+        try (EconomyDatabase db = new EconomyDatabase(dbFile)) {
+            db.initialize();
+            db.writeDocument("stock.json", "{\"units\":10}");
+            db.writeDocument("auctions.json", "{\"listings\":0}");
+            failUpdatesTo(dbFile, "auctions.json");
+
+            // A body that swallows the failure must not turn it into a commit of the other writes.
+            assertThrows(RuntimeException.class, () -> db.runInTransaction(() -> {
+                db.writeDocument("stock.json", "{\"units\":0}");
+                try {
+                    db.writeDocument("auctions.json", "{\"listings\":1}");
+                } catch (RuntimeException ignored) {
+                    // Deliberately swallowed: the transaction must still refuse to commit.
+                }
+            }));
+
+            assertEquals("{\"units\":10}", db.readDocument("stock.json"));
+        }
+    }
+
+    @Test
+    void afterCommitActionsAreDiscardedWhenTheTransactionRollsBack(@TempDir Path dataDir) throws Exception {
+        Path dbFile = dataDir.resolve(EconomyDatabase.DB_FILE_NAME);
+        try (EconomyDatabase db = new EconomyDatabase(dbFile)) {
+            db.initialize();
+            db.writeDocument("auctions.json", "{\"listings\":0}");
+            failUpdatesTo(dbFile, "auctions.json");
+
+            int[] runs = {0};
+            db.afterCommit(() -> runs[0]++);
+            assertEquals(1, runs[0], "without a transaction the action runs immediately");
+
+            db.runInTransaction(() -> db.afterCommit(() -> runs[0]++));
+            assertEquals(2, runs[0], "a committed transaction runs its action");
+
+            assertThrows(RuntimeException.class, () -> db.runInTransaction(() -> {
+                db.afterCommit(() -> runs[0]++);
+                db.writeDocument("auctions.json", "{\"listings\":1}");
+            }));
+            assertEquals(2, runs[0], "a rolled-back transaction discards its action");
+        }
+    }
+
+    @Test
     void fileBackedDatabaseSurvivesReopen(@TempDir Path dataDir) throws Exception {
         Path dbFile = dataDir.resolve(EconomyDatabase.DB_FILE_NAME);
         try (EconomyDatabase db = new EconomyDatabase(dbFile)) {
@@ -127,6 +195,20 @@ class EconomyDatabaseTest {
                 assertTrue(rs.next());
                 assertEquals("Bob", rs.getString(1));
             }
+        }
+    }
+
+    /**
+     * Makes the next update of {@code key} fail inside SQLite itself, with {@code RAISE(ABORT)}, so the
+     * failure reaches {@link EconomyDatabase#writeDocument} as a real {@code SQLException} rather than
+     * an exception thrown above its catch.
+     */
+    private static void failUpdatesTo(Path dbFile, String key) throws Exception {
+        String url = "jdbc:sqlite:" + dbFile.toAbsolutePath();
+        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(url);
+             java.sql.Statement st = conn.createStatement()) {
+            st.execute("CREATE TRIGGER fail_document_update BEFORE UPDATE ON documents " +
+                    "WHEN OLD.name = '" + key + "' BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END");
         }
     }
 }

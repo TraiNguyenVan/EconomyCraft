@@ -37,6 +37,7 @@ public class AuctionManager {
     private final PlayerLimitOverrides limitOverrides = new PlayerLimitOverrides();
     private final DeliveryManager deliveries;
     private final List<Runnable> listeners = new ArrayList<>();
+    private final AuctionNotifier notifier;
     private int nextId = 1;
 
     public AuctionManager(MinecraftServer server, DeliveryManager deliveries) {
@@ -49,6 +50,7 @@ public class AuctionManager {
         this.db = db;
         this.file = prepareAuctionFile(EconomyPaths.dataDir(server));
         this.deliveries = deliveries;
+        this.notifier = new AuctionNotifier(server);
         load();
     }
 
@@ -82,17 +84,54 @@ public class AuctionManager {
 
     public MinecraftServer getServer() {
         return server;
+    }
+
+    public void requireServerThread() {
+        if (!server.isSameThread()) {
+            throw new IllegalStateException("EconomyCraft AuctionManager must be called from the server thread");
+        }
     }    public AuctionListing getListing(int id) {
         return listings.get(id);
     }
 
     public void addListing(AuctionListing listing) {
+        addListing(listing, true);
+    }
+
+    /**
+     * @param announce false for a listing nobody asked to be told about — the quest board's buyback lots,
+     *                 which post on their own schedule and would otherwise advertise themselves weekly
+     */
+    public void addListing(AuctionListing listing, boolean announce) {
+        requireServerThread();
+        if (listing.originalPrice <= 0) listing.originalPrice = listing.price;
+        int previousNextId = nextId;
         listing.id = SequentialIdAllocator.nextId(nextId, listings, LOGGER, "Auction listing");
         nextId = SequentialIdAllocator.advance(listing.id);
-        putAndPersist(listing);
+        listings.put(listing.id, listing);
+        try {
+            save();
+        } catch (RuntimeException failure) {
+            // The caller still owns the item until this method returns successfully. If persistence
+            // fails, remove the in-memory listing before ListingTransaction puts that item in the
+            // seller's deliveries mailbox.
+            listings.remove(listing.id, listing);
+            nextId = previousNextId;
+            throw failure;
+        }
+        try {
+            notifyListeners();
+        } catch (RuntimeException failure) {
+            // The listing is already durable; a UI refresh failure must not make the caller treat
+            // the item as unlisted and put it in the delivery mailbox as well.
+            LOGGER.error("[EconomyCraft] Could not refresh auction listeners after adding listing {}", listing.id,
+                    failure);
+        }
+        if (announce) announceQuietly(() -> notifier.announceListing(listing));
     }
 
     public AuctionListing removeListing(int id) {
+        requireServerThread();
         return removeListing(id, true);
     }
 
@@ -106,6 +145,7 @@ public class AuctionManager {
     }
 
     public void restoreListing(AuctionListing listing) {
+        requireServerThread();
         putAndPersist(listing);
     }
 
@@ -114,13 +154,27 @@ public class AuctionManager {
      * else's price; listeners fire so open menus refresh on the new value.
      */
     public boolean setPrice(int id, UUID seller, long price) {
+        requireServerThread();
         if (price < 1) return false;
         AuctionListing listing = listings.get(id);
         if (listing == null || !seller.equals(listing.seller)) return false;
+        long previousPrice = listing.price;
         listing.price = price;
         notifyListeners();
         save();
+        if (price < previousPrice) {
+            announceQuietly(() -> notifier.announcePriceDrop(listing, previousPrice));
+        }
         return true;
+    }
+
+    /** An auction change is already durable when notices run; a message failure must not undo it. */
+    private static void announceQuietly(Runnable notice) {
+        try {
+            notice.run();
+        } catch (RuntimeException failure) {
+            LOGGER.error("[EconomyCraft] Could not announce an auction notice", failure);
+        }
     }
 
     /**
@@ -128,6 +182,7 @@ public class AuctionManager {
      * move someone else's listing; listeners fire so open menus refresh on the new value.
      */
     public boolean setDescription(int id, UUID seller, @org.jetbrains.annotations.Nullable String description) {
+        requireServerThread();
         AuctionListing listing = listings.get(id);
         if (listing == null || !seller.equals(listing.seller)) return false;
         listing.description = com.reazip.economycraft.util.ListingDescriptions.sanitize(description);
@@ -142,8 +197,20 @@ public class AuctionManager {
         save();
     }
 
+    /** The in-game form: the buyer is standing right here, so their own name is the authoritative one. */
     public void notifySellerSale(AuctionListing listing, ServerPlayer buyer) {
-        if (listing == null || buyer == null) return;
+        if (buyer == null) return;
+        notifySellerSale(listing, buyer.getUUID(), IdentityCompat.of(buyer).name());
+    }
+
+    /**
+     * The same notification for a buyer the caller only knows by uuid — the HTTP route's buyer may be
+     * logged out, and the seller has to be told either way. The name is supplied by the caller because
+     * resolving it is {@code EconomyManager.getBestName}'s job, not this store's; an unknown buyer
+     * reads as "someone" rather than as a blank or a uuid in the message.
+     */
+    public void notifySellerSale(AuctionListing listing, UUID buyerId, @org.jetbrains.annotations.Nullable String buyerName) {
+        if (listing == null || buyerId == null) return;
 
         UUID sellerId = listing.seller;
         if (sellerId == null) return;
@@ -155,10 +222,10 @@ public class AuctionManager {
                 ? "item"
                 : stack.getHoverName().getString();
 
-        String buyerName = IdentityCompat.of(buyer).name();
+        String from = (buyerName == null || buyerName.isBlank()) ? "someone" : buyerName;
         long price = listing.price;
 
-        String message = "Sold " + amount + "x " + itemName + " to " + buyerName
+        String message = "Sold " + amount + "x " + itemName + " to " + from
                 + " for " + EconomyCraft.formatMoney(price);
 
         if (seller == null) {
@@ -173,6 +240,7 @@ public class AuctionManager {
     }
 
     public void addDelivery(UUID player, ItemStack stack) {
+        requireServerThread();
         deliveries.addDelivery(player, stack);
     }
 
@@ -193,6 +261,7 @@ public class AuctionManager {
     }
 
     public void setLimitOverride(UUID player, Integer limit) {
+        requireServerThread();
         limitOverrides.set(player, limit);
         save();
     }
@@ -205,7 +274,7 @@ public class AuctionManager {
         return limitOverrides.hasReachedLimit(player, countActive(player), EconomyConfig.get().maxActiveAuctionsPerPlayer);
     }
 
-    public void load() {
+    private void load() {
         String json = Documents.read(db, file, "auctions.json");
         if (json == null) return;
         try {
@@ -250,6 +319,7 @@ public class AuctionManager {
     }
 
     public void save() {
+        requireServerThread();
         JsonObject root = new JsonObject();
         root.addProperty("nextId", nextId);
         JsonArray listArr = new JsonArray();
@@ -261,11 +331,20 @@ public class AuctionManager {
         Documents.write(db, file, "auctions.json", GSON.toJson(root));
     }
 
-    public void addListener(Runnable run) {
-        listeners.add(run);
+    public synchronized void reload() {
+        listings.clear();
+        limitOverrides.clear();
+        nextId = 1;
+        load();
+        notifyListeners();
     }
 
+    public void addListener(Runnable run) {
+        requireServerThread();
+        listeners.add(run);
+    }
     public void removeListener(Runnable run) {
+        requireServerThread();
         listeners.remove(run);
     }
 

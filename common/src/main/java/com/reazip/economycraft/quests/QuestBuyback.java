@@ -22,8 +22,9 @@ import org.slf4j.Logger;
  * the rollover; an expired listing's items flow back into the ledger and relist on the next sweep.
  *
  * <p>Everything here runs on the server thread, called from the quest sweep. The ledger stays the
- * source of truth — a listing is just stock with a price tag — so a crash between deposit and
- * listing loses nothing: the next sweep lists what is still unlisted.
+ * source of truth — a listing is just stock with a price tag — and each move between the two
+ * commits as one database transaction, so a crash mid-listing can neither lose the withdrawn units
+ * nor leave them on both sides. The next sweep lists what is still unlisted.
  */
 public final class QuestBuyback {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -39,11 +40,14 @@ public final class QuestBuyback {
         var quests = EconomyConfig.get().quests;
         if (quests == null || !quests.enabled || !quests.buyback.enabled) return;
 
-        boolean changed = false;
         for (var stocked : eco.getQuestStock().snapshot().entrySet()) {
-            if (listUnlisted(eco, stocked.getKey(), stocked.getValue(), quests)) changed = true;
+            // Each listing moves units between the stock ledger and the auction document. One
+            // transaction per key keeps them on exactly one side of the move: a crash mid-listing
+            // rolls the whole key back instead of losing the withdrawn units (or the remainder),
+            // and the live stores are reloaded with it.
+            BuybackTransfers.run(eco,
+                    () -> listUnlisted(eco, stocked.getKey(), stocked.getValue(), quests));
         }
-        if (changed) eco.getAuctions().save();
     }
 
     /**
@@ -123,6 +127,7 @@ public final class QuestBuyback {
             // than old units at old prices beside new units at new ones.
             open.item.setCount(open.item.getCount() + take);
             open.price = open.item.getCount() * unit;
+            eco.getAuctions().save();
             LOGGER.info("[EconomyCraft] Topped up quest buyback #{}: now {}x {} for {} ({} each).",
                     open.id, open.item.getCount(), key, open.price, unit);
             return true;
@@ -135,7 +140,7 @@ public final class QuestBuyback {
         long now = System.currentTimeMillis();
         listing.createdAt = now;
         listing.expiresAt = ExpirationUtil.expiresAt(now, EconomyConfig.get().auctionExpirationHours);
-        eco.getAuctions().addListing(listing);
+        eco.getAuctions().addListing(listing, false);
         long rest = withdrawn - take;
         // Only one lot posts per sweep; anything over the lot size stays in the ledger for the next
         // sweep rather than piling into an oversized stack. A purchase frees room in the open lot, so

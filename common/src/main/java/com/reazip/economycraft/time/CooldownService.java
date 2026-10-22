@@ -142,8 +142,8 @@ public final class CooldownService {
     /** Writes pending changes if anything changed since the last write. */
     public void flush() {
         if (!dirty) return;
-        dirty = false;
         Documents.write(db, file, "cooldowns.json", GSON.toJson(new HashMap<>(expiries), TYPE));
+        Documents.afterCommit(db, () -> dirty = false);
     }
 
     private void load() {

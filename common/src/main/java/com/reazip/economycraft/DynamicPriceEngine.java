@@ -1,6 +1,7 @@
 package com.reazip.economycraft;
 
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.fiscal.FiscalPolicy;
 import com.reazip.economycraft.util.UuidLongMapStore;
@@ -67,7 +68,9 @@ public final class DynamicPriceEngine {
     }
 
     public void flush() {
-        if (dirty.compareAndSet(true, false)) UuidLongMapStore.persist(db, file, "player_activity.json", lastActive);
+        if (!dirty.get()) return;
+        UuidLongMapStore.persist(db, file, "player_activity.json", lastActive);
+        Documents.afterCommit(db, () -> dirty.set(false));
     }
 
     public void maybeRefresh(MinecraftServer server, Map<UUID, Long> balances) {
