@@ -36,6 +36,8 @@ public class VillagerMemoryService {
     private final @Nullable com.reazip.economycraft.gossip.RecentSpokenTracker recentSpokenTracker;
 
     private final Map<UUID, VillagerProfile> profileCache = new ConcurrentHashMap<>();
+    private final Map<UUID, VillagerProfile> fallbackProfiles = new ConcurrentHashMap<>();
+    private final Map<UUID, CompletableFuture<VillagerProfile>> profileLoads = new ConcurrentHashMap<>();
     private final Map<String, PlayerMemory> memoryCache = new ConcurrentHashMap<>();
     private final Map<String, Long> pairGenerations = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<PlayerMemory>> memoryLoads = new ConcurrentHashMap<>();
@@ -69,11 +71,83 @@ public class VillagerMemoryService {
     /**
      * Gets or synchronously creates the in-memory/seeded VillagerProfile for an entity,
      * ensuring that overhead nameplates and identity are immediately available without tick delay.
+     *
+     * <p>The seeded persona is a fallback only: it is never authoritative until the database
+     * confirms that no profile exists, so it must not be used as dialogue context.
      */
     public VillagerProfile getOrInitializeProfile(Villager villager) {
         UUID uuid = villager.getUUID();
         VillagerProfile cached = profileCache.get(uuid);
         if (cached != null) return cached;
+
+        VillagerProfile fallback = fallbackProfiles.get(uuid);
+        if (fallback != null) return fallback;
+
+        VillagerProfile seeded = seedProfile(villager);
+        fallbackProfiles.put(uuid, seeded);
+
+        // Asynchronously resolve the persisted profile. The seeded persona is only written once
+        // the database confirms that this villager has no profile yet.
+        loadProfile(uuid, seeded);
+
+        return seeded;
+    }
+
+    /**
+     * Resolves the persisted profile of a villager, waiting for the database lookup to finish.
+     *
+     * <p>The returned future completes with the stored persona when one exists, with the seeded
+     * persona when the villager is genuinely new, and fails when the lookup itself failed. A
+     * failed lookup never writes a profile and never leaves the seeded fallback cached as if it
+     * were the persona, so the next attempt retries instead of overwriting saved data.
+     *
+     * @param uuid        the villager's identity
+     * @param seedFactory builds the persona used for a villager that has no stored profile
+     */
+    public CompletableFuture<VillagerProfile> resolveProfile(UUID uuid, Supplier<VillagerProfile> seedFactory) {
+        VillagerProfile cached = profileCache.get(uuid);
+        if (cached != null) return CompletableFuture.completedFuture(cached);
+
+        VillagerProfile seed = fallbackProfiles.computeIfAbsent(uuid, ignored -> seedFactory.get());
+        return loadProfile(uuid, seed);
+    }
+
+    /**
+     * Loads the persisted profile once and shares the result with every caller that asks for the
+     * same villager while the load is running.
+     */
+    private CompletableFuture<VillagerProfile> loadProfile(UUID uuid, VillagerProfile seed) {
+        CompletableFuture<VillagerProfile> load = profileLoads.computeIfAbsent(uuid, ignored -> createProfileLoad(uuid, seed));
+        load.whenComplete((profile, error) -> profileLoads.remove(uuid, load));
+        return load;
+    }
+
+    private CompletableFuture<VillagerProfile> createProfileLoad(UUID uuid, VillagerProfile seed) {
+        return database.getVillager(uuid)
+                .thenCompose(found -> found
+                        .map(persisted -> {
+                            profileCache.put(uuid, persisted);
+                            fallbackProfiles.remove(uuid, seed);
+                            return CompletableFuture.completedFuture(persisted);
+                        })
+                        .orElseGet(() -> database.saveVillager(seed).thenApply(saved -> {
+                            profileCache.put(uuid, seed);
+                            fallbackProfiles.remove(uuid, seed);
+                            return seed;
+                        })))
+                .whenComplete((profile, error) -> {
+                    if (error != null) {
+                        // The stored persona is unknown: keep the fallback out of the cache so the
+                        // next attempt retries, and never write a replacement over unread data.
+                        fallbackProfiles.remove(uuid, seed);
+                        LOGGER.warn("[EconomyCraft-AI] Could not resolve the persisted profile for villager {}: {}",
+                                uuid, error.getMessage());
+                    }
+                });
+    }
+
+    private VillagerProfile seedProfile(Villager villager) {
+        UUID uuid = villager.getUUID();
 
         // Create deterministic seed profile immediately as non-blocking baseline
         var profHolder = villager.getVillagerData().profession();
@@ -88,19 +162,7 @@ public class VillagerMemoryService {
                 .orElse(null);
         String biome = typeId != null ? typeId.path() : "plains";
 
-        VillagerProfile seeded = VillagerSeeder.createSeededProfile(uuid, profession, biome, System.currentTimeMillis());
-        profileCache.put(uuid, seeded);
-
-        // Asynchronously check SQLite database or persist seeded profile
-        database.getVillager(uuid).thenAccept(optDbProfile -> {
-            if (optDbProfile.isPresent()) {
-                profileCache.put(uuid, optDbProfile.get());
-            } else {
-                database.saveVillager(seeded);
-            }
-        });
-
-        return seeded;
+        return VillagerSeeder.createSeededProfile(uuid, profession, biome, System.currentTimeMillis());
     }
 
     /**
@@ -113,14 +175,16 @@ public class VillagerMemoryService {
             return CompletableFuture.completedFuture(Optional.empty());
         }
 
-        VillagerProfile profile = getOrInitializeProfile(villager);
         UUID villagerUuid = villager.getUUID();
         UUID playerUuid = player.getUUID();
         String key = memoryKey(villagerUuid, playerUuid);
 
-        // Ensure nameplate is visually set if entity is not manually tagged
-        if (villager.getCustomName() == null) {
-            villager.setCustomName(Component.literal(profile.name()).withStyle(ChatFormatting.YELLOW));
+        // The seeded persona is enough for an immediate nameplate; the persisted persona replaces
+        // it below once the database lookup finishes.
+        VillagerProfile fallback = getOrInitializeProfile(villager);
+        boolean ownsNameplate = villager.getCustomName() == null;
+        if (ownsNameplate) {
+            villager.setCustomName(Component.literal(fallback.name()).withStyle(ChatFormatting.YELLOW));
             villager.setCustomNameVisible(false); // standard nametag visibility on look
         }
 
@@ -137,24 +201,32 @@ public class VillagerMemoryService {
 
         // Fetch recent trade history asynchronously before requesting dialogue
         long generation = pairGenerations.getOrDefault(key, 0L);
-        return loadMemory(villagerUuid, playerUuid, key, generation)
-                .thenCombine(database.getRecentTrades(villagerUuid, playerUuid, 5).exceptionally(error -> {
-                    LOGGER.warn("[EconomyCraft-AI] Trade history read failed; continuing without trade context: {}", error.getMessage());
-                    return List.of();
-                }), (memory, trades) -> Map.entry(memory, trades))
-                .thenCompose(context -> {
-                    PlayerMemory memory = context.getKey();
-                    List<com.reazip.economycraft.gossip.storage.TradeRecord> trades = context.getValue().stream()
-                            .filter(t -> !t.toPromptDescription().isBlank()).toList();
-                    LOGGER.info("[EconomyCraft-AI] Villager {} ({}) interacting with player {}. Extracted {} offer(s), {} past trade(s).",
-                            profile.name(), profile.profession(), playerName, offers.size(), trades.size());
-                    return apiClient.generateIndividualDialogue(
-                            profile, memory, archetype, inflation, recentSpoken, offers, trades)
-                            .thenApply(result -> Map.entry(result, memory));
+
+        // The dialogue must not be written from the seeded persona: a stored profile may exist, so
+        // wait for the lookup before treating any persona as the villager's identity.
+        return resolveProfile(villagerUuid, () -> fallback)
+                .thenCompose(profile -> {
+                    applyNameplate(villager, profile, ownsNameplate);
+                    return loadMemory(villagerUuid, playerUuid, key, generation)
+                            .thenCombine(database.getRecentTrades(villagerUuid, playerUuid, 5).exceptionally(error -> {
+                                LOGGER.warn("[EconomyCraft-AI] Trade history read failed; continuing without trade context: {}", error.getMessage());
+                                return List.of();
+                            }), (memory, trades) -> Map.entry(memory, trades))
+                            .thenCompose(context -> {
+                                PlayerMemory memory = context.getKey();
+                                List<com.reazip.economycraft.gossip.storage.TradeRecord> trades = context.getValue().stream()
+                                        .filter(t -> !t.toPromptDescription().isBlank()).toList();
+                                LOGGER.info("[EconomyCraft-AI] Villager {} ({}) interacting with player {}. Extracted {} offer(s), {} past trade(s).",
+                                        profile.name(), profile.profession(), playerName, offers.size(), trades.size());
+                                return apiClient.generateIndividualDialogue(
+                                        profile, memory, archetype, inflation, recentSpoken, offers, trades)
+                                        .thenApply(result -> new DialogueContext(result, memory, profile));
+                            });
                 })
                 .thenApply(contextual -> {
-                    Optional<IndividualDialogueResult> optResult = contextual.getKey();
-                    PlayerMemory contextMemory = contextual.getValue();
+                    Optional<IndividualDialogueResult> optResult = contextual.result();
+                    PlayerMemory contextMemory = contextual.memory();
+                    VillagerProfile profile = contextual.profile();
                     synchronized (pairLock(key)) {
                     if (pairGenerations.getOrDefault(key, 0L) != generation) return Optional.<String>empty();
                     if (optResult.isEmpty() || optResult.get().isEmpty()) {
@@ -196,7 +268,25 @@ public class VillagerMemoryService {
 
                     return Optional.of(result.dialogue());
                     }
+                })
+                .exceptionally(error -> {
+                    LOGGER.warn("[EconomyCraft-AI] Could not produce villager dialogue for {}: {}", villagerUuid, error.getMessage());
+                    return Optional.<String>empty();
                 });
+    }
+
+    /**
+     * Applies the persisted persona's name to the villager's nameplate. The entity lives on the
+     * server thread, so the update is scheduled there.
+     */
+    private void applyNameplate(Villager villager, VillagerProfile profile, boolean ownsNameplate) {
+        if (!ownsNameplate) return;
+        var server = villager.level().getServer();
+        if (server == null) return;
+        server.execute(() -> {
+            villager.setCustomName(Component.literal(profile.name()).withStyle(ChatFormatting.YELLOW));
+            villager.setCustomNameVisible(false);
+        });
     }
 
     private CompletableFuture<PlayerMemory> loadMemory(UUID villagerUuid, UUID playerUuid, String key, long generation) {
@@ -276,6 +366,16 @@ public class VillagerMemoryService {
             return null;
         });
     }
+
+    /**
+     * Everything the delivery step needs: the generated line, the memory it was written against,
+     * and the persona the line was written from.
+     */
+    private record DialogueContext(
+            Optional<IndividualDialogueResult> result,
+            PlayerMemory memory,
+            VillagerProfile profile
+    ) {}
 
     /**
      * Formats the individual villager's speech into a styled chat component.

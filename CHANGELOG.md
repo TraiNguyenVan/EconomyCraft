@@ -5,6 +5,28 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Villager personas survive a failed database read
+
+A villager's saved persona is no longer lost when its database lookup fails. The lookup used to
+report a failure as "no such villager", which let the service seed a replacement persona and write
+it over the saved one; the seeded persona also stayed cached as if it were the villager's identity.
+A failed read now reports the failure, leaves the saved persona untouched, writes nothing, and
+drops the seeded fallback so the next attempt retries instead of overwriting saved data.
+
+The first interaction with a villager now uses its saved persona. The service used to answer from
+the seeded persona and swap the saved one in afterwards, so the first line a player received came
+from a persona the villager never had; the interaction now waits for the lookup, and the nameplate
+is corrected to the saved name once it arrives. Villagers that genuinely have no saved persona are
+still seeded and stored once.
+
+Failed villager writes are now reported through the future they return instead of being logged and
+completing normally, so a caller can tell a write that failed from one that succeeded. The villager
+database also shuts down in order now: it refuses new work, lets the work it already accepted
+finish, and closes the connection afterwards, so a queued write can no longer run against a closed
+connection or reconnect to a database that is going away. Its busy timeout matches the primary
+connection's, so a write that overlaps the primary connection's write waits for the lock instead
+of failing.
+
 ### Order escrow is crash-consistent
 
 Player orders and bot quest orders now commit their money movement and their order document
