@@ -27,11 +27,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -39,9 +41,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -86,6 +90,7 @@ class BuybackTransferAtomicityTest {
         when(server.getWorldPath(LevelResource.ROOT)).thenReturn(world);
         when(server.registryAccess())
                 .thenReturn(RegistryAccess.fromRegistryOfRegistries(BuiltInRegistries.REGISTRY));
+        when(server.isSameThread()).thenReturn(true);
 
         // Pin the quest keys these tests depend on; another test class may have moved them.
         EconomyConfig cfg = EconomyConfig.get();
@@ -127,6 +132,33 @@ class BuybackTransferAtomicityTest {
         if (db != null) db.close();
     }
 
+    // ---- sweep ordering ----
+
+    @Test
+    @DisplayName("A failed listing still leaves the board changes saved")
+    void failedListingKeepsTheBoardSaved() throws Exception {
+        QuestManager quests = spy(new QuestManager(server, db));
+        setField(quests, "weekStartMs", System.currentTimeMillis());
+        setField(quests, "postedThisWeek", true);
+
+        QuestStock stock = new QuestStock(server, db);
+        stock.deposit(KEY, 4L);
+        AuctionManager auctions = mock(AuctionManager.class);
+        when(auctions.getListings()).thenReturn(List.of());
+        doThrow(new RuntimeException("listing write failed"))
+                .when(auctions).addListing(any(), eq(false));
+
+        when(eco.getQuests()).thenReturn(quests);
+        when(eco.getQuestStock()).thenReturn(stock);
+        when(eco.getAuctions()).thenReturn(auctions);
+
+        assertThrows(RuntimeException.class, () -> quests.sweep(eco));
+
+        // The reload after the failed transfer reads quests.json; the board changes of this sweep
+        // (posted orders, reprices) must already be there or the next sweep forgets them.
+        verify(quests).save();
+    }
+
     // ---- stock -> listing ----
 
     @Test
@@ -138,7 +170,7 @@ class BuybackTransferAtomicityTest {
         // The auctions write is where a crash lands: the ledger already recorded the withdrawal.
         AuctionManager auctions = mock(AuctionManager.class);
         doThrow(new RuntimeException("crash before the listing reaches the database"))
-                .when(auctions).addListing(any());
+                .when(auctions).addListing(any(), eq(false));
         when(eco.getQuestStock()).thenReturn(stock);
         when(eco.getAuctions()).thenReturn(auctions);
 
@@ -178,7 +210,7 @@ class BuybackTransferAtomicityTest {
     @DisplayName("A top-up that never commits does not consume the stock")
     void interruptedTopUpKeepsTheUnitsOnTheLedger() throws Exception {
         AuctionManager seeded = new AuctionManager(server, deliveries, db);
-        seeded.addListing(botListing(10)); // room in its lot, so the sweep tops it up
+        seeded.addListing(botListing(10), false); // room in its lot, so the sweep tops it up
 
         AuctionManager auctions = spy(seeded);
         doThrow(new RuntimeException("crash mid top-up")).when(auctions).save();
@@ -203,7 +235,7 @@ class BuybackTransferAtomicityTest {
     @DisplayName("A failed database write rolls the transfer back instead of committing the withdrawal")
     void failedAuctionWriteRollsTheTransferBack() throws Exception {
         AuctionManager auctions = new AuctionManager(server, deliveries, db);
-        auctions.addListing(botListing(10)); // room in its lot, so the sweep tops it up
+        auctions.addListing(botListing(10), false); // room in its lot, so the sweep tops it up
         QuestStock stock = new QuestStock(server, db);
         stock.deposit(KEY, 10L);
         when(eco.getQuestStock()).thenReturn(stock);
@@ -228,7 +260,7 @@ class BuybackTransferAtomicityTest {
     @DisplayName("An expired listing returns its units to the ledger")
     void expiredListingReturnsToStock() throws Exception {
         AuctionManager auctions = new AuctionManager(server, deliveries, db);
-        auctions.addListing(botListing(4));
+        auctions.addListing(botListing(4), false);
         QuestStock stock = new QuestStock(server, db);
         when(eco.getAuctions()).thenReturn(auctions);
         when(eco.getQuestStock()).thenReturn(stock);
@@ -243,7 +275,7 @@ class BuybackTransferAtomicityTest {
     @DisplayName("An interrupted expiry return does not leave the units in two places")
     void interruptedExpiryReturnKeepsTheUnitsOnTheListingOnly() throws Exception {
         AuctionManager seeded = new AuctionManager(server, deliveries, db);
-        seeded.addListing(botListing(4));
+        seeded.addListing(botListing(4), false);
 
         AuctionManager auctions = spy(seeded);
         doThrow(new RuntimeException("crash before the removal reaches the database"))
@@ -276,7 +308,7 @@ class BuybackTransferAtomicityTest {
     void failedExpiryDoesNotCountTwice() throws Exception {
         EconomyConfig.get().quests.maxUnsoldExpiries = 2;
         AuctionManager seeded = new AuctionManager(server, deliveries, db);
-        seeded.addListing(botListing(4));
+        seeded.addListing(botListing(4), false);
 
         // Fail the first attempt at the final write, after QuestManager recorded the expiry.
         AuctionManager auctions = spy(seeded);
@@ -310,7 +342,7 @@ class BuybackTransferAtomicityTest {
     void failedExpiryRestoresNegotiationOffers() throws Exception {
         AuctionManager seeded = new AuctionManager(server, deliveries, db);
         AuctionListing listing = playerListing(UUID.randomUUID(), 4);
-        seeded.addListing(listing);
+        seeded.addListing(listing, false);
         UUID buyer = UUID.randomUUID();
         negotiations.makeOffer(NegotiationStore.Kind.AH, listing.id, buyer, 150L);
 
@@ -337,7 +369,7 @@ class BuybackTransferAtomicityTest {
     @DisplayName("An admin clear returns buyback units to the ledger")
     void clearedListingReturnsToStock() throws Exception {
         AuctionManager auctions = new AuctionManager(server, deliveries, db);
-        auctions.addListing(botListing(4));
+        auctions.addListing(botListing(4), false);
         QuestStock stock = new QuestStock(server, db);
         when(eco.getAuctions()).thenReturn(auctions);
         when(eco.getQuestStock()).thenReturn(stock);
@@ -352,7 +384,7 @@ class BuybackTransferAtomicityTest {
     @DisplayName("An interrupted admin clear does not leave the units in two places")
     void interruptedClearKeepsTheUnitsOnTheListingOnly() throws Exception {
         AuctionManager seeded = new AuctionManager(server, deliveries, db);
-        seeded.addListing(botListing(4));
+        seeded.addListing(botListing(4), false);
 
         AuctionManager auctions = spy(seeded);
         doThrow(new RuntimeException("crash before the clear reaches the database"))
@@ -377,6 +409,12 @@ class BuybackTransferAtomicityTest {
     }
 
     // ---- helpers ----
+
+    private static void setField(Object target, String name, Object value) throws Exception {
+        Field field = QuestManager.class.getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
 
     /** A long-expired bot lot, the shape the buyback market posts. */
     private static AuctionListing botListing(int count) {
