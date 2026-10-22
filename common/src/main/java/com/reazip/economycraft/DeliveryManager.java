@@ -62,7 +62,11 @@ public final class DeliveryManager {
     }
 
     public void removeDelivery(UUID player, ItemStack stack) {
-        if (ledger.remove(player, stack)) save();
+        removeDelivery(player, stack, true);
+    }
+
+    public void removeDelivery(UUID player, ItemStack stack, boolean persist) {
+        if (ledger.remove(player, stack) && persist) save();
     }
 
     public void removeDelivery(UUID player, UUID deliveryId) {
@@ -121,5 +125,17 @@ public final class DeliveryManager {
 
     public void save() {
         Documents.write(db, file, "deliveries.json", GSON.toJson(ledger.save(server.registryAccess())));
+    }
+
+    /**
+     * Persists the deliveries document on its own and reports a failed write.
+     *
+     * <p>{@link #save()} writes outside any transaction, where {@code EconomyDatabase.writeDocument}
+     * only logs a failed write and returns — the caller cannot tell whether the goods it just
+     * handed over are durable. This seam runs the same write inside one transaction, where a
+     * failed write aborts it and surfaces to the caller.
+     */
+    public void saveReportingFailure() {
+        Documents.atomic(db, this::save);
     }
 }

@@ -5,6 +5,28 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Order escrow is crash-consistent
+
+Player orders and bot quest orders now commit their money movement and their order document
+together. Previously creation debited the requester before the order was persisted, repricing
+refunded before the order's price was updated, and cancellation persisted the removal before
+the refund — a crash in those windows could leave a charged requester with no order, a refund
+and the original escrow both honored, or an order that vanished with its escrow. Order creation,
+repricing, cancellation, expiry and admin clears now stage the order state first and let the
+escrow debit or refund's single transactional save commit both sides, restoring the previous
+state when a mutation is rejected. Fulfillment takes the seller's stacks out of their inventory
+before any money moves and records them as a claimable delivery in the seller's own mailbox, so
+a settlement that never commits — a rejected payout, a thrown save, a crash between the two —
+still hands the goods back; the same transactional save that pays and delivers consumes it, so
+the mailbox never holds a second copy of goods the buyer already received. That handoff now
+commits in a transaction that reports a failed write instead of logging it, and a payout the
+seller cannot receive gives the goods back to the seller instead of parking them in their
+mailbox: a refused sale leaves the seller whole, and the server sale that follows cannot pay for
+the same goods twice. Failed debits and
+bounced refunds still leave orders untouched and nothing half-written on disk, and a money
+mutation whose save aborts now restores the live balances it had just changed, so a next
+successful save cannot keep a charge or a payout that was never committed.
+
 ### Quest buyback stock transfers are atomic
 
 Moving units between the quest buyback stock ledger and its auction listings now commits in one
@@ -19,11 +41,11 @@ refused. That includes the expiry counter and market quarantine a returned buyba
 the offers dropped when a player listing is removed: both come back with the listing instead of letting
 the retry count the expiry twice or lose the offers. The board also saves its posted and repriced orders
 before the buyback transfer starts, so that reload cannot forget an order already written to
-`orders.json`. A document
-write that fails inside a transaction now aborts that transaction instead of being logged and committed,
-so an I/O or SQLite error cannot leave the withdrawal committed without its listing. Stores that track
-pending changes clear that flag only after the transaction commits, so a failed save is retried by the
-next one instead of leaving the rolled-back documents stale until the next player change.
+`orders.json`. A document write that fails inside a transaction now aborts that transaction instead of
+being logged and committed, so an I/O or SQLite error cannot leave the withdrawal committed without its
+listing. Stores that track pending changes clear that flag only after the transaction commits, so a
+failed save is retried by the next one instead of leaving the rolled-back documents stale until the
+next player change.
 
 ### Minecraft 26.3 is the only supported version
 

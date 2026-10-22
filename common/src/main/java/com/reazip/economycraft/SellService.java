@@ -96,17 +96,19 @@ public final class SellService {
         List<OrderRequest> orders = OrderFulfillment.findBetterOrders(eco, proto, seller.getUUID(), serverUnitSell);
 
         int given = 0;
+        int taken = 0;
         long payout = 0;
         for (OrderRequest order : orders) {
-            if (given >= amount) break;
-            OrderFulfillment.Result r = OrderFulfillment.fulfill(eco, seller, order.id, amount - given, true);
+            if (given + taken >= amount) break;
+            OrderFulfillment.Result r = OrderFulfillment.fulfill(eco, seller, order.id, amount - given - taken, true);
             if (r.success()) {
                 given += r.given();
                 payout += r.payout();
             }
+            taken += r.taken();
         }
 
-        return new SaleSplit(given, payout, amount - given);
+        return new SaleSplit(given, payout, taken, amount - given - taken);
     }
 
     public static SaleSplit sellHandWithRouting(EconomyManager eco, ServerPlayer seller, ItemStack hand,
@@ -114,18 +116,30 @@ public final class SellService {
         List<OrderRequest> orders = OrderFulfillment.findBetterOrders(eco, hand, seller.getUUID(), serverUnitSell);
 
         int given = 0;
+        int taken = 0;
         long payout = 0;
         for (OrderRequest order : orders) {
-            if (given >= amount) break;
-            OrderFulfillment.Result r = OrderFulfillment.fulfillExact(eco, seller, order.id, amount - given, hand);
+            if (given + taken >= amount) break;
+            OrderFulfillment.Result r = OrderFulfillment.fulfillExact(eco, seller, order.id, amount - given - taken, hand);
             if (r.success()) {
                 given += r.given();
                 payout += r.payout();
             }
+            taken += r.taken();
         }
 
-        return new SaleSplit(given, payout, amount - given);
+        return new SaleSplit(given, payout, taken, amount - given - taken);
     }
 
-    public record SaleSplit(int orderGiven, long orderPayout, int serverRemaining) {}
+    /**
+     * How a sale split up.
+     *
+     * @param orderGiven how many goods went to open orders
+     * @param orderPayout what the open orders paid for them
+     * @param taken how many goods left the seller without reaching a buyer and are waiting in
+     *              the seller's deliveries mailbox; the seller still owns them, so they are
+     *              neither sold nor paid for
+     * @param serverRemaining how many goods the seller still holds and the server can buy
+     */
+    public record SaleSplit(int orderGiven, long orderPayout, int taken, int serverRemaining) {}
 }

@@ -248,6 +248,7 @@ public final class SellUi {
             int limitBlocked;
             int balanceBlocked;
             int shulkerBoxesKept;
+            int mailboxHeld;
         }
 
         private void sellStack(ServerPlayer player, ItemStack stack, SaleTotals totals) {
@@ -257,6 +258,7 @@ public final class SellUi {
             SellService.SaleSplit split = SellService.sellHandWithRouting(manager, player, stack, stack.getCount(), unitSell);
             totals.orderGiven += split.orderGiven();
             totals.orderPayout += split.orderPayout();
+            totals.mailboxHeld += split.taken();
             if (split.serverRemaining() <= 0) return;
 
             Long potential = ShopDisplay.safeMultiply(unitSell, split.serverRemaining());
@@ -349,6 +351,12 @@ public final class SellUi {
                                 + (totals.shulkerBoxesKept == 1 ? " was" : "es were")
                                 + " not sold: it still has unsellable contents.")
                         .withStyle(ChatFormatting.RED));
+            }
+
+            if (totals.mailboxHeld > 0) {
+                player.sendSystemMessage(Component.literal(totals.mailboxHeld + " item" + (totals.mailboxHeld == 1 ? " was" : "s were")
+                                + " not sold to an open order and is waiting in your deliveries mailbox (/eco deliveries).")
+                        .withStyle(ChatFormatting.YELLOW));
             }
 
             if (totalSold == 0) {

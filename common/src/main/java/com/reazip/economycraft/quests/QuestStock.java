@@ -40,9 +40,13 @@ public class QuestStock {
     }
 
     public synchronized void deposit(String key, long count) {
+        deposit(key, count, true);
+    }
+
+    public synchronized void deposit(String key, long count, boolean persist) {
         if (key == null || key.isBlank() || count <= 0) return;
         stock.merge(key, count, Long::sum);
-        save();
+        if (persist) save();
     }
 
     /**
@@ -50,6 +54,10 @@ public class QuestStock {
      * actually taken. Clamped, never negative: the listing owns its items once taken.
      */
     public synchronized long withdraw(String key, long amount) {
+        return withdraw(key, amount, true);
+    }
+
+    public synchronized long withdraw(String key, long amount, boolean persist) {
         if (key == null || key.isBlank() || amount <= 0) return 0;
         Long held = stock.get(key);
         if (held == null || held <= 0) return 0;
@@ -57,7 +65,7 @@ public class QuestStock {
         long left = held - take;
         if (left > 0) stock.put(key, left);
         else stock.remove(key);
-        save();
+        if (persist) save();
         return take;
     }
 
