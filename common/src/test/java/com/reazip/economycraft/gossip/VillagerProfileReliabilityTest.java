@@ -226,6 +226,41 @@ class VillagerProfileReliabilityTest {
     }
 
     @Test
+    @DisplayName("Work the shutdown abandons fails instead of waiting forever")
+    void abandonedWorkFailsOnShutdown() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        VillagerDatabase store = new VillagerDatabase("jdbc:sqlite::memory:", executor, 1L);
+        store.initialize();
+
+        // Occupy the database thread so the write below stays queued when the shutdown starts.
+        CountDownLatch blockerStarted = new CountDownLatch(1);
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        executor.execute(() -> {
+            blockerStarted.countDown();
+            try {
+                releaseBlocker.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        assertTrue(blockerStarted.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+
+        CompletableFuture<Void> queued = store.saveVillager(profile(UUID.randomUUID(), "Barnaby"));
+
+        Thread closer = new Thread(store::close, "villager-db-abandon");
+        closer.start();
+        closer.join(TIMEOUT_SECONDS * 1000L);
+        assertFalse(closer.isAlive(), "close() did not return after the drain timed out");
+
+        // The queued write was abandoned, so its caller must learn that instead of waiting.
+        ExecutionException error = assertThrows(ExecutionException.class,
+                () -> queued.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+        assertInstanceOf(VillagerDatabaseException.class, error.getCause());
+
+        releaseBlocker.countDown();
+    }
+
+    @Test
     @DisplayName("Two connections to the same file can write at the same time")
     void concurrentWritesOnSharedFileSucceed(@TempDir Path tempDir) throws Exception {
         Path file = tempDir.resolve("economycraft.db");

@@ -38,6 +38,7 @@ public class VillagerMemoryService {
     private final Map<UUID, VillagerProfile> profileCache = new ConcurrentHashMap<>();
     private final Map<UUID, VillagerProfile> fallbackProfiles = new ConcurrentHashMap<>();
     private final Map<UUID, CompletableFuture<VillagerProfile>> profileLoads = new ConcurrentHashMap<>();
+    private final Map<UUID, String> serviceNameplates = new ConcurrentHashMap<>();
     private final Map<String, PlayerMemory> memoryCache = new ConcurrentHashMap<>();
     private final Map<String, Long> pairGenerations = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<PlayerMemory>> memoryLoads = new ConcurrentHashMap<>();
@@ -182,10 +183,10 @@ public class VillagerMemoryService {
         // The seeded persona is enough for an immediate nameplate; the persisted persona replaces
         // it below once the database lookup finishes.
         VillagerProfile fallback = getOrInitializeProfile(villager);
-        boolean ownsNameplate = villager.getCustomName() == null;
-        if (ownsNameplate) {
+        if (villager.getCustomName() == null) {
             villager.setCustomName(Component.literal(fallback.name()).withStyle(ChatFormatting.YELLOW));
             villager.setCustomNameVisible(false); // standard nametag visibility on look
+            serviceNameplates.put(villagerUuid, fallback.name());
         }
 
         // Resolve player archetype
@@ -206,7 +207,7 @@ public class VillagerMemoryService {
         // wait for the lookup before treating any persona as the villager's identity.
         return resolveProfile(villagerUuid, () -> fallback)
                 .thenCompose(profile -> {
-                    applyNameplate(villager, profile, ownsNameplate);
+                    applyNameplate(villager, villagerUuid, profile);
                     return loadMemory(villagerUuid, playerUuid, key, generation)
                             .thenCombine(database.getRecentTrades(villagerUuid, playerUuid, 5).exceptionally(error -> {
                                 LOGGER.warn("[EconomyCraft-AI] Trade history read failed; continuing without trade context: {}", error.getMessage());
@@ -278,14 +279,24 @@ public class VillagerMemoryService {
     /**
      * Applies the persisted persona's name to the villager's nameplate. The entity lives on the
      * server thread, so the update is scheduled there.
+     *
+     * <p>Only a nameplate this service put there is replaced. A name a player applied with a name
+     * tag is left alone, and a name this service applied is replaced even when it is still the
+     * seeded one, so a lookup that failed earlier does not pin the villager to its seed name.
      */
-    private void applyNameplate(Villager villager, VillagerProfile profile, boolean ownsNameplate) {
-        if (!ownsNameplate) return;
+    private void applyNameplate(Villager villager, UUID villagerUuid, VillagerProfile profile) {
         var server = villager.level().getServer();
         if (server == null) return;
         server.execute(() -> {
+            Component current = villager.getCustomName();
+            String applied = serviceNameplates.get(villagerUuid);
+            if (current != null && (applied == null || !applied.equals(current.getString()))) {
+                // Somebody else named this villager; the name is theirs to keep.
+                return;
+            }
             villager.setCustomName(Component.literal(profile.name()).withStyle(ChatFormatting.YELLOW));
             villager.setCustomNameVisible(false);
+            serviceNameplates.put(villagerUuid, profile.name());
         });
     }
 

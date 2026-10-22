@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -36,6 +37,8 @@ public class VillagerDatabase implements AutoCloseable {
 
     private final String jdbcUrl;
     private final ExecutorService dbExecutor;
+    private final long shutdownTimeoutSeconds;
+    private final Set<CompletableFuture<?>> acceptedWork = ConcurrentHashMap.newKeySet();
     private volatile Connection connection;
     private volatile boolean initialized = false;
     /** Set when {@link #close()} starts: no new work is accepted and no reconnect happens. */
@@ -46,8 +49,17 @@ public class VillagerDatabase implements AutoCloseable {
     }
 
     public VillagerDatabase(String jdbcUrl, ExecutorService dbExecutor) {
+        this(jdbcUrl, dbExecutor, SHUTDOWN_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * @param shutdownTimeoutSeconds how long {@link #close()} waits for accepted work to drain
+     *                               before it abandons it
+     */
+    public VillagerDatabase(String jdbcUrl, ExecutorService dbExecutor, long shutdownTimeoutSeconds) {
         this.jdbcUrl = jdbcUrl;
         this.dbExecutor = dbExecutor;
+        this.shutdownTimeoutSeconds = shutdownTimeoutSeconds;
     }
 
     public static VillagerDatabase createInMemory() {
@@ -515,8 +527,9 @@ public class VillagerDatabase implements AutoCloseable {
         dbExecutor.shutdown();
         if (!awaitDrain()) {
             LOGGER.warn("[EconomyCraft-DB] Villager database work did not finish within {}s; interrupting it.",
-                    SHUTDOWN_TIMEOUT_SECONDS);
+                    shutdownTimeoutSeconds);
             dbExecutor.shutdownNow();
+            failAbandonedWork();
         }
         synchronized (this) {
             closeConnection();
@@ -524,9 +537,23 @@ public class VillagerDatabase implements AutoCloseable {
         LOGGER.info("[EconomyCraft-DB] Villager SQLite database connection closed.");
     }
 
+    /**
+     * Fails the work that was accepted but will never report a result. A task the executor removed
+     * from its queue during the shutdown never completes its future, so a caller waiting on it
+     * would wait forever. Work that was still running is failed too: the database is going away,
+     * so its outcome is unknown.
+     */
+    private void failAbandonedWork() {
+        for (CompletableFuture<?> future : acceptedWork) {
+            future.completeExceptionally(new VillagerDatabaseException(
+                    "Villager database closed before the work finished"));
+        }
+        acceptedWork.clear();
+    }
+
     private boolean awaitDrain() {
         try {
-            return dbExecutor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return dbExecutor.awaitTermination(shutdownTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
@@ -548,16 +575,29 @@ public class VillagerDatabase implements AutoCloseable {
     /**
      * Runs a read on the database thread. A database that is shutting down refuses the work with a
      * failed future instead of throwing at the call site.
+     *
+     * <p>The future is tracked while the work is in flight, so a shutdown that abandons it can
+     * fail it instead of leaving the caller waiting for a result that never comes.
      */
     private <T> CompletableFuture<T> submit(Supplier<T> task) {
         if (closing) {
             return CompletableFuture.failedFuture(new VillagerDatabaseException("Villager database is closing"));
         }
+        CompletableFuture<T> future = new CompletableFuture<>();
+        acceptedWork.add(future);
+        future.whenComplete((result, error) -> acceptedWork.remove(future));
         try {
-            return CompletableFuture.supplyAsync(task, dbExecutor);
+            dbExecutor.execute(() -> {
+                try {
+                    future.complete(task.get());
+                } catch (Throwable t) {
+                    future.completeExceptionally(t);
+                }
+            });
         } catch (RejectedExecutionException e) {
-            return CompletableFuture.failedFuture(new VillagerDatabaseException("Villager database is closing", e));
+            future.completeExceptionally(new VillagerDatabaseException("Villager database is closing", e));
         }
+        return future;
     }
 
     private CompletableFuture<Void> run(Runnable task) {

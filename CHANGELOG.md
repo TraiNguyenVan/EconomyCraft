@@ -19,13 +19,18 @@ from a persona the villager never had; the interaction now waits for the lookup,
 is corrected to the saved name once it arrives. Villagers that genuinely have no saved persona are
 still seeded and stored once.
 
+The nameplate correction only replaces a name the service itself applied. A name a player gave the
+villager with a name tag is left alone, and a seeded name is still replaced by the saved one when a
+retry succeeds after a failed lookup, so a failed read no longer pins a villager to its seed name.
+
 Failed villager writes are now reported through the future they return instead of being logged and
 completing normally, so a caller can tell a write that failed from one that succeeded. The villager
 database also shuts down in order now: it refuses new work, lets the work it already accepted
 finish, and closes the connection afterwards, so a queued write can no longer run against a closed
-connection or reconnect to a database that is going away. Its busy timeout matches the primary
-connection's, so a write that overlaps the primary connection's write waits for the lock instead
-of failing.
+connection or reconnect to a database that is going away. Work the shutdown has to abandon is
+reported as failed instead of leaving its caller waiting for a result that never arrives. Its busy
+timeout matches the primary connection's, so a write that overlaps the primary connection's write
+waits for the lock instead of failing.
 
 ### Order escrow is crash-consistent
 
