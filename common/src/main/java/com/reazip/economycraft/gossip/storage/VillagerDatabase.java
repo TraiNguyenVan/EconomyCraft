@@ -11,7 +11,11 @@ import java.nio.file.Path;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /**
  * High-performance, asynchronous SQLite repository for persisting individual villager
@@ -21,18 +25,41 @@ public class VillagerDatabase implements AutoCloseable {
     private static final Logger LOGGER = LogUtils.getLogger();
     public static final long MEMORY_RETENTION_MILLIS = java.time.Duration.ofDays(90).toMillis();
 
+    /**
+     * Busy timeout of the gossip connection. This connection is a second one on the shared
+     * {@code economycraft.db} file, so it needs the same timeout the primary
+     * {@code EconomyDatabase} connection uses; without it a write that overlaps the primary
+     * connection's write fails immediately with {@code SQLITE_BUSY}.
+     */
+    private static final int BUSY_TIMEOUT_MILLIS = 5000;
+    /** How long {@link #close()} waits for accepted work to drain before it stops waiting. */
+    private static final long SHUTDOWN_TIMEOUT_SECONDS = 10L;
+
     private final String jdbcUrl;
     private final ExecutorService dbExecutor;
-    private Connection connection;
+    private final long shutdownTimeoutSeconds;
+    private final Set<CompletableFuture<?>> acceptedWork = ConcurrentHashMap.newKeySet();
+    private volatile Connection connection;
     private volatile boolean initialized = false;
+    /** Set when {@link #close()} starts: no new work is accepted and no reconnect happens. */
+    private volatile boolean closing = false;
 
     public VillagerDatabase(Path dbPath) {
         this("jdbc:sqlite:" + dbPath.toAbsolutePath(), EconomyExecutors.newSingleThreadScheduledExecutor("EconomyCraft-Villager-DB"));
     }
 
     public VillagerDatabase(String jdbcUrl, ExecutorService dbExecutor) {
+        this(jdbcUrl, dbExecutor, SHUTDOWN_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * @param shutdownTimeoutSeconds how long {@link #close()} waits for accepted work to drain
+     *                               before it abandons it
+     */
+    public VillagerDatabase(String jdbcUrl, ExecutorService dbExecutor, long shutdownTimeoutSeconds) {
         this.jdbcUrl = jdbcUrl;
         this.dbExecutor = dbExecutor;
+        this.shutdownTimeoutSeconds = shutdownTimeoutSeconds;
     }
 
     public static VillagerDatabase createInMemory() {
@@ -43,6 +70,9 @@ public class VillagerDatabase implements AutoCloseable {
      * Initializes the SQLite connection and ensures tables and indices exist.
      */
     public synchronized void initialize() throws SQLException {
+        if (closing) {
+            throw new VillagerDatabaseException("Villager database is closing");
+        }
         if (initialized) return;
 
         // Ensure parent directory exists for file-based databases
@@ -65,6 +95,7 @@ public class VillagerDatabase implements AutoCloseable {
             st.execute("PRAGMA journal_mode=WAL;");
             st.execute("PRAGMA synchronous=NORMAL;");
             st.execute("PRAGMA foreign_keys=ON;");
+            st.execute("PRAGMA busy_timeout=" + BUSY_TIMEOUT_MILLIS + ";");
 
             // Villagers profile table
             st.execute("""
@@ -128,7 +159,7 @@ public class VillagerDatabase implements AutoCloseable {
     // --- Asynchronous API ---
 
     public CompletableFuture<Optional<VillagerProfile>> getVillager(UUID uuid) {
-        return CompletableFuture.supplyAsync(() -> {
+        return submit(() -> {
             ensureOpen();
             String sql = "SELECT * FROM villagers WHERE uuid = ?";
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -138,15 +169,17 @@ public class VillagerDatabase implements AutoCloseable {
                         return Optional.of(mapVillager(rs));
                     }
                 }
+                return Optional.empty();
             } catch (SQLException e) {
-                LOGGER.error("[EconomyCraft-DB] Error querying villager " + uuid, e);
+                // A failed read is not a missing profile: report it so the caller retries
+                // instead of creating a replacement over data it never saw.
+                throw new VillagerDatabaseException("Error querying villager " + uuid, e);
             }
-            return Optional.empty();
-        }, dbExecutor);
+        });
     }
 
     public CompletableFuture<Void> saveVillager(VillagerProfile profile) {
-        return CompletableFuture.runAsync(() -> {
+        return run(() -> {
             ensureOpen();
             String sql = """
                 INSERT INTO villagers (uuid, name, profession, biome, traits, quirk, backstory, created_at, last_seen)
@@ -172,13 +205,16 @@ public class VillagerDatabase implements AutoCloseable {
                 ps.setLong(9, profile.lastSeen());
                 ps.executeUpdate();
             } catch (SQLException e) {
-                LOGGER.error("[EconomyCraft-DB] Error saving villager " + profile.uuid(), e);
+                // Surface the failure through the future instead of logging it and completing
+                // normally: a caller that cannot tell a failed write from a successful one will
+                // keep a profile it believes was persisted.
+                throw new VillagerDatabaseException("Error saving villager " + profile.uuid(), e);
             }
-        }, dbExecutor);
+        });
     }
 
     public CompletableFuture<Optional<PlayerMemory>> getPlayerMemory(UUID villagerUuid, UUID playerUuid) {
-        return CompletableFuture.supplyAsync(() -> {
+        return submit(() -> {
             ensureOpen();
             String sql = "SELECT * FROM player_memories WHERE villager_uuid = ? AND player_uuid = ?";
             try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -191,9 +227,9 @@ public class VillagerDatabase implements AutoCloseable {
                 }
                 return Optional.empty();
             } catch (SQLException e) {
-                throw new RuntimeException("Error querying player memory", e);
+                throw new VillagerDatabaseException("Error querying player memory", e);
             }
-        }, dbExecutor);
+        });
     }
 
     public CompletableFuture<Optional<PlayerMemory>> getEligiblePlayerMemory(UUID villagerUuid, UUID playerUuid, long now) {
@@ -202,7 +238,7 @@ public class VillagerDatabase implements AutoCloseable {
     }
 
     public CompletableFuture<Void> savePlayerMemory(PlayerMemory memory) {
-        return CompletableFuture.runAsync(() -> {
+        return run(() -> {
             ensureOpen();
             String sql = """
                 INSERT INTO player_memories (villager_uuid, player_uuid, sentiment, interaction_count, total_spent, last_interaction, recent_events)
@@ -224,9 +260,9 @@ public class VillagerDatabase implements AutoCloseable {
                 ps.setString(7, memory.eventsJson());
                 ps.executeUpdate();
             } catch (SQLException e) {
-                LOGGER.error("[EconomyCraft-DB] Error saving player memory for " + memory.villagerUuid() + "/" + memory.playerUuid(), e);
+                throw new VillagerDatabaseException("Error saving player memory for " + memory.villagerUuid() + "/" + memory.playerUuid(), e);
             }
-        }, dbExecutor);
+        });
     }
 
     public CompletableFuture<Void> recordTradeTransaction(
@@ -237,7 +273,7 @@ public class VillagerDatabase implements AutoCloseable {
             long pricePaid,
             long timestamp
     ) {
-        return CompletableFuture.runAsync(() -> {
+        return run(() -> {
             ensureOpen();
             String sql = """
                 INSERT INTO villager_trades (villager_uuid, player_uuid, item_name, item_count, price_paid, timestamp)
@@ -252,15 +288,15 @@ public class VillagerDatabase implements AutoCloseable {
                 ps.setLong(6, timestamp);
                 ps.executeUpdate();
             } catch (SQLException e) {
-                LOGGER.error("[EconomyCraft-DB] Error recording trade transaction for " + villagerUuid + "/" + playerUuid, e);
+                throw new VillagerDatabaseException("Error recording trade transaction for " + villagerUuid + "/" + playerUuid, e);
             }
-        }, dbExecutor);
+        });
     }
 
     public CompletableFuture<Void> recordTradeTransaction(
             PlayerMemory memory, String itemName, int itemCount, long pricePaid, long timestamp
     ) {
-        return CompletableFuture.runAsync(() -> {
+        return run(() -> {
             ensureOpen();
             try {
                 connection.setAutoCommit(false);
@@ -304,9 +340,9 @@ public class VillagerDatabase implements AutoCloseable {
                     connection.setAutoCommit(true);
                 }
             } catch (SQLException e) {
-                throw new RuntimeException("Error recording completed villager trade", e);
+                throw new VillagerDatabaseException("Error recording completed villager trade", e);
             }
-        }, dbExecutor);
+        });
     }
 
     public CompletableFuture<List<TradeRecord>> getRecentTrades(UUID villagerUuid, UUID playerUuid, int limit) {
@@ -314,7 +350,7 @@ public class VillagerDatabase implements AutoCloseable {
     }
 
     public CompletableFuture<List<TradeRecord>> getRecentTrades(UUID villagerUuid, UUID playerUuid, int limit, long now) {
-        return CompletableFuture.supplyAsync(() -> {
+        return submit(() -> {
             ensureOpen();
             String sql = """
                 SELECT id, villager_uuid, player_uuid, item_name, item_count, price_paid, timestamp
@@ -343,10 +379,10 @@ public class VillagerDatabase implements AutoCloseable {
                     }
                 }
             } catch (SQLException e) {
-                throw new RuntimeException("Error querying recent trades", e);
+                throw new VillagerDatabaseException("Error querying recent trades", e);
             }
             return list;
-        }, dbExecutor);
+        });
     }
 
     public static long retentionCutoff(long now) {
@@ -354,7 +390,7 @@ public class VillagerDatabase implements AutoCloseable {
     }
 
     public CompletableFuture<Integer> deleteExpiredMemoriesAndTrades(long now) {
-        return CompletableFuture.supplyAsync(() -> {
+        return submit(() -> {
             ensureOpen();
             int deleted;
             try (PreparedStatement trades = connection.prepareStatement("DELETE FROM villager_trades WHERE timestamp < ?");
@@ -373,14 +409,14 @@ public class VillagerDatabase implements AutoCloseable {
                     connection.setAutoCommit(true);
                 }
             } catch (SQLException e) {
-                throw new RuntimeException("Error purging expired villager memories", e);
+                throw new VillagerDatabaseException("Error purging expired villager memories", e);
             }
             return deleted;
-        }, dbExecutor);
+        });
     }
 
     public CompletableFuture<Integer> clearMemoryPair(UUID villagerUuid, UUID playerUuid) {
-        return CompletableFuture.supplyAsync(() -> {
+        return submit(() -> {
             ensureOpen();
             try (PreparedStatement memory = connection.prepareStatement("DELETE FROM player_memories WHERE villager_uuid = ? AND player_uuid = ?");
                  PreparedStatement trades = connection.prepareStatement("DELETE FROM villager_trades WHERE villager_uuid = ? AND player_uuid = ?")) {
@@ -401,9 +437,9 @@ public class VillagerDatabase implements AutoCloseable {
                     connection.setAutoCommit(true);
                 }
             } catch (SQLException e) {
-                throw new RuntimeException("Error clearing villager memory pair", e);
+                throw new VillagerDatabaseException("Error clearing villager memory pair", e);
             }
-        }, dbExecutor);
+        });
     }
 
     public CompletableFuture<MemoryInspection> inspectMemoryPair(UUID villagerUuid, UUID playerUuid, long now) {
@@ -414,25 +450,42 @@ public class VillagerDatabase implements AutoCloseable {
     public record MemoryInspection(Optional<PlayerMemory> memory, List<TradeRecord> trades) {}
 
     public CompletableFuture<Integer> getVillagerCount() {
-        return CompletableFuture.supplyAsync(() -> {
+        return submit(() -> {
             ensureOpen();
             try (Statement st = connection.createStatement();
                  ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM villagers")) {
                 if (rs.next()) return rs.getInt(1);
             } catch (SQLException e) {
-                LOGGER.error("[EconomyCraft-DB] Error counting villagers", e);
+                // A failed count is not "there are no villagers": report it instead of returning 0.
+                throw new VillagerDatabaseException("Error counting villagers", e);
             }
             return 0;
-        }, dbExecutor);
+        });
     }
 
+    /**
+     * Makes sure the connection is usable. Work that was accepted before the shutdown started may
+     * still run against the open connection; once the shutdown began no new connection is made.
+     */
     private synchronized void ensureOpen() {
-        if (!initialized || connection == null) {
-            try {
-                initialize();
-            } catch (SQLException e) {
-                throw new RuntimeException("Failed to open SQLite database", e);
-            }
+        if (initialized && connection != null && !isClosed(connection)) {
+            return;
+        }
+        if (closing) {
+            throw new VillagerDatabaseException("Villager database is closing");
+        }
+        try {
+            initialize();
+        } catch (SQLException e) {
+            throw new VillagerDatabaseException("Failed to open SQLite database", e);
+        }
+    }
+
+    private static boolean isClosed(Connection connection) {
+        try {
+            return connection.isClosed();
+        } catch (SQLException e) {
+            return true;
         }
     }
 
@@ -462,8 +515,52 @@ public class VillagerDatabase implements AutoCloseable {
         );
     }
 
+    /**
+     * Shuts the database down in order: new work is refused, work that was already accepted is
+     * drained, and only then is the connection closed. Closing the connection first would let a
+     * queued write run against a closed connection, and would let a late task reconnect to a
+     * database that is going away.
+     */
     @Override
-    public synchronized void close() {
+    public void close() {
+        closing = true;
+        dbExecutor.shutdown();
+        if (!awaitDrain()) {
+            LOGGER.warn("[EconomyCraft-DB] Villager database work did not finish within {}s; interrupting it.",
+                    shutdownTimeoutSeconds);
+            dbExecutor.shutdownNow();
+            failAbandonedWork();
+        }
+        synchronized (this) {
+            closeConnection();
+        }
+        LOGGER.info("[EconomyCraft-DB] Villager SQLite database connection closed.");
+    }
+
+    /**
+     * Fails the work that was accepted but will never report a result. A task the executor removed
+     * from its queue during the shutdown never completes its future, so a caller waiting on it
+     * would wait forever. Work that was still running is failed too: the database is going away,
+     * so its outcome is unknown.
+     */
+    private void failAbandonedWork() {
+        for (CompletableFuture<?> future : acceptedWork) {
+            future.completeExceptionally(new VillagerDatabaseException(
+                    "Villager database closed before the work finished"));
+        }
+        acceptedWork.clear();
+    }
+
+    private boolean awaitDrain() {
+        try {
+            return dbExecutor.awaitTermination(shutdownTimeoutSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private void closeConnection() {
         if (connection != null) {
             try {
                 connection.close();
@@ -473,7 +570,40 @@ public class VillagerDatabase implements AutoCloseable {
                 initialized = false;
             }
         }
-        dbExecutor.shutdown();
-        LOGGER.info("[EconomyCraft-DB] Villager SQLite database connection closed.");
+    }
+
+    /**
+     * Runs a read on the database thread. A database that is shutting down refuses the work with a
+     * failed future instead of throwing at the call site.
+     *
+     * <p>The future is tracked while the work is in flight, so a shutdown that abandons it can
+     * fail it instead of leaving the caller waiting for a result that never comes.
+     */
+    private <T> CompletableFuture<T> submit(Supplier<T> task) {
+        if (closing) {
+            return CompletableFuture.failedFuture(new VillagerDatabaseException("Villager database is closing"));
+        }
+        CompletableFuture<T> future = new CompletableFuture<>();
+        acceptedWork.add(future);
+        future.whenComplete((result, error) -> acceptedWork.remove(future));
+        try {
+            dbExecutor.execute(() -> {
+                try {
+                    future.complete(task.get());
+                } catch (Throwable t) {
+                    future.completeExceptionally(t);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            future.completeExceptionally(new VillagerDatabaseException("Villager database is closing", e));
+        }
+        return future;
+    }
+
+    private CompletableFuture<Void> run(Runnable task) {
+        return submit(() -> {
+            task.run();
+            return null;
+        });
     }
 }
