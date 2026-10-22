@@ -139,6 +139,15 @@ public final class NegotiationStore {
         return offers.size();
     }
 
+    /**
+     * Re-reads {@code negotiations.json}, replacing every live offer. A failed transfer that removed
+     * offers before rolling back calls this so the offers return with their listing.
+     */
+    public synchronized void reload() {
+        offers.clear();
+        load();
+    }
+
     public void save() {
         JsonArray arr = new JsonArray();
         for (Offer offer : offers.values()) {

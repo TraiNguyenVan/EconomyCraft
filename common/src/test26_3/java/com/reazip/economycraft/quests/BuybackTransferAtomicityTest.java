@@ -9,6 +9,7 @@ import com.reazip.economycraft.auction.AuctionExpiration;
 import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.auction.AuctionManager;
 import com.reazip.economycraft.db.EconomyDatabase;
+import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.RegistryAccess;
@@ -32,6 +33,7 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -65,6 +67,7 @@ class BuybackTransferAtomicityTest {
     private MinecraftServer server;
     private EconomyDatabase db;
     private DeliveryManager deliveries;
+    private NegotiationStore negotiations;
     private EconomyManager eco;
 
     @BeforeAll
@@ -96,6 +99,7 @@ class BuybackTransferAtomicityTest {
 
         db = openDatabase();
         deliveries = mock(DeliveryManager.class);
+        negotiations = new NegotiationStore(db, EconomyPaths.dataDir(server).resolve("negotiations.json"));
 
         PriceRegistry prices = mock(PriceRegistry.class);
         PriceRegistry.PriceEntry diamond =
@@ -114,6 +118,7 @@ class BuybackTransferAtomicityTest {
         when(eco.getQuests()).thenReturn(quests);
         when(eco.getDeliveries()).thenReturn(deliveries);
         when(eco.getNotifications()).thenReturn(mock(NotificationManager.class));
+        when(eco.getNegotiations()).thenReturn(negotiations);
         when(eco.getEffectiveBuyPrice(any(PriceRegistry.PriceEntry.class))).thenReturn(100L);
     }
 
@@ -267,6 +272,68 @@ class BuybackTransferAtomicityTest {
     }
 
     @Test
+    @DisplayName("A rolled-back expiry is not counted toward the unsold-expiry quarantine")
+    void failedExpiryDoesNotCountTwice() throws Exception {
+        EconomyConfig.get().quests.maxUnsoldExpiries = 2;
+        AuctionManager seeded = new AuctionManager(server, deliveries, db);
+        seeded.addListing(botListing(4));
+
+        // Fail the first attempt at the final write, after QuestManager recorded the expiry.
+        AuctionManager auctions = spy(seeded);
+        doThrow(new RuntimeException("crash after the expiry was recorded"))
+                .doCallRealMethod()
+                .when(auctions).save();
+        QuestStock stock = new QuestStock(server, db);
+        QuestManager quests = new QuestManager(server, db);
+        when(eco.getAuctions()).thenReturn(auctions);
+        when(eco.getQuestStock()).thenReturn(stock);
+        when(eco.getQuests()).thenReturn(quests);
+
+        assertThrows(RuntimeException.class, () -> AuctionExpiration.expireOverdue(eco));
+
+        // The rollback undid quests.json, so the live board must forget the expiry it counted.
+        assertTrue(quests.getAutoMarketBlacklist().isEmpty(),
+                "a rolled-back expiry is not carried into the next attempt");
+        assertEquals(0L, stock.get(KEY));
+
+        // Retry without another player change: this is the first expiry that really commits.
+        AuctionExpiration.expireOverdue(eco);
+
+        assertTrue(quests.getAutoMarketBlacklist().isEmpty(),
+                "one failed attempt plus one real expiry is still one expiry, not two");
+        assertEquals(4L, stock.get(KEY), "the retry returns the units instead of voiding them");
+        assertEquals(4L, restartStock().get(KEY), "the committed retry keeps the units on the ledger");
+    }
+
+    @Test
+    @DisplayName("A rolled-back player-listing expiry restores the offers on it")
+    void failedExpiryRestoresNegotiationOffers() throws Exception {
+        AuctionManager seeded = new AuctionManager(server, deliveries, db);
+        AuctionListing listing = playerListing(UUID.randomUUID(), 4);
+        seeded.addListing(listing);
+        UUID buyer = UUID.randomUUID();
+        negotiations.makeOffer(NegotiationStore.Kind.AH, listing.id, buyer, 150L);
+
+        AuctionManager auctions = spy(seeded);
+        doThrow(new RuntimeException("crash after the offers were dropped"))
+                .when(auctions).save();
+        QuestStock stock = new QuestStock(server, db);
+        when(eco.getAuctions()).thenReturn(auctions);
+        when(eco.getQuestStock()).thenReturn(stock);
+
+        assertThrows(RuntimeException.class, () -> AuctionExpiration.expireOverdue(eco));
+
+        // The listing rolled back, so its offers must come back with it rather than stay deleted.
+        assertEquals(1, negotiations.countFor(NegotiationStore.Kind.AH, listing.id),
+                "the live offers are restored with the listing");
+        assertEquals(1, auctions.getListings().size(), "the live listing is restored");
+        NegotiationStore reloaded = new NegotiationStore(db,
+                EconomyPaths.dataDir(server).resolve("negotiations.json"));
+        assertEquals(1, reloaded.countFor(NegotiationStore.Kind.AH, listing.id),
+                "the persisted offers also stayed with the listing");
+    }
+
+    @Test
     @DisplayName("An admin clear returns buyback units to the ledger")
     void clearedListingReturnsToStock() throws Exception {
         AuctionManager auctions = new AuctionManager(server, deliveries, db);
@@ -313,8 +380,13 @@ class BuybackTransferAtomicityTest {
 
     /** A long-expired bot lot, the shape the buyback market posts. */
     private static AuctionListing botListing(int count) {
+        return playerListing(QuestManager.BOT_UUID, count);
+    }
+
+    /** A long-expired listing owned by {@code seller}. */
+    private static AuctionListing playerListing(UUID seller, int count) {
         AuctionListing listing = new AuctionListing();
-        listing.seller = QuestManager.BOT_UUID;
+        listing.seller = seller;
         listing.item = new ItemStack(Items.DIAMOND, count);
         listing.price = count * 100L;
         listing.createdAt = 1_000L;

@@ -554,6 +554,30 @@ public class QuestManager {
         return false;
     }
 
+    /**
+     * Re-reads {@code quests.json}, replacing everything this manager holds.
+     *
+     * <p>Used after a transfer rolls back: {@link #onBuybackExpired} mutates the expiry counter and
+     * the market blacklist inside the transaction, so without this the live board would keep an
+     * expiry the database refused and the next attempt could quarantine and void the stock.
+     */
+    public synchronized void reload() {
+        weekStartMs = 0L;
+        weekSeed = 0L;
+        mintedThisWeek = 0L;
+        postedThisWeek = false;
+        drawnKeys.clear();
+        backfillKeys.clear();
+        lastPeriodKeys.clear();
+        postedKeys.clear();
+        questOrderIds.clear();
+        postedUnits.clear();
+        unsoldExpiries.clear();
+        autoMarketBlacklist.clear();
+        recentPurchases.clear();
+        load();
+    }
+
     private void load() {
         String json = Documents.read(db, file, "quests.json");
         if (json == null) return;

@@ -16,6 +16,11 @@ import org.slf4j.Logger;
  * only written by {@code AuctionManager.save()} — not by the routine save that writes the ledger — a
  * later save could then persist a transfer the database refused. So a failure reloads the live stores
  * from those rolled-back documents before the exception continues on its way.
+ *
+ * <p>That includes the stores a transfer changes on its way through: {@code QuestManager} counts an
+ * unsold expiry and can quarantine a key, and removing a player listing drops the offers on it. Both
+ * write inside the transaction, so both are reloaded too; otherwise the live board would carry an
+ * expiry or a missing offer that the database rolled back, and the retry would count or notify twice.
  */
 public final class BuybackTransfers {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -30,6 +35,8 @@ public final class BuybackTransfers {
                 eco.getQuestStock().reload();
                 eco.getAuctions().reload();
                 eco.getDeliveries().reload();
+                eco.getQuests().reload();
+                eco.getNegotiations().reload();
             } catch (RuntimeException resync) {
                 LOGGER.error("[EconomyCraft] Failed to resync the buyback stores after a rolled-back transfer", resync);
             }

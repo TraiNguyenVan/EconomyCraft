@@ -13,8 +13,11 @@ an admin clear of the auction house each write `stock.json` and `auctions.json` 
 interrupted write can no longer withdraw units that never reach a listing, or return units to the
 ledger while the old listing is still on the board.
 
-A transfer that fails also reloads the live ledger, auction house and delivery mailboxes from the
-rolled-back documents, so a later save cannot commit half of a move the database refused. A document
+A transfer that fails also reloads the live ledger, auction house, delivery mailboxes, quest board and
+price offers from the rolled-back documents, so a later save cannot commit half of a move the database
+refused. That includes the expiry counter and market quarantine a returned buyback listing records, and
+the offers dropped when a player listing is removed: both come back with the listing instead of letting
+the retry count the expiry twice or lose the offers. A document
 write that fails inside a transaction now aborts that transaction instead of being logged and committed,
 so an I/O or SQLite error cannot leave the withdrawal committed without its listing. Stores that track
 pending changes clear that flag only after the transaction commits, so a failed save is retried by the
