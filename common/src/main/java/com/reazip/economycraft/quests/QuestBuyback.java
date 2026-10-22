@@ -135,7 +135,7 @@ public final class QuestBuyback {
         long now = System.currentTimeMillis();
         listing.createdAt = now;
         listing.expiresAt = ExpirationUtil.expiresAt(now, EconomyConfig.get().auctionExpirationHours);
-        eco.getAuctions().addListing(listing);
+        eco.getAuctions().addListing(listing, false);
         long rest = withdrawn - take;
         // Only one lot posts per sweep; anything over the lot size stays in the ledger for the next
         // sweep rather than piling into an oversized stack. A purchase frees room in the open lot, so

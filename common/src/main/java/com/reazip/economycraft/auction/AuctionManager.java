@@ -37,6 +37,7 @@ public class AuctionManager {
     private final PlayerLimitOverrides limitOverrides = new PlayerLimitOverrides();
     private final DeliveryManager deliveries;
     private final List<Runnable> listeners = new ArrayList<>();
+    private final AuctionNotifier notifier;
     private int nextId = 1;
 
     public AuctionManager(MinecraftServer server, DeliveryManager deliveries) {
@@ -49,6 +50,7 @@ public class AuctionManager {
         this.db = db;
         this.file = prepareAuctionFile(EconomyPaths.dataDir(server));
         this.deliveries = deliveries;
+        this.notifier = new AuctionNotifier(server);
         load();
     }
 
@@ -93,7 +95,16 @@ public class AuctionManager {
     }
 
     public void addListing(AuctionListing listing) {
+        addListing(listing, true);
+    }
+
+    /**
+     * @param announce false for a listing nobody asked to be told about — the quest board's buyback lots,
+     *                 which post on their own schedule and would otherwise advertise themselves weekly
+     */
+    public void addListing(AuctionListing listing, boolean announce) {
         requireServerThread();
+        if (listing.originalPrice <= 0) listing.originalPrice = listing.price;
         int previousNextId = nextId;
         listing.id = SequentialIdAllocator.nextId(nextId, listings, LOGGER, "Auction listing");
         nextId = SequentialIdAllocator.advance(listing.id);
@@ -116,6 +127,7 @@ public class AuctionManager {
             LOGGER.error("[EconomyCraft] Could not refresh auction listeners after adding listing {}", listing.id,
                     failure);
         }
+        if (announce) announceQuietly(() -> notifier.announceListing(listing));
     }
 
     public AuctionListing removeListing(int id) {
@@ -146,10 +158,23 @@ public class AuctionManager {
         if (price < 1) return false;
         AuctionListing listing = listings.get(id);
         if (listing == null || !seller.equals(listing.seller)) return false;
+        long previousPrice = listing.price;
         listing.price = price;
         notifyListeners();
         save();
+        if (price < previousPrice) {
+            announceQuietly(() -> notifier.announcePriceDrop(listing, previousPrice));
+        }
         return true;
+    }
+
+    /** An auction change is already durable when notices run; a message failure must not undo it. */
+    private static void announceQuietly(Runnable notice) {
+        try {
+            notice.run();
+        } catch (RuntimeException failure) {
+            LOGGER.error("[EconomyCraft] Could not announce an auction notice", failure);
+        }
     }
 
     /**

@@ -16,6 +16,8 @@
   "transaction_log_retention_days": 7,
   "order_expiration_hours": 168,
   "auction_expiration_hours": 168,
+  "auction_listing_broadcast": true,
+  "auction_listing_notify_active_days": 30,
   "max_active_orders_per_player": 0,
   "max_active_auctions_per_player": 0,
   "max_active_tolls_per_player": 10,
