@@ -10,7 +10,9 @@ import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerScoreboard;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.storage.LevelResource;
@@ -30,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -48,6 +51,7 @@ import static org.mockito.Mockito.when;
 class OrderEscrowIntegrationTest {
 
     private static final UUID REQUESTER = UUID.randomUUID();
+    private static final UUID SELLER = UUID.randomUUID();
 
     @TempDir
     Path world;
@@ -113,6 +117,19 @@ class OrderEscrowIntegrationTest {
         return created;
     }
 
+    /** A seller holding {@code amount} emeralds, enough to fulfill the fixture order. */
+    private ServerPlayer fulfillerWithEmeralds(int amount) {
+        ServerPlayer seller = mock(ServerPlayer.class);
+        when(seller.getUUID()).thenReturn(SELLER);
+        Inventory inventory = mock(Inventory.class);
+        when(inventory.getContainerSize()).thenReturn(36);
+        when(inventory.getItem(anyInt())).thenReturn(ItemStack.EMPTY);
+        when(inventory.getItem(0)).thenReturn(new ItemStack(Items.EMERALD, amount));
+        when(seller.getInventory()).thenReturn(inventory);
+        when(seller.getOffhandItem()).thenReturn(ItemStack.EMPTY);
+        return seller;
+    }
+
     // === scenarios ===
 
     @Test
@@ -164,5 +181,35 @@ class OrderEscrowIntegrationTest {
                 "the removal must be on disk with its refund, never before it");
         assertEquals(100_000L, reloaded.getBalance(REQUESTER, false),
                 "the refund must be on disk with the removal");
+    }
+
+    @Test
+    @DisplayName("a fulfilled order's delivery, payout and reduction commit through the real engine")
+    void fulfillmentCommitsDeliveryWithPayoutThroughTheProductionSeam() {
+        OrderRequest created = fundOrder(1_280L);
+        eco.setMoney(SELLER, 0L, EconomySources.ADMIN_SET);
+        ServerPlayer seller = fulfillerWithEmeralds(64);
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller, created.id, 64);
+
+        assertTrue(result.success(), "the fixture fulfillment must succeed through the real engine");
+        assertNull(eco.getOrders().getRequest(created.id));
+        assertEquals(98_720L, eco.getBalance(REQUESTER, false), "the escrow must cover the whole payment");
+        assertEquals(result.payout(), eco.getBalance(SELLER, false));
+        List<ItemStack> delivered = eco.getDeliveries().getDeliveries(REQUESTER);
+        assertEquals(1, delivered.size(), "the fulfilled goods must be in the buyer's deliveries");
+        assertEquals(64, delivered.get(0).getCount());
+        assertTrue(delivered.get(0).is(Items.EMERALD));
+
+        EconomyManager reloaded = restart();
+        assertNull(reloaded.getOrders().getRequest(created.id),
+                "the fully fulfilled order must not come back");
+        assertEquals(98_720L, reloaded.getBalance(REQUESTER, false));
+        assertEquals(result.payout(), reloaded.getBalance(SELLER, false),
+                "the seller's payout must be on disk with the delivery");
+        List<ItemStack> persisted = reloaded.getDeliveries().getDeliveries(REQUESTER);
+        assertEquals(1, persisted.size(), "the buyer's delivery must survive the restart");
+        assertEquals(64, persisted.get(0).getCount());
+        assertTrue(persisted.get(0).is(Items.EMERALD));
     }
 }

@@ -14,7 +14,9 @@ the refund — a crash in those windows could leave a charged requester with no 
 and the original escrow both honored, or an order that vanished with its escrow. Order creation,
 repricing, cancellation, expiry and admin clears now stage the order state first and let the
 escrow debit or refund's single transactional save commit both sides, restoring the previous
-state when a mutation is rejected. Failed debits and bounced refunds still leave orders
+state when a mutation is rejected. Fulfillment stages the buyer's delivery before the payout,
+so the payment, the order reduction and the delivered goods commit together instead of a crash
+paying the seller while the goods vanish. Failed debits and bounced refunds still leave orders
 untouched and nothing half-written on disk.
 
 ### Minecraft 26.3 is the only supported version

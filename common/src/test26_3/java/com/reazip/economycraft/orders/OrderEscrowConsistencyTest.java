@@ -5,6 +5,7 @@ import com.google.gson.JsonParser;
 import com.reazip.economycraft.DeliveryManager;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.NotificationManager;
+import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.api.v1.BalanceMutationResult;
 import com.reazip.economycraft.api.v1.BalanceMutationStatus;
 import com.reazip.economycraft.api.v1.BalanceMutationType;
@@ -12,6 +13,7 @@ import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.quests.QuestManager;
+import com.reazip.economycraft.quests.QuestStock;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.RegistryAccess;
@@ -19,7 +21,9 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.PlayerList;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.storage.LevelResource;
@@ -43,8 +47,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -54,13 +60,13 @@ import static org.mockito.Mockito.when;
  * in for the balance engine.
  *
  * <p>The ledger mock reproduces the production commit seam: a <em>successful</em> money mutation
- * persists the balances document and the orders document together — exactly what
+ * persists the balances, orders, deliveries and quest-stock documents together — exactly what
  * {@code EconomyManager.save()}'s single SQLite transaction does on every committed mutation —
- * and a rejected mutation persists nothing. The mock captures the orders document both before
- * that commit and as the commit wrote it, which is what a crash at either instant would leave
- * on disk. Every scenario then reopens the database and reloads the store — the same thing the
- * server does on restart — and asserts the persisted balance and the persisted order escrow
- * still agree.
+ * and a rejected mutation persists nothing. The mock captures the orders and deliveries documents
+ * both before that commit and as the commit wrote them, which is what a crash at either instant
+ * would leave on disk. Every scenario then reopens the database, reloads every store and discards
+ * the in-memory ledger — the same thing the server does on restart — and asserts that the
+ * persisted balance and the persisted order escrow (and any delivered goods) still agree.
  *
  * <p>The ledger enforces the real engine's two sharp edges — debits fail on insufficient funds,
  * credits fail past {@link EconomyManager#MAX} — so rejection and recovery paths behave here
@@ -69,6 +75,7 @@ import static org.mockito.Mockito.when;
 class OrderEscrowConsistencyTest {
 
     private static final UUID REQUESTER = UUID.randomUUID();
+    private static final UUID SELLER = UUID.randomUUID();
     private static final UUID BOT = QuestManager.BOT_UUID;
 
     @TempDir
@@ -76,6 +83,8 @@ class OrderEscrowConsistencyTest {
 
     private MinecraftServer server;
     private EconomyDatabase db;
+    private DeliveryManager deliveries;
+    private QuestStock questStock;
     private OrderManager orders;
     private EconomyManager eco;
     /** The test ledger: every money movement in these tests lands here. */
@@ -85,6 +94,8 @@ class OrderEscrowConsistencyTest {
     private String ordersJsonBeforeCommit;
     /** The orders document as the last successful money mutation's transactional save wrote it. */
     private String ordersJsonAtCommit;
+    /** The deliveries document as the last successful money mutation's transactional save wrote it. */
+    private String deliveriesJsonAtCommit;
 
     @BeforeAll
     static void bootstrap() {
@@ -107,7 +118,9 @@ class OrderEscrowConsistencyTest {
         when(players.getPlayers()).thenReturn(List.of());
 
         db = openDatabase();
-        orders = new OrderManager(server, mock(DeliveryManager.class), db);
+        deliveries = new DeliveryManager(server, db);
+        questStock = new QuestStock(server, db);
+        orders = new OrderManager(server, deliveries, db);
 
         balances.clear();
         balances.put(REQUESTER, 100_000L);
@@ -115,9 +128,16 @@ class OrderEscrowConsistencyTest {
 
         eco = mock(EconomyManager.class);
         when(eco.getOrders()).thenReturn(orders);
+        when(eco.getDeliveries()).thenReturn(deliveries);
+        when(eco.getQuestStock()).thenReturn(questStock);
+        when(eco.getPrices()).thenReturn(mock(PriceRegistry.class));
         when(eco.getServer()).thenReturn(server);
         when(eco.getNotifications()).thenReturn(mock(NotificationManager.class));
         when(eco.getNegotiations()).thenReturn(mock(NegotiationStore.class));
+        doAnswer(call -> {
+            commitDocuments();
+            return null;
+        }).when(eco).save();
 
         when(eco.removeMoney(any(UUID.class), anyLong(), any(MutationSource.class), anyString()))
                 .thenAnswer(call -> {
@@ -134,7 +154,7 @@ class OrderEscrowConsistencyTest {
                                 id, amount, before, before, source);
                     }
                     balances.put(id, before - amount);
-                    commitOrdersDocument();
+                    commitDocuments();
                     return result(BalanceMutationStatus.SUCCESS, BalanceMutationType.REMOVE,
                             id, amount, before, before - amount, source);
                 });
@@ -153,7 +173,7 @@ class OrderEscrowConsistencyTest {
                                 id, amount, before, before, source);
                     }
                     balances.put(id, before + amount);
-                    commitOrdersDocument();
+                    commitDocuments();
                     return result(BalanceMutationStatus.SUCCESS, BalanceMutationType.ADD,
                             id, amount, before, before + amount, source);
                 });
@@ -173,22 +193,56 @@ class OrderEscrowConsistencyTest {
         return opened;
     }
 
-    /** Simulates a server restart: reopens the database and reloads the store from what was committed. */
+    /**
+     * Simulates a server restart: reopens the database, reloads the order store and every other
+     * document from what was committed, and discards the in-memory ledger.
+     */
     private void restart() throws SQLException {
         db.close();
         db = openDatabase();
-        orders = new OrderManager(server, mock(DeliveryManager.class), db);
+        deliveries = new DeliveryManager(server, db);
+        questStock = new QuestStock(server, db);
+        orders = new OrderManager(server, deliveries, db);
+        loadBalances();
         when(eco.getOrders()).thenReturn(orders);
+        when(eco.getDeliveries()).thenReturn(deliveries);
+        when(eco.getQuestStock()).thenReturn(questStock);
+    }
+
+    /** Reloads the test ledger the way {@link EconomyManager#load()} reloads the production one. */
+    private void loadBalances() {
+        balances.clear();
+        String json = db.readDocument("balances.json");
+        if (json == null) return;
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        for (var entry : root.entrySet()) {
+            balances.put(UUID.fromString(entry.getKey()), entry.getValue().getAsLong());
+        }
     }
 
     /**
-     * The production commit seam in miniature: a committed mutation persists the balances document
-     * and the orders document in one transactional save, and nothing else writes in between.
+     * The production commit seam in miniature: a committed mutation persists the balances, orders,
+     * deliveries and quest-stock documents in one transactional save, and nothing else writes in
+     * between.
      */
-    private void commitOrdersDocument() {
+    private void commitDocuments() {
         ordersJsonBeforeCommit = db.readDocument("orders.json");
-        orders.save();
+        db.runInTransaction(() -> {
+            db.writeDocument("balances.json", balancesJson());
+            orders.save();
+            deliveries.save();
+            questStock.save();
+        });
         ordersJsonAtCommit = db.readDocument("orders.json");
+        deliveriesJsonAtCommit = db.readDocument("deliveries.json");
+    }
+
+    private String balancesJson() {
+        JsonObject root = new JsonObject();
+        for (var entry : balances.entrySet()) {
+            root.addProperty(entry.getKey().toString(), entry.getValue());
+        }
+        return root.toString();
     }
 
     private static BalanceMutationResult result(BalanceMutationStatus status, BalanceMutationType type,
@@ -210,10 +264,35 @@ class OrderEscrowConsistencyTest {
     }
 
     private OrderRequest funded(long price) {
-        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, REQUESTER,
+        return fundedBy(REQUESTER, price);
+    }
+
+    private OrderRequest fundedBy(UUID requester, long price) {
+        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, requester,
                 new ItemStack(Items.EMERALD, 1), 64, price, "Bulk buy");
         assertNotNull(request, "the fixture order must fund");
         return request;
+    }
+
+    /** A seller holding {@code amount} emeralds, enough to fulfill the fixture order. */
+    private ServerPlayer fulfillerWithEmeralds(int amount) {
+        ServerPlayer seller = mock(ServerPlayer.class);
+        when(seller.getUUID()).thenReturn(SELLER);
+        Inventory inventory = mock(Inventory.class);
+        when(inventory.getContainerSize()).thenReturn(36);
+        when(inventory.getItem(anyInt())).thenReturn(ItemStack.EMPTY);
+        when(inventory.getItem(0)).thenReturn(new ItemStack(Items.EMERALD, amount));
+        when(seller.getInventory()).thenReturn(inventory);
+        when(seller.getOffhandItem()).thenReturn(ItemStack.EMPTY);
+        return seller;
+    }
+
+    /** How many delivery stacks the persisted document holds for one player. */
+    private static int deliveryCount(String document, UUID player) {
+        if (document == null) return 0;
+        JsonObject root = JsonParser.parseString(document).getAsJsonObject();
+        if (!root.has(player.toString())) return 0;
+        return root.getAsJsonArray(player.toString()).size();
     }
 
     // === creation ===
@@ -286,6 +365,80 @@ class OrderEscrowConsistencyTest {
         assertEquals(6_400L, reloaded.escrow);
         assertEquals(BOT, reloaded.requester);
         assertEquals(93_600L, balances.get(BOT));
+    }
+
+    // === fulfillment ===
+
+    @Test
+    @DisplayName("fulfillment commits the buyer's delivery with the payout and the order reduction")
+    void fulfillmentCommitsDeliveryWithSettlement() throws SQLException {
+        OrderRequest order = funded(1_280L);
+        ServerPlayer seller = fulfillerWithEmeralds(64);
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller, order.id, 64);
+
+        assertEquals(OrderFulfillment.Status.OK, result.status());
+        assertEquals(1, deliveryCount(deliveriesJsonAtCommit, REQUESTER),
+                "the payout's own save must already contain the buyer's delivery");
+        assertNull(requestJson(ordersJsonAtCommit, order.id),
+                "the same save must persist the fully fulfilled order as gone");
+        assertEquals(98_720L, balances.get(REQUESTER));
+        assertEquals(result.payout(), balances.get(SELLER));
+
+        restart();
+        assertNull(orders.getRequest(order.id));
+        assertEquals(98_720L, balances.get(REQUESTER), "the escrow debit must survive a restart");
+        assertEquals(result.payout(), balances.get(SELLER), "the seller's payout must survive a restart");
+        List<ItemStack> stored = deliveries.getDeliveries(REQUESTER);
+        assertEquals(1, stored.size(), "the delivered goods must survive the restart");
+        assertEquals(64, stored.get(0).getCount());
+        assertTrue(stored.get(0).is(Items.EMERALD));
+    }
+
+    @Test
+    @DisplayName("bot fulfillment commits quest stock with the payout and the order reduction")
+    void botFulfillmentCommitsQuestStockWithSettlement() throws SQLException {
+        OrderRequest order = fundedBy(BOT, 1_280L);
+        ServerPlayer seller = fulfillerWithEmeralds(64);
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller, order.id, 64);
+
+        assertEquals(OrderFulfillment.Status.OK, result.status());
+        assertEquals(64, questStock.total(), "bot-bound goods must be booked into quest stock");
+        assertEquals(98_720L, balances.get(BOT));
+        assertEquals(result.payout(), balances.get(SELLER));
+        assertTrue(deliveries.getDeliveries(BOT).isEmpty(),
+                "bot orders must not leave goods in an unread mailbox");
+
+        restart();
+        assertNull(orders.getRequest(order.id));
+        assertEquals(64, questStock.total(), "the delivered quest stock must survive a restart");
+        assertEquals(98_720L, balances.get(BOT));
+        assertEquals(result.payout(), balances.get(SELLER));
+    }
+
+    @Test
+    @DisplayName("a rejected payout unstages the delivery and keeps the order intact")
+    void rejectedFulfillmentRollsBackStagedDelivery() throws SQLException {
+        OrderRequest order = funded(1_280L);
+        balances.put(SELLER, EconomyManager.MAX);
+        ServerPlayer seller = fulfillerWithEmeralds(64);
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller, order.id, 64);
+
+        assertEquals(OrderFulfillment.Status.FULFILLER_CANT_RECEIVE, result.status());
+        assertTrue(eco.getDeliveries().getDeliveries(REQUESTER).isEmpty(),
+                "a rejected payout must not leave the staged goods in the buyer's mailbox");
+        assertEquals(64, order.amount, "the claim must be rolled back in memory");
+
+        restart();
+        OrderRequest reloaded = orders.getRequest(order.id);
+        assertNotNull(reloaded, "a rejected payout must leave the order on disk");
+        assertEquals(64, reloaded.amount);
+        assertEquals(1_280L, reloaded.escrow);
+        assertEquals(98_720L, balances.get(REQUESTER));
+        assertTrue(deliveries.getDeliveries(REQUESTER).isEmpty(),
+                "a rejected payout must not persist goods against the escrow");
     }
 
     // === repricing ===

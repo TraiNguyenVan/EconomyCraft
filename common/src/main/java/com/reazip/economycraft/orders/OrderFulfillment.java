@@ -141,7 +141,7 @@ public final class OrderFulfillment {
         return RepriceStatus.OK;
     }
 
-    private record PaymentOutcome(boolean success, long payout, Status failureStatus) {}
+    private record PaymentOutcome(boolean success, boolean committed, long payout, Status failureStatus) {}
 
     public static OrderRequest createEscrowedRequest(EconomyManager eco, UUID requester, ItemStack item, int amount, long price) {
         return createEscrowedRequest(eco, requester, item, amount, price, null);
@@ -276,25 +276,36 @@ public final class OrderFulfillment {
         }
 
         String detail = EconomyCraft.describeItem(claim.given(), itemProto.getHoverName().getString());
+
+        // Stage the goods before the payout. The payout's transactional save then commits the
+        // buyer's delivery (or the bot's quest stock), the reduced/removed order and the money in
+        // one step; a crash can no longer pay the seller and lose the goods. A rejected payout
+        // unstages the goods and rolls the claim back.
+        boolean botOrder = QuestManager.BOT_UUID.equals(requester);
+        String stagedStockKey = botOrder ? stageQuestStock(eco, itemProto, claim.given()) : null;
+        List<ItemStack> stagedDeliveries = botOrder
+                ? List.of()
+                : stageDeliveries(eco, requester, itemProto, claim.given());
+
         PaymentOutcome outcome = settleOrderPayment(eco, requester, fulfillerId, claim.payment(), claim.escrowUsed(), detail);
         if (!outcome.success()) {
+            unstageGoods(eco, requester, stagedStockKey, stagedDeliveries, claim.given());
             orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
             return new Result(outcome.failureStatus(), 0, 0, claim.order().amount, itemProto, requester);
         }
 
         takeItems.accept(claim.given());
-        if (QuestManager.BOT_UUID.equals(requester)) {
-            divertToQuestStock(eco, itemProto, claim.given());
-        } else {
-            deliver(orders, requester, itemProto, claim.given());
-        }
         if (claim.exhausted()) {
             NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.ORDER, claim.order().id,
                     EconomyCraft.describeItem(claim.given(), itemProto.getHoverName().getString()),
                     "was fully fulfilled");
         }
         notifyRequester(eco.getServer(), requester, claim.given(), itemProto);
-        orders.markChanged();
+        orders.notifyChanged();
+        if (!outcome.committed()) {
+            // A zero-money settlement has no mutation save of its own; commit the staged goods here.
+            eco.save();
+        }
 
         int remaining = claim.exhausted() ? 0 : claim.order().amount;
         return new Result(Status.OK, claim.given(), outcome.payout(), remaining, itemProto, requester);
@@ -311,15 +322,18 @@ public final class OrderFulfillment {
             if (!transfer.successful()) {
                 Status status = transfer.status() == com.reazip.economycraft.api.v1.BalanceMutationStatus.MAX_BALANCE_EXCEEDED
                         ? Status.FULFILLER_CANT_RECEIVE : Status.REQUESTER_CANT_PAY;
-                return new PaymentOutcome(false, 0, status);
+                return new PaymentOutcome(false, false, 0, status);
             }
-        } else if (payout > 0) {
+            return new PaymentOutcome(true, true, payout, null);
+        }
+        if (payout > 0) {
             var credit = eco.addMoney(fulfillerId, payout, EconomySources.ORDER_FULFILLMENT, detail);
             if (!credit.successful()) {
-                return new PaymentOutcome(false, 0, Status.FULFILLER_CANT_RECEIVE);
+                return new PaymentOutcome(false, false, 0, Status.FULFILLER_CANT_RECEIVE);
             }
+            return new PaymentOutcome(true, true, payout, null);
         }
-        return new PaymentOutcome(true, payout, null);
+        return new PaymentOutcome(true, false, 0, null);
     }
 
     public static CancelStatus cancel(EconomyManager eco, UUID requester, int orderId) {
@@ -502,19 +516,36 @@ public final class OrderFulfillment {
     /**
      * Books bot-bound goods into the quest stock ledger instead of a deliveries mailbox, which nobody
      * would ever claim. Keyed by price key so the Phase 2 buyback market can price stock back out.
+     * Staged without persisting so the payout's save commits the stock and the money together.
      */
-    private static void divertToQuestStock(EconomyManager eco, ItemStack proto, int amount) {
+    private static String stageQuestStock(EconomyManager eco, ItemStack proto, int amount) {
         PriceRegistry.PriceEntry entry = eco.getPrices().resolve(proto);
         String key = entry != null ? entry.key() : proto.getItem().toString();
-        eco.getQuestStock().deposit(key, amount);
+        eco.getQuestStock().deposit(key, amount, false);
+        return key;
     }
 
-    private static void deliver(OrderManager orders, UUID requester, ItemStack proto, int amount) {
+    private static List<ItemStack> stageDeliveries(EconomyManager eco, UUID requester, ItemStack proto, int amount) {
+        List<ItemStack> staged = new ArrayList<>();
         int remaining = amount;
         while (remaining > 0) {
             int c = Math.min(proto.getMaxStackSize(), remaining);
-            orders.addDelivery(requester, proto.copyWithCount(c));
+            ItemStack stack = proto.copyWithCount(c);
+            eco.getDeliveries().addDelivery(requester, stack, false);
+            staged.add(stack);
             remaining -= c;
+        }
+        return staged;
+    }
+
+    private static void unstageGoods(EconomyManager eco, UUID requester, String stockKey,
+                                     List<ItemStack> deliveries, int amount) {
+        if (stockKey != null) {
+            eco.getQuestStock().withdraw(stockKey, amount, false);
+            return;
+        }
+        for (ItemStack stack : deliveries) {
+            eco.getDeliveries().removeDelivery(requester, stack, false);
         }
     }
 

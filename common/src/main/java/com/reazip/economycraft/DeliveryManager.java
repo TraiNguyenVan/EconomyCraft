@@ -54,7 +54,11 @@ public final class DeliveryManager {
     }
 
     public void removeDelivery(UUID player, ItemStack stack) {
-        if (ledger.remove(player, stack)) save();
+        removeDelivery(player, stack, true);
+    }
+
+    public void removeDelivery(UUID player, ItemStack stack, boolean persist) {
+        if (ledger.remove(player, stack) && persist) save();
     }
 
     public boolean hasDeliveries(UUID player) {
