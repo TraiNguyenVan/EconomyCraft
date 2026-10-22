@@ -55,6 +55,19 @@ public class EconomyConfig {
     public int orderExpirationHours = 168;
     @SerializedName("auction_expiration_hours")
     public int auctionExpirationHours = 168;
+    /**
+     * Master switch for the {@code /ah} chat notices: a line when a listing appears and a SALE line when
+     * its price drops. Both are sent to online players and, within the window below, queued for offline
+     * ones.
+     */
+    @SerializedName("auction_listing_broadcast")
+    public boolean auctionListingBroadcast = true;
+    /**
+     * How long after their last login an offline player still receives new-listing and price-drop notices.
+     * {@code 0} keeps the notices online-only.
+     */
+    @SerializedName("auction_listing_notify_active_days")
+    public int auctionListingNotifyActiveDays = 30;
     @SerializedName("max_active_orders_per_player")
     public int maxActiveOrdersPerPlayer = 0;
     @SerializedName("max_active_auctions_per_player")
@@ -214,6 +227,7 @@ public class EconomyConfig {
             parsed.transactionLogRetentionDays = clampRetentionDays(parsed.transactionLogRetentionDays);
             parsed.orderExpirationHours = clampNonNegative("order_expiration_hours", parsed.orderExpirationHours);
             parsed.auctionExpirationHours = clampNonNegative("auction_expiration_hours", parsed.auctionExpirationHours);
+            parsed.auctionListingNotifyActiveDays = clampNonNegative("auction_listing_notify_active_days", parsed.auctionListingNotifyActiveDays);
             parsed.maxActiveOrdersPerPlayer = clampNonNegative("max_active_orders_per_player", parsed.maxActiveOrdersPerPlayer);
             parsed.maxActiveAuctionsPerPlayer = clampNonNegative("max_active_auctions_per_player", parsed.maxActiveAuctionsPerPlayer);
             parsed.maxActiveTollsPerPlayer = clampNonNegative("max_active_tolls_per_player", parsed.maxActiveTollsPerPlayer);

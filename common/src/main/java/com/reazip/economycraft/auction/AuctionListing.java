@@ -14,6 +14,12 @@ public class AuctionListing {
     public UUID seller;
     public ItemStack item;
     public long price;
+    /**
+     * The price the listing was first offered at; the reference a price drop is measured against, so
+     * chained reprices advertise one cumulative discount instead of restarting from the previous cut.
+     * Zero on data written before this field existed and is treated as "same as {@link #price}".
+     */
+    public long originalPrice;
     public long createdAt;
     public long expiresAt;
     @org.jetbrains.annotations.Nullable
@@ -24,6 +30,7 @@ public class AuctionListing {
         obj.addProperty("id", id);
         if (seller != null) obj.addProperty("seller", seller.toString());
         obj.addProperty("price", price);
+        obj.addProperty("originalPrice", originalPrice > 0 ? originalPrice : price);
         obj.addProperty("createdAt", createdAt);
         obj.addProperty("expiresAt", expiresAt);
         if (description != null && !description.isBlank()) {
@@ -39,6 +46,7 @@ public class AuctionListing {
         l.id = obj.get("id").getAsInt();
         if (obj.has("seller")) l.seller = UUID.fromString(obj.get("seller").getAsString());
         l.price = obj.get("price").getAsLong();
+        l.originalPrice = obj.has("originalPrice") ? obj.get("originalPrice").getAsLong() : l.price;
         if (obj.has("createdAt")) l.createdAt = obj.get("createdAt").getAsLong();
         if (obj.has("expiresAt")) l.expiresAt = obj.get("expiresAt").getAsLong();
         if (obj.has("description") && !obj.get("description").isJsonNull()) {
