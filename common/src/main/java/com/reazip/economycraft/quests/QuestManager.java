@@ -99,6 +99,10 @@ public class QuestManager {
             postedThisWeek = true;
         }
         reconcilePricing(eco);
+        // Persist the board changes before the buyback market opens its own transactions. A failed
+        // listing reloads this manager from quests.json; without this save that reload would forget
+        // orders already written to orders.json and stop repricing or cancelling them.
+        save();
         QuestBuyback.sweep(eco);
         save();
     }
@@ -552,6 +556,30 @@ public class QuestManager {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Re-reads {@code quests.json}, replacing everything this manager holds.
+     *
+     * <p>Used after a transfer rolls back: {@link #onBuybackExpired} mutates the expiry counter and
+     * the market blacklist inside the transaction, so without this the live board would keep an
+     * expiry the database refused and the next attempt could quarantine and void the stock.
+     */
+    public synchronized void reload() {
+        weekStartMs = 0L;
+        weekSeed = 0L;
+        mintedThisWeek = 0L;
+        postedThisWeek = false;
+        drawnKeys.clear();
+        backfillKeys.clear();
+        lastPeriodKeys.clear();
+        postedKeys.clear();
+        questOrderIds.clear();
+        postedUnits.clear();
+        unsoldExpiries.clear();
+        autoMarketBlacklist.clear();
+        recentPurchases.clear();
+        load();
     }
 
     private void load() {

@@ -29,6 +29,10 @@ public final class DeliveryLedger {
         list.add(new Entry(uniqueId(), stack));
     }
 
+    public void clear() {
+        deliveries.clear();
+    }
+
     public List<ItemStack> get(UUID player) {
         return getEntries(player).stream().map(Entry::stack).toList();
     }

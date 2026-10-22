@@ -17,6 +17,10 @@ public final class PlayerLimitOverrides {
         return overrides.get(player);
     }
 
+    public void clear() {
+        overrides.clear();
+    }
+
     public void set(UUID player, Integer limit) {
         if (limit == null) {
             overrides.remove(player);
