@@ -114,6 +114,29 @@ class EconomyDatabaseTest {
     }
 
     @Test
+    void afterCommitActionsAreDiscardedWhenTheTransactionRollsBack(@TempDir Path dataDir) throws Exception {
+        Path dbFile = dataDir.resolve(EconomyDatabase.DB_FILE_NAME);
+        try (EconomyDatabase db = new EconomyDatabase(dbFile)) {
+            db.initialize();
+            db.writeDocument("auctions.json", "{\"listings\":0}");
+            failUpdatesTo(dbFile, "auctions.json");
+
+            int[] runs = {0};
+            db.afterCommit(() -> runs[0]++);
+            assertEquals(1, runs[0], "without a transaction the action runs immediately");
+
+            db.runInTransaction(() -> db.afterCommit(() -> runs[0]++));
+            assertEquals(2, runs[0], "a committed transaction runs its action");
+
+            assertThrows(RuntimeException.class, () -> db.runInTransaction(() -> {
+                db.afterCommit(() -> runs[0]++);
+                db.writeDocument("auctions.json", "{\"listings\":1}");
+            }));
+            assertEquals(2, runs[0], "a rolled-back transaction discards its action");
+        }
+    }
+
+    @Test
     void fileBackedDatabaseSurvivesReopen(@TempDir Path dataDir) throws Exception {
         Path dbFile = dataDir.resolve(EconomyDatabase.DB_FILE_NAME);
         try (EconomyDatabase db = new EconomyDatabase(dbFile)) {

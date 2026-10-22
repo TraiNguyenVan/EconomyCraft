@@ -140,8 +140,8 @@ public final class FactionStore {
     /** Writes pending changes if anything changed since the last write. */
     public void flush() {
         if (!dirty) return;
-        dirty = false;
         Documents.write(db, file, "parties.json", GSON.toJson(new HashMap<>(selections), TYPE));
+        Documents.afterCommit(db, () -> dirty = false);
     }
 
     private void load() {

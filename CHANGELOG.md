@@ -16,7 +16,9 @@ ledger while the old listing is still on the board.
 A transfer that fails also reloads the live ledger, auction house and delivery mailboxes from the
 rolled-back documents, so a later save cannot commit half of a move the database refused. A document
 write that fails inside a transaction now aborts that transaction instead of being logged and committed,
-so an I/O or SQLite error cannot leave the withdrawal committed without its listing.
+so an I/O or SQLite error cannot leave the withdrawal committed without its listing. Stores that track
+pending changes clear that flag only after the transaction commits, so a failed save is retried by the
+next one instead of leaving the rolled-back documents stale until the next player change.
 
 ### Minecraft 26.3 is the only supported version
 

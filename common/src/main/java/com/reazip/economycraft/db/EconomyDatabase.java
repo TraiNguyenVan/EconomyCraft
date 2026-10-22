@@ -13,6 +13,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -81,6 +82,8 @@ public final class EconomyDatabase implements AutoCloseable {
      * never commit even if the body catches the exception.
      */
     private RuntimeException transactionWriteFailure;
+    /** Actions to run once the open transaction commits; discarded when it rolls back. */
+    private final List<Runnable> afterCommit = new ArrayList<>();
 
     public EconomyDatabase(Path dbPath) {
         this.dbPath = dbPath.toAbsolutePath();
@@ -278,6 +281,7 @@ public final class EconomyDatabase implements AutoCloseable {
         }
         inTransaction = true;
         transactionWriteFailure = null;
+        afterCommit.clear();
         try {
             connection.setAutoCommit(false);
             body.run();
@@ -285,6 +289,7 @@ public final class EconomyDatabase implements AutoCloseable {
             // of the group beside a document that kept its old content. Refuse the commit instead.
             if (transactionWriteFailure != null) throw transactionWriteFailure;
             connection.commit();
+            runAfterCommitActions();
         } catch (RuntimeException | SQLException e) {
             try {
                 connection.rollback();
@@ -295,9 +300,40 @@ public final class EconomyDatabase implements AutoCloseable {
         } finally {
             inTransaction = false;
             transactionWriteFailure = null;
+            afterCommit.clear();
             try {
                 connection.setAutoCommit(true);
             } catch (SQLException ignored) {
+            }
+        }
+    }
+
+    /**
+     * Runs {@code action} once the open transaction commits, or immediately when none is open.
+     *
+     * <p>Stores use this to clear their dirty flags only after the data is durable: clearing them
+     * inside the transaction would make a rolled-back write look saved, and the next flush would
+     * skip it. Actions registered in a transaction that rolls back are discarded.
+     */
+    public synchronized void afterCommit(Runnable action) {
+        if (inTransaction) {
+            afterCommit.add(action);
+        } else {
+            action.run();
+        }
+    }
+
+    private void runAfterCommitActions() {
+        if (afterCommit.isEmpty()) return;
+        List<Runnable> actions = new ArrayList<>(afterCommit);
+        afterCommit.clear();
+        for (Runnable action : actions) {
+            try {
+                action.run();
+            } catch (RuntimeException e) {
+                // The transaction is already durable; a bookkeeping failure must not look like a
+                // failed commit to the caller.
+                LOGGER.error("[EconomyCraft-DB] A post-commit action failed", e);
             }
         }
     }

@@ -1,6 +1,7 @@
 package com.reazip.economycraft.time;
 
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.UuidLongMapStore;
 import org.slf4j.Logger;
@@ -198,8 +199,8 @@ public final class OnlineTimeService {
     /** Writes pending changes if anything changed since the last write. */
     public void flush() {
         if (!dirty) return;
-        dirty = false;
         UuidLongMapStore.persist(db, file, "online_time.json", totalsMillis);
+        Documents.afterCommit(db, () -> dirty = false);
     }
 
     /** Visible for tests: the tick the service last saw. */

@@ -65,4 +65,18 @@ public final class Documents {
         }
         db.runInTransaction(body);
     }
+
+    /**
+     * Runs {@code action} when the surrounding transaction commits, or immediately without one.
+     *
+     * <p>Stores with a dirty flag use this so the flag clears only after the document actually
+     * commits: a transaction that rolls back leaves the store dirty and its next flush retries.
+     */
+    public static void afterCommit(EconomyDatabase db, Runnable action) {
+        if (db == null) {
+            action.run();
+            return;
+        }
+        db.afterCommit(action);
+    }
 }
