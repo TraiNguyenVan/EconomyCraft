@@ -522,7 +522,7 @@ public final class MarketSnapshotServer {
         MarketCommandArgs.DeliverOrder args = parsed.value();
 
         OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, online, args.id(), args.amount());
-        return switch (result.status()) {
+        CommandResult outcome = switch (result.status()) {
             case OK -> new CommandResult(true, null, args.id(), result.payment(), result.payout(), false);
             case OWN_ORDER -> new CommandResult(false, "you cannot fulfill your own request");
             case ORDER_GONE -> new CommandResult(false, "order no longer available");
@@ -532,6 +532,13 @@ public final class MarketSnapshotServer {
             case REQUESTER_CANT_PAY -> new CommandResult(false, "requester can't pay");
             case FULFILLER_CANT_RECEIVE -> new CommandResult(false, "your balance is too high to receive this payout");
         };
+        if (result.taken() > 0) {
+            // The goods could not go back to the seller and are waiting in their mailbox instead:
+            // say so, or they would look like they vanished.
+            return new CommandResult(false, outcome.error() + "; " + result.taken()
+                    + " item(s) are waiting in your deliveries mailbox");
+        }
+        return outcome;
     }
 
     /**

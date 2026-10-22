@@ -18,7 +18,11 @@ state when a mutation is rejected. Fulfillment takes the seller's stacks out of 
 before any money moves and records them as a claimable delivery in the seller's own mailbox, so
 a settlement that never commits — a rejected payout, a thrown save, a crash between the two —
 still hands the goods back; the same transactional save that pays and delivers consumes it, so
-the mailbox never holds a second copy of goods the buyer already received. Failed debits and
+the mailbox never holds a second copy of goods the buyer already received. That handoff now
+commits in a transaction that reports a failed write instead of logging it, and a payout the
+seller cannot receive gives the goods back to the seller instead of parking them in their
+mailbox: a refused sale leaves the seller whole, and the server sale that follows cannot pay for
+the same goods twice. Failed debits and
 bounced refunds still leave orders untouched and nothing half-written on disk, and a money
 mutation whose save aborts now restores the live balances it had just changed, so a next
 successful save cannot keep a charge or a payout that was never committed.

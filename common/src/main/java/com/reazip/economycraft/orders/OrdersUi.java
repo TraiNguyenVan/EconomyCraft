@@ -594,6 +594,14 @@ public final class OrdersUi {
                         case FULL_AMOUNT_REQUIRED -> fail(serverPlayer, "This request must be fulfilled all at once.");
                         default -> fail(serverPlayer, "Request no longer available");
                     }
+                    if (result.taken() > 0) {
+                        // The goods could not go back to the seller and are waiting in their
+                        // mailbox instead: say so, or they would look like they vanished.
+                        serverPlayer.sendSystemMessage(Component.literal(result.taken() + "x " +
+                                        result.item().getHoverName().getString() +
+                                        " is waiting in your deliveries mailbox (/eco deliveries).")
+                                .withStyle(ChatFormatting.YELLOW));
+                    }
                 }
 
                 parent.updatePage();

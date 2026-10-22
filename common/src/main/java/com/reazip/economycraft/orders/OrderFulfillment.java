@@ -26,7 +26,6 @@ import org.slf4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.function.IntConsumer;
 
 public final class OrderFulfillment {
     private OrderFulfillment() {}
@@ -38,7 +37,15 @@ public final class OrderFulfillment {
         FULFILLER_CANT_RECEIVE, FULL_AMOUNT_REQUIRED
     }
 
-    public record Result(Status status, int given, long payout, long payment, int remaining, ItemStack item, UUID requester) {
+    /**
+     * The outcome of one fulfilment attempt.
+     *
+     * @param given how many goods reached the buyer
+     * @param taken how many goods left the seller without reaching a buyer: they sit in the
+     *              seller's deliveries mailbox, so a caller that sells what the seller holds
+     *              must not count them a second time
+     */
+    public record Result(Status status, int given, int taken, long payout, long payment, int remaining, ItemStack item, UUID requester) {
         public boolean success() {
             return status == Status.OK;
         }
@@ -225,10 +232,10 @@ public final class OrderFulfillment {
         OrderManager orders = eco.getOrders();
         OrderRequest peek = orders.getRequest(orderId);
         if (peek == null || peek.item == null || peek.item.isEmpty()) {
-            return new Result(Status.ORDER_GONE, 0, 0, 0, 0, ItemStack.EMPTY, null);
+            return new Result(Status.ORDER_GONE, 0, 0, 0, 0, 0, ItemStack.EMPTY, null);
         }
         if (fulfiller.getUUID().equals(peek.requester)) {
-            return new Result(Status.OWN_ORDER, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+            return new Result(Status.OWN_ORDER, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
         }
 
         ItemStack itemProto = peek.item.copy();
@@ -236,65 +243,138 @@ public final class OrderFulfillment {
 
         OrderManager.ClaimResult claim = orders.claim(orderId, requestedAmount, held, false);
         return applyFulfillment(eco, orders, claim, peek.requester, fulfiller.getUUID(), itemProto,
-                give -> removeItems(fulfiller, itemProto, give, excludeArmor));
+                inventorySource(eco, fulfiller, itemProto, excludeArmor));
     }
 
     public static Result fulfillExact(EconomyManager eco, ServerPlayer fulfiller, int orderId, int requestedAmount, ItemStack sourceStack) {
         OrderManager orders = eco.getOrders();
         OrderRequest peek = orders.getRequest(orderId);
         if (peek == null || peek.item == null || peek.item.isEmpty()) {
-            return new Result(Status.ORDER_GONE, 0, 0, 0, 0, ItemStack.EMPTY, null);
+            return new Result(Status.ORDER_GONE, 0, 0, 0, 0, 0, ItemStack.EMPTY, null);
         }
         if (fulfiller.getUUID().equals(peek.requester)) {
-            return new Result(Status.OWN_ORDER, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+            return new Result(Status.OWN_ORDER, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
         }
         if (sourceStack == null || !ItemStack.isSameItemSameComponents(sourceStack, peek.item)) {
-            return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+            return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
         }
 
         ItemStack itemProto = peek.item.copy();
         OrderManager.ClaimResult claim = orders.claim(orderId, requestedAmount, sourceStack.getCount(), true);
-        return applyFulfillment(eco, orders, claim, peek.requester, fulfiller.getUUID(), itemProto, sourceStack::shrink);
+        return applyFulfillment(eco, orders, claim, peek.requester, fulfiller.getUUID(), itemProto,
+                stackSource(sourceStack));
+    }
+
+    /**
+     * Where a fulfilment takes the seller's goods from, and how it puts them back when the
+     * settlement does not commit.
+     *
+     * <p>The goods leave before any money moves, so a crash in between can never duplicate them.
+     * The restore side is what makes a settlement that refused to happen give them back.
+     */
+    private interface ItemSource {
+        /** Removes up to {@code amount} goods; returns how many were actually removed. */
+        int take(int amount);
+
+        /**
+         * Puts {@code amount} goods back where they came from; returns how many could not go
+         * back and are held in the seller's deliveries mailbox instead.
+         */
+        int restore(int amount);
+    }
+
+    /** Goods held in a single stack the seller is selling from. */
+    private static ItemSource stackSource(ItemStack stack) {
+        return new ItemSource() {
+            @Override
+            public int take(int amount) {
+                int take = Math.min(amount, stack.getCount());
+                stack.shrink(take);
+                return take;
+            }
+
+            @Override
+            public int restore(int amount) {
+                // The stack still exists and still holds the goods' place: give them back to it.
+                stack.setCount(stack.getCount() + amount);
+                return 0;
+            }
+        };
+    }
+
+    /** Goods held in the seller's inventory. */
+    private static ItemSource inventorySource(EconomyManager eco, ServerPlayer fulfiller, ItemStack proto,
+                                               boolean excludeArmor) {
+        return new ItemSource() {
+            @Override
+            public int take(int amount) {
+                return removeItems(fulfiller, proto, amount, excludeArmor);
+            }
+
+            @Override
+            public int restore(int amount) {
+                return giveBackItems(eco, fulfiller, proto, amount);
+            }
+        };
     }
 
     private static Result applyFulfillment(EconomyManager eco, OrderManager orders, OrderManager.ClaimResult claim,
-                                            UUID requester, UUID fulfillerId, ItemStack itemProto, IntConsumer takeItems) {
+                                            UUID requester, UUID fulfillerId, ItemStack itemProto, ItemSource source) {
         switch (claim.status()) {
             case ORDER_GONE -> {
-                return new Result(Status.ORDER_GONE, 0, 0, 0, 0, ItemStack.EMPTY, null);
+                return new Result(Status.ORDER_GONE, 0, 0, 0, 0, 0, ItemStack.EMPTY, null);
             }
             case INVALID_AMOUNT -> {
-                return new Result(Status.INVALID_AMOUNT, 0, 0, 0, claim.order().amount, itemProto, requester);
+                return new Result(Status.INVALID_AMOUNT, 0, 0, 0, 0, claim.order().amount, itemProto, requester);
             }
             case FULL_AMOUNT_REQUIRED -> {
-                return new Result(Status.FULL_AMOUNT_REQUIRED, 0, 0, 0, claim.order().amount, itemProto, requester);
+                return new Result(Status.FULL_AMOUNT_REQUIRED, 0, 0, 0, 0, claim.order().amount, itemProto, requester);
             }
             case NOT_ENOUGH_ITEMS -> {
-                return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, claim.order().amount, itemProto, requester);
+                return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, 0, claim.order().amount, itemProto, requester);
             }
             default -> {}
         }
 
         String detail = EconomyCraft.describeItem(claim.given(), itemProto.getHoverName().getString());
 
-        // The items leave the fulfiller's inventory exactly once, and they leave it BEFORE any
-        // money moves: no settlement can commit while they are still in the inventory, because
-        // there is no transaction that spans the ledger and Minecraft's own saves. The removal
-        // becomes recoverable immediately after — see the handoff below — so neither ordering
-        // nor a crash can trade duplication for item loss.
-        takeItems.accept(claim.given());
+        // The goods leave the fulfiller exactly once, and they leave it BEFORE any money moves:
+        // no settlement can commit while they are still in the inventory, because there is no
+        // transaction that spans the ledger and Minecraft's own saves. The removal becomes
+        // recoverable immediately after — see the handoff below — so neither ordering nor a
+        // crash can trade duplication for item loss.
+        int taken = source.take(claim.given());
+        if (taken < claim.given()) {
+            // The seller could not produce the goods the claim reserved. Give back what was taken
+            // and roll the claim back, so the order is exactly as it was.
+            source.restore(taken);
+            orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
+            return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, 0, claim.order().amount, itemProto, requester);
+        }
 
         // Recoverable handoff for the taken stacks: they go into the fulfiller's OWN deliveries
-        // mailbox and that append is persisted on its own, so from here on the goods are always
-        // somewhere durable. If the settlement below never commits — a rejected payout, a thrown
-        // save, a crash between the two — the stacks are simply a claimable delivery, the same
-        // compensation the market listing flow uses. If it does commit, the same transactional
-        // save that pays and delivers consumes the handoff, so the mailbox never holds a second
-        // copy of goods the buyer already received.
-        List<ItemStack> handoff = new ArrayList<>();
-        for (ItemStack stack : splitForMailbox(itemProto, claim.given())) {
-            eco.getDeliveries().addDelivery(fulfillerId, stack);
-            handoff.add(stack);
+        // mailbox and that append is persisted on its own, in a transaction that reports a failed
+        // write instead of swallowing it, so from here on the goods are always somewhere durable.
+        // If the settlement below never commits — a rejected payout, a thrown save, a crash
+        // between the two — the stacks are a claimable delivery, the same compensation the
+        // market listing flow uses. If it does commit, the same transactional save that pays and
+        // delivers consumes the handoff, so the mailbox never holds a second copy of goods the
+        // buyer already received.
+        List<ItemStack> handoff = splitForMailbox(itemProto, claim.given());
+        for (ItemStack stack : handoff) {
+            eco.getDeliveries().addDelivery(fulfillerId, stack, false);
+        }
+        try {
+            eco.getDeliveries().saveReportingFailure();
+        } catch (RuntimeException e) {
+            // The handoff did not commit, so the goods exist nowhere but in this stack frame: give
+            // them back to the seller and roll the claim back, and let the write failure surface.
+            for (ItemStack stack : handoff) {
+                eco.getDeliveries().removeDelivery(fulfillerId, stack, false);
+            }
+            source.restore(claim.given());
+            orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
+            throw e;
         }
         // Drop the handoff live but unsaved: the settlement's own save then persists its removal
         // together with the payment, the order reduction and the buyer's delivery/quest stock.
@@ -313,18 +393,23 @@ public final class OrderFulfillment {
             // The save threw before it committed, so the transaction rolled back: the balances go
             // back the way the engine found them, and the handoff plus every staged good and the
             // claim must follow, or a later save would commit goods against a settlement that
-            // refused to happen.
+            // refused to happen. The goods stay in the mailbox: the database is the thing that
+            // just failed, and there they are durable and claimable.
             abandonFulfillment(eco, orders, fulfillerId, handoff, requester, stagedStockKey,
                     stagedDeliveries, claim);
             throw e;
         }
         if (!outcome.success()) {
-            // The rejected mutation never saved, so the persisted handoff from the append above is
-            // still the only durable copy — which is exactly right. Restore the live ledger to
-            // match, re-add the handoff and roll the claim back.
-            abandonFulfillment(eco, orders, fulfillerId, handoff, requester, stagedStockKey,
-                    stagedDeliveries, claim);
-            return new Result(outcome.failureStatus(), 0, 0, 0, claim.order().amount, itemProto, requester);
+            // The payout was refused and nothing was saved, so the persisted handoff is the only
+            // durable copy of the goods. Give them back to the seller: the handoff is cleared
+            // first, because until that write commits the mailbox still holds a copy of goods the
+            // seller is about to hold again. The buyer's staged goods come out of the live ledger
+            // before that write, so the write cannot persist goods against a settlement that
+            // refused to happen.
+            unstageGoods(eco, requester, stagedStockKey, stagedDeliveries, claim.given());
+            int mailboxHeld = returnGoodsToSeller(eco, source, handoff, fulfillerId, claim.given());
+            orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
+            return new Result(outcome.failureStatus(), 0, mailboxHeld, 0, 0, claim.order().amount, itemProto, requester);
         }
 
         if (!outcome.committed()) {
@@ -348,7 +433,43 @@ public final class OrderFulfillment {
         orders.notifyChanged();
 
         int remaining = claim.exhausted() ? 0 : claim.order().amount;
-        return new Result(Status.OK, claim.given(), outcome.payout(), claim.payment(), remaining, itemProto, requester);
+        return new Result(Status.OK, claim.given(), 0, outcome.payout(), claim.payment(), remaining, itemProto, requester);
+    }
+
+    /**
+     * Gives the goods back to the seller after a settlement that refused to happen.
+     *
+     * <p>The handoff is still in the mailbox, durably. It is cleared first, because until that
+     * write commits the mailbox holds a copy of goods the seller is about to hold again. When the
+     * clear cannot commit, the goods stay in the mailbox instead: one home for them, always, and
+     * claimable there.
+     *
+     * @return how many goods ended up in the mailbox rather than back with the seller
+     */
+    private static int returnGoodsToSeller(EconomyManager eco, ItemSource source, List<ItemStack> handoff,
+                                            UUID fulfillerId, int amount) {
+        // Drop the handoff from the live mailbox without persisting it yet.
+        consumeHandoff(eco, fulfillerId, handoff);
+        try {
+            eco.getDeliveries().saveReportingFailure();
+        } catch (RuntimeException e) {
+            // The mailbox still holds the goods on disk, so the live ledger has to hold them too:
+            // put them back and leave them there. They are claimable, which is what matters.
+            restoreHandoff(eco, fulfillerId, handoff);
+            LOGGER.warn("[EconomyCraft] Could not clear the delivery handoff for {}; the goods stay in their mailbox", fulfillerId);
+            return amount;
+        }
+        // The mailbox no longer holds them: give them back where they came from.
+        int parked = source.restore(amount);
+        if (parked > 0) {
+            // What did not fit back went to the mailbox; make that durable too.
+            try {
+                eco.getDeliveries().saveReportingFailure();
+            } catch (RuntimeException e) {
+                LOGGER.warn("[EconomyCraft] Could not persist the returned goods for {}; they are in their mailbox", fulfillerId);
+            }
+        }
+        return parked;
     }
 
     private static PaymentOutcome settleOrderPayment(EconomyManager eco, UUID requester, UUID fulfillerId, long payment,
@@ -532,7 +653,7 @@ public final class OrderFulfillment {
         return TaxPolicy.netRate(TaxScope.TRANSACTION_ORDER, order.price / (double) order.amount);
     }
 
-    private static void removeItems(ServerPlayer player, ItemStack proto, int amount, boolean excludeArmor) {
+    private static int removeItems(ServerPlayer player, ItemStack proto, int amount, boolean excludeArmor) {
         int remaining = amount;
         var inv = player.getInventory();
         int limit = excludeArmor ? SellService.MAIN_INVENTORY_SLOTS : inv.getContainerSize();
@@ -549,8 +670,32 @@ public final class OrderFulfillment {
             if (ItemStack.isSameItemSameComponents(offhand, proto)) {
                 int take = Math.min(offhand.getCount(), remaining);
                 offhand.shrink(take);
+                remaining -= take;
             }
         }
+        return amount - remaining;
+    }
+
+    /**
+     * Puts goods back into the seller's inventory. What does not fit goes to their deliveries
+     * mailbox, where it is durable and claimable — the same compensation the rest of the mod
+     * gives when a player's inventory is full.
+     *
+     * @return how many goods went to the mailbox instead of the inventory
+     */
+    private static int giveBackItems(EconomyManager eco, ServerPlayer fulfiller, ItemStack proto, int amount) {
+        int remaining = amount;
+        int parked = 0;
+        while (remaining > 0) {
+            int give = Math.min(proto.getMaxStackSize(), remaining);
+            ItemStack stack = proto.copyWithCount(give);
+            if (!fulfiller.getInventory().add(stack)) {
+                eco.getDeliveries().addDelivery(fulfiller.getUUID(), stack, false);
+                parked += give;
+            }
+            remaining -= give;
+        }
+        return parked;
     }
 
     /**

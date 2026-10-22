@@ -6,6 +6,7 @@ import com.reazip.economycraft.DeliveryManager;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.NotificationManager;
 import com.reazip.economycraft.PriceRegistry;
+import com.reazip.economycraft.SellService;
 import com.reazip.economycraft.api.v1.BalanceMutationResult;
 import com.reazip.economycraft.api.v1.BalanceMutationStatus;
 import com.reazip.economycraft.api.v1.BalanceMutationType;
@@ -36,6 +37,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -136,7 +138,11 @@ class OrderEscrowConsistencyTest {
         when(eco.getOrders()).thenReturn(orders);
         when(eco.getDeliveries()).thenReturn(deliveries);
         when(eco.getQuestStock()).thenReturn(questStock);
-        when(eco.getPrices()).thenReturn(mock(PriceRegistry.class));
+        PriceRegistry prices = mock(PriceRegistry.class);
+        // One price for every stack, so the order routing finds the fixture order.
+        when(prices.resolve(any(ItemStack.class))).thenReturn(new PriceRegistry.PriceEntry(
+                "emerald", null, "misc", 64, 1_000L, 1_000L, null, false));
+        when(eco.getPrices()).thenReturn(prices);
         when(eco.getServer()).thenReturn(server);
         when(eco.getNotifications()).thenReturn(mock(NotificationManager.class));
         when(eco.getNegotiations()).thenReturn(mock(NegotiationStore.class));
@@ -307,17 +313,42 @@ class OrderEscrowConsistencyTest {
         return request;
     }
 
-    /** A seller holding {@code amount} emeralds, enough to fulfill the fixture order. */
-    private ServerPlayer fulfillerWithEmeralds(int amount) {
+    /**
+     * A seller holding {@code amount} emeralds, and the slots that hold them.
+     *
+     * <p>The inventory is mocked but really stores what it is given, so a restore that puts the
+     * goods back where they came from is visible here instead of vanishing into a mock.
+     */
+    private SellerFixture fulfillerWithEmeralds(int amount) {
         ServerPlayer seller = mock(ServerPlayer.class);
         when(seller.getUUID()).thenReturn(SELLER);
+        List<ItemStack> slots = new ArrayList<>();
+        slots.add(new ItemStack(Items.EMERALD, amount));
         Inventory inventory = mock(Inventory.class);
         when(inventory.getContainerSize()).thenReturn(36);
-        when(inventory.getItem(anyInt())).thenReturn(ItemStack.EMPTY);
-        when(inventory.getItem(0)).thenReturn(new ItemStack(Items.EMERALD, amount));
+        when(inventory.getItem(anyInt())).thenAnswer(call -> {
+            int slot = call.getArgument(0);
+            return slot < slots.size() ? slots.get(slot) : ItemStack.EMPTY;
+        });
+        when(inventory.add(any(ItemStack.class))).thenAnswer(call -> {
+            slots.add(call.getArgument(0));
+            return true;
+        });
         when(seller.getInventory()).thenReturn(inventory);
         when(seller.getOffhandItem()).thenReturn(ItemStack.EMPTY);
-        return seller;
+        return new SellerFixture(seller, slots);
+    }
+
+    /** A seller and the slots that hold their goods. */
+    private record SellerFixture(ServerPlayer seller, List<ItemStack> slots) {
+        /** How many emeralds the seller is holding right now. */
+        int held() {
+            int total = 0;
+            for (ItemStack stack : slots) {
+                if (stack != null && stack.is(Items.EMERALD)) total += stack.getCount();
+            }
+            return total;
+        }
     }
 
     /** How many delivery stacks the persisted document holds for one player. */
@@ -428,9 +459,9 @@ class OrderEscrowConsistencyTest {
     @DisplayName("fulfillment commits the buyer's delivery with the payout and the order reduction")
     void fulfillmentCommitsDeliveryWithSettlement() throws SQLException {
         OrderRequest order = funded(1_280L);
-        ServerPlayer seller = fulfillerWithEmeralds(64);
+        SellerFixture seller = fulfillerWithEmeralds(64);
 
-        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller, order.id, 64);
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64);
 
         assertEquals(OrderFulfillment.Status.OK, result.status());
         assertEquals(1, deliveryCount(deliveriesJsonAtCommit, REQUESTER),
@@ -458,9 +489,9 @@ class OrderEscrowConsistencyTest {
     @DisplayName("bot fulfillment commits quest stock with the payout and the order reduction")
     void botFulfillmentCommitsQuestStockWithSettlement() throws SQLException {
         OrderRequest order = fundedBy(BOT, 1_280L);
-        ServerPlayer seller = fulfillerWithEmeralds(64);
+        SellerFixture seller = fulfillerWithEmeralds(64);
 
-        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller, order.id, 64);
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64);
 
         assertEquals(OrderFulfillment.Status.OK, result.status());
         assertEquals(64, questStock.total(), "bot-bound goods must be booked into quest stock");
@@ -479,20 +510,24 @@ class OrderEscrowConsistencyTest {
     }
 
     @Test
-    @DisplayName("a rejected payout restores the handoff so the seller can claim the stacks back")
-    void rejectedFulfillmentRollsBackStagedDelivery() throws SQLException {
+    @DisplayName("a rejected payout gives the goods back to the seller and leaves the mailbox empty")
+    void rejectedFulfillmentReturnsTheGoodsToTheSeller() throws SQLException {
         OrderRequest order = funded(1_280L);
         balances.put(SELLER, EconomyManager.MAX);
-        ServerPlayer seller = fulfillerWithEmeralds(64);
+        SellerFixture seller = fulfillerWithEmeralds(64);
 
-        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller, order.id, 64);
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64);
 
         assertEquals(OrderFulfillment.Status.FULFILLER_CANT_RECEIVE, result.status());
+        assertEquals(0, result.taken(),
+                "the goods must go back to the seller, not wait in their mailbox");
+        assertEquals(64, seller.held(), "the seller must get their goods back");
+        assertTrue(eco.getDeliveries().getDeliveries(SELLER).isEmpty(),
+                "the mailbox must not hold a second copy of goods the seller holds again");
         assertTrue(eco.getDeliveries().getDeliveries(REQUESTER).isEmpty(),
                 "a rejected payout must not leave the staged goods in the buyer's mailbox");
         assertEquals(64, order.amount, "the claim must be rolled back in memory");
-        assertEquals(64, eco.getDeliveries().getDeliveries(SELLER).get(0).getCount(),
-                "the taken stacks must be claimable compensation, not lost");
+        assertEquals(1_280L, order.escrow, "the escrow must be untouched by a refused payout");
 
         restart();
         OrderRequest reloaded = orders.getRequest(order.id);
@@ -502,21 +537,69 @@ class OrderEscrowConsistencyTest {
         assertEquals(98_720L, balances.get(REQUESTER));
         assertTrue(deliveries.getDeliveries(REQUESTER).isEmpty(),
                 "a rejected payout must not persist goods against the escrow");
-        List<ItemStack> handoff = deliveries.getDeliveries(SELLER);
-        assertEquals(1, handoff.size(),
-                "the handoff for the taken stacks must survive the restart as claimable compensation");
-        assertEquals(64, handoff.get(0).getCount());
-        assertTrue(handoff.get(0).is(Items.EMERALD));
+        assertTrue(deliveries.getDeliveries(SELLER).isEmpty(),
+                "the handoff must not survive a restart when the goods went back to the seller");
+    }
+
+    @Test
+    @DisplayName("a handoff write that fails gives the goods back to the seller instead of losing them")
+    void failedHandoffWriteReturnsTheGoodsToTheSeller() throws Exception {
+        OrderRequest order = funded(1_280L);
+        SellerFixture seller = fulfillerWithEmeralds(64);
+
+        SqliteDocumentFault.failWritesTo(server, "deliveries.json");
+        try {
+            assertThrows(RuntimeException.class,
+                    () -> OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64),
+                    "a handoff that did not commit must surface as a failure, not as a silent loss");
+        } finally {
+            SqliteDocumentFault.dropFailingTrigger(server);
+        }
+
+        assertEquals(64, seller.held(),
+                "the goods must go back to the seller when the handoff did not commit");
+        assertTrue(eco.getDeliveries().getDeliveries(SELLER).isEmpty(),
+                "a handoff that did not commit must not leave a claimable copy behind");
+        assertTrue(eco.getDeliveries().getDeliveries(REQUESTER).isEmpty(),
+                "a failed handoff must not leave the buyer's goods staged");
+        assertEquals(64, orders.getRequest(order.id).amount, "the claim must be rolled back");
+        assertEquals(1_280L, orders.getRequest(order.id).escrow);
+
+        restart();
+        assertNotNull(orders.getRequest(order.id), "the order must stay open when the handoff failed");
+        assertTrue(deliveries.getDeliveries(SELLER).isEmpty(),
+                "nothing may be persisted for a handoff that did not commit");
+        assertTrue(deliveries.getDeliveries(REQUESTER).isEmpty());
+    }
+
+    @Test
+    @DisplayName("a refused order payout does not sell the same goods to the server as well")
+    void refusedOrderPayoutDoesNotSellTheSameGoodsTwice() {
+        OrderRequest order = funded(1_280L);
+        balances.put(SELLER, EconomyManager.MAX);
+        SellerFixture seller = fulfillerWithEmeralds(64);
+        ItemStack source = seller.slots().get(0);
+
+        // The order pays more per item than the server does, so the routing tries the order first.
+        SellService.SaleSplit split = SellService.sellHandWithRouting(eco, seller.seller(), source, 64, 1L);
+
+        assertEquals(0, split.orderGiven(), "a refused payout must not count as a sale to the order");
+        assertEquals(0, split.taken(), "the goods must go back to the seller, not wait in the mailbox");
+        assertEquals(64, split.serverRemaining(),
+                "the server may only buy what the seller still holds");
+        assertEquals(64, seller.held(), "the seller must still hold the goods the server pays for");
+        assertTrue(eco.getDeliveries().getDeliveries(SELLER).isEmpty(),
+                "the goods must not sit in the mailbox and in the seller's hands at once");
     }
 
     @Test
     @DisplayName("a thrown settlement rolls the staged goods, claim and balances back, leaving the handoff claimable")
     void thrownSettlementRestoresEverythingAroundIt() throws SQLException {
         OrderRequest order = funded(1_280L);
-        ServerPlayer seller = fulfillerWithEmeralds(64);
+        SellerFixture seller = fulfillerWithEmeralds(64);
         failNextCommit = true;
 
-        assertThrows(RuntimeException.class, () -> OrderFulfillment.fulfill(eco, seller, order.id, 64),
+        assertThrows(RuntimeException.class, () -> OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64),
                 "the thrown save must reach the caller as a real failure");
 
         assertEquals(1_280L, orders.getRequest(order.id).escrow, "the claim must be rolled back in memory");

@@ -3,8 +3,6 @@ package com.reazip.economycraft.orders;
 import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
-import com.reazip.economycraft.db.EconomyDatabase;
-import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -26,9 +24,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -38,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -123,17 +119,56 @@ class OrderEscrowIntegrationTest {
         return created;
     }
 
-    /** A seller holding {@code amount} emeralds, enough to fulfill the fixture order. */
-    private ServerPlayer fulfillerWithEmeralds(int amount) {
+    /**
+     * Puts a balance on disk for a player.
+     *
+     * <p>The engine treats setting a fresh account to exactly the configured starting balance as
+     * "no change", and a no change skips the save — the balance would then live in memory only,
+     * and a restart would not see it. The starting balance is a global that other tests move
+     * around, so the fixture takes a value that cannot be it.
+     */
+    private long setBalance(UUID player, long amount) {
+        long target = amount == EconomyConfig.get().startingBalance ? amount + 1 : amount;
+        eco.setMoney(player, target, EconomySources.ADMIN_SET);
+        return target;
+    }
+
+    /**
+     * A seller holding {@code amount} emeralds, and the slots that hold them.
+ *
+     * <p>The inventory is mocked but really stores what it is given, so a restore that puts the
+     * goods back where they came from is visible here instead of vanishing into a mock.
+     */
+    private SellerFixture fulfillerWithEmeralds(int amount) {
         ServerPlayer seller = mock(ServerPlayer.class);
         when(seller.getUUID()).thenReturn(SELLER);
+        List<ItemStack> slots = new ArrayList<>();
+        slots.add(new ItemStack(Items.EMERALD, amount));
         Inventory inventory = mock(Inventory.class);
         when(inventory.getContainerSize()).thenReturn(36);
-        when(inventory.getItem(anyInt())).thenReturn(ItemStack.EMPTY);
-        when(inventory.getItem(0)).thenReturn(new ItemStack(Items.EMERALD, amount));
+        when(inventory.getItem(anyInt())).thenAnswer(call -> {
+            int slot = call.getArgument(0);
+            return slot < slots.size() ? slots.get(slot) : ItemStack.EMPTY;
+        });
+        when(inventory.add(any(ItemStack.class))).thenAnswer(call -> {
+            slots.add(call.getArgument(0));
+            return true;
+        });
         when(seller.getInventory()).thenReturn(inventory);
         when(seller.getOffhandItem()).thenReturn(ItemStack.EMPTY);
-        return seller;
+        return new SellerFixture(seller, slots);
+    }
+
+    /** A seller and the slots that hold their goods. */
+    private record SellerFixture(ServerPlayer seller, List<ItemStack> slots) {
+        /** How many emeralds the seller is holding right now. */
+        int held() {
+            int total = 0;
+            for (ItemStack stack : slots) {
+                if (stack != null && stack.is(Items.EMERALD)) total += stack.getCount();
+            }
+            return total;
+        }
     }
 
     // === scenarios ===
@@ -159,16 +194,16 @@ class OrderEscrowIntegrationTest {
     @Test
     @DisplayName("an injected debit failure persists neither the money movement nor the order")
     void rejectedDebitPersistsNeitherMoneyNorOrder() {
-        eco.setMoney(REQUESTER, 500L, EconomySources.ADMIN_SET);
+        long funded = setBalance(REQUESTER, 500L);
 
         OrderRequest created = OrderFulfillment.createEscrowedRequest(eco, REQUESTER,
                 new ItemStack(Items.EMERALD, 1), 64, 1_280L);
 
         assertNull(created, "an underfunded requester must not get an order");
-        assertEquals(500L, eco.getBalance(REQUESTER, false));
+        assertEquals(funded, eco.getBalance(REQUESTER, false));
 
         EconomyManager reloaded = restart();
-        assertEquals(500L, reloaded.getBalance(REQUESTER, false), "the failed debit must not move money");
+        assertEquals(funded, reloaded.getBalance(REQUESTER, false), "the failed debit must not move money");
         assertTrue(reloaded.getOrders().getRequests().isEmpty(), "no half-created order may survive a restart");
     }
 
@@ -194,9 +229,9 @@ class OrderEscrowIntegrationTest {
     void fulfillmentCommitsDeliveryWithPayoutThroughTheProductionSeam() {
         OrderRequest created = fundOrder(1_280L);
         eco.setMoney(SELLER, 0L, EconomySources.ADMIN_SET);
-        ServerPlayer seller = fulfillerWithEmeralds(64);
+        SellerFixture seller = fulfillerWithEmeralds(64);
 
-        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller, created.id, 64);
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), created.id, 64);
 
         assertTrue(result.success(), "the fixture fulfillment must succeed through the real engine");
         assertNull(eco.getOrders().getRequest(created.id));
@@ -227,7 +262,7 @@ class OrderEscrowIntegrationTest {
         OrderRequest created = fundOrder(1_280L);
         long funded = eco.getBalance(REQUESTER, false);
 
-        failUpdatesTo("orders.json");
+        SqliteDocumentFault.failWritesTo(server, "orders.json");
         try {
             // The debit's save writes balances.json (succeeds), then orders.json — the trigger
             // aborts there, the transaction rolls back and `removeMoney` must throw without
@@ -243,7 +278,7 @@ class OrderEscrowIntegrationTest {
             assertTrue(eco.getOrders().getRequests().stream().noneMatch(r -> r.requester.equals(REQUESTER) && r.id != created.id),
                     "no half-created order may survive a thrown debit in the live store");
         } finally {
-            dropFailingTrigger();
+            SqliteDocumentFault.dropFailingTrigger(server);
         }
 
         // The retry: with the fault gone, a save must leave exactly the pre-mutation state.
@@ -260,16 +295,16 @@ class OrderEscrowIntegrationTest {
     void thrownSettlementLeavesTheHandoffClaimableThroughTheProductionEngine() throws Exception {
         OrderRequest created = fundOrder(1_280L);
         // A durable baseline for the fulfiller, so "no payout landed" can be asserted on disk.
-        eco.setMoney(SELLER, 1_000L, EconomySources.ADMIN_SET);
+        setBalance(SELLER, 1_000L);
         long requesterFunded = eco.getBalance(REQUESTER, false);
         long sellerBaseline = eco.getBalance(SELLER, false);
 
         // The settlement credit's save writes balances.json, then orders.json — the trigger aborts
         // there and the transaction rolls back, so nothing was committed.
-        failUpdatesTo("orders.json");
+        SqliteDocumentFault.failWritesTo(server, "orders.json");
         try {
-            ServerPlayer seller = fulfillerWithEmeralds(64);
-            assertThrows(RuntimeException.class, () -> OrderFulfillment.fulfill(eco, seller, created.id, 64),
+            SellerFixture seller = fulfillerWithEmeralds(64);
+            assertThrows(RuntimeException.class, () -> OrderFulfillment.fulfill(eco, seller.seller(), created.id, 64),
                     "a failed settlement must surface as a thrown error, not a silent half-payment");
 
             assertEquals(requesterFunded, eco.getBalance(REQUESTER, false),
@@ -289,7 +324,7 @@ class OrderEscrowIntegrationTest {
             assertEquals(64, handoff.get(0).getCount());
             assertTrue(handoff.get(0).is(Items.EMERALD));
         } finally {
-            dropFailingTrigger();
+            SqliteDocumentFault.dropFailingTrigger(server);
         }
 
         // The restart view: the rollback left the order, the escrow and the claimable handoff on
@@ -306,21 +341,68 @@ class OrderEscrowIntegrationTest {
         assertEquals(64, persistedHandoff.get(0).getCount());
     }
 
-    /** Fails one document's UPDATE the way a real SQLite write failure aborts the save. */
-    private void failUpdatesTo(String key) throws Exception {
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:"
-                        + EconomyPaths.dataDir(server).resolve(EconomyDatabase.DB_FILE_NAME).toAbsolutePath());
-             Statement st = conn.createStatement()) {
-            st.execute("CREATE TRIGGER fail_document_update BEFORE UPDATE ON documents "
-                    + "WHEN OLD.name = '" + key + "' BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END");
-        }
+    @Test
+    @DisplayName("a refused payout gives the goods back to the seller, through the real engine")
+    void refusedPayoutReturnsTheGoodsToTheSellerThroughTheProductionEngine() {
+        OrderRequest created = fundOrder(1_280L);
+        // The seller cannot take the payout: their balance is at the ceiling.
+        eco.setMoney(SELLER, EconomyManager.MAX, EconomySources.ADMIN_SET);
+        SellerFixture seller = fulfillerWithEmeralds(64);
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), created.id, 64);
+
+        assertEquals(OrderFulfillment.Status.FULFILLER_CANT_RECEIVE, result.status());
+        assertEquals(0, result.taken(), "the goods must go back to the seller, not wait in their mailbox");
+        assertEquals(64, seller.held(), "the seller must get their goods back");
+        assertTrue(eco.getDeliveries().getDeliveries(SELLER).isEmpty(),
+                "the mailbox must not hold a second copy of goods the seller holds again");
+        assertTrue(eco.getDeliveries().getDeliveries(REQUESTER).isEmpty(),
+                "a refused payout must not deliver the goods to the buyer");
+
+        EconomyManager reloaded = restart();
+        OrderRequest persisted = reloaded.getOrders().getRequest(created.id);
+        assertNotNull(persisted, "a refused payout must leave the order open on disk");
+        assertEquals(64, persisted.amount);
+        assertEquals(1_280L, persisted.escrow);
+        assertEquals(EconomyManager.MAX, reloaded.getBalance(SELLER, false), "no payout may be on disk");
+        assertTrue(reloaded.getDeliveries().getDeliveries(SELLER).isEmpty(),
+                "the handoff must not survive a restart when the goods went back to the seller");
+        assertTrue(reloaded.getDeliveries().getDeliveries(REQUESTER).isEmpty());
     }
 
-    private void dropFailingTrigger() throws Exception {
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:"
-                        + EconomyPaths.dataDir(server).resolve(EconomyDatabase.DB_FILE_NAME).toAbsolutePath());
-             Statement st = conn.createStatement()) {
-            st.execute("DROP TRIGGER IF EXISTS fail_document_update");
+    @Test
+    @DisplayName("a handoff write that fails gives the goods back to the seller, through the real engine")
+    void failedHandoffWriteReturnsTheGoodsToTheSellerThroughTheProductionEngine() throws Exception {
+        OrderRequest created = fundOrder(1_280L);
+        SellerFixture seller = fulfillerWithEmeralds(64);
+
+        // The handoff is the first deliveries write of the fulfillment: it aborts there, so the
+        // goods must go back to the seller rather than exist nowhere but in memory.
+        SqliteDocumentFault.failWritesTo(server, "deliveries.json");
+        try {
+            assertThrows(RuntimeException.class,
+                    () -> OrderFulfillment.fulfill(eco, seller.seller(), created.id, 64),
+                    "a handoff that did not commit must surface as a failure, not as a silent loss");
+
+            assertEquals(64, seller.held(),
+                    "the goods must go back to the seller when the handoff did not commit");
+            assertTrue(eco.getDeliveries().getDeliveries(SELLER).isEmpty(),
+                    "a handoff that did not commit must not leave a claimable copy behind");
+            OrderRequest restored = eco.getOrders().getRequest(created.id);
+            assertNotNull(restored, "the order must stay open when the handoff failed");
+            assertEquals(64, restored.amount, "the claim must be rolled back");
+            assertEquals(1_280L, restored.escrow);
+        } finally {
+            SqliteDocumentFault.dropFailingTrigger(server);
         }
+
+        EconomyManager reloaded = restart();
+        assertNotNull(reloaded.getOrders().getRequest(created.id));
+        assertTrue(reloaded.getDeliveries().getDeliveries(SELLER).isEmpty(),
+                "nothing may be persisted for a handoff that did not commit");
+        assertTrue(reloaded.getDeliveries().getDeliveries(REQUESTER).isEmpty());
     }
+
+
+
 }
