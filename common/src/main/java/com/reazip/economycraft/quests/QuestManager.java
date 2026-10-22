@@ -99,6 +99,10 @@ public class QuestManager {
             postedThisWeek = true;
         }
         reconcilePricing(eco);
+        // Persist the board changes before the buyback market opens its own transactions. A failed
+        // listing reloads this manager from quests.json; without this save that reload would forget
+        // orders already written to orders.json and stop repricing or cancelling them.
+        save();
         QuestBuyback.sweep(eco);
         save();
     }
