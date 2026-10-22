@@ -277,24 +277,68 @@ public final class OrderFulfillment {
 
         String detail = EconomyCraft.describeItem(claim.given(), itemProto.getHoverName().getString());
 
-        // Stage the goods before the payout. The payout's transactional save then commits the
-        // buyer's delivery (or the bot's quest stock), the reduced/removed order and the money in
-        // one step; a crash can no longer pay the seller and lose the goods. A rejected payout
-        // unstages the goods and rolls the claim back.
+        // The items leave the fulfiller's inventory exactly once, and they leave it BEFORE any
+        // money moves: no settlement can commit while they are still in the inventory, because
+        // there is no transaction that spans the ledger and Minecraft's own saves. The removal
+        // becomes recoverable immediately after — see the handoff below — so neither ordering
+        // nor a crash can trade duplication for item loss.
+        takeItems.accept(claim.given());
+
+        // Recoverable handoff for the taken stacks: they go into the fulfiller's OWN deliveries
+        // mailbox and that append is persisted on its own, so from here on the goods are always
+        // somewhere durable. If the settlement below never commits — a rejected payout, a thrown
+        // save, a crash between the two — the stacks are simply a claimable delivery, the same
+        // compensation the market listing flow uses. If it does commit, the same transactional
+        // save that pays and delivers consumes the handoff, so the mailbox never holds a second
+        // copy of goods the buyer already received.
+        List<ItemStack> handoff = new ArrayList<>();
+        for (ItemStack stack : splitForMailbox(itemProto, claim.given())) {
+            eco.getDeliveries().addDelivery(fulfillerId, stack);
+            handoff.add(stack);
+        }
+        // Drop the handoff live but unsaved: the settlement's own save then persists its removal
+        // together with the payment, the order reduction and the buyer's delivery/quest stock.
+        consumeHandoff(eco, fulfillerId, handoff);
+
         boolean botOrder = QuestManager.BOT_UUID.equals(requester);
         String stagedStockKey = botOrder ? stageQuestStock(eco, itemProto, claim.given()) : null;
         List<ItemStack> stagedDeliveries = botOrder
                 ? List.of()
                 : stageDeliveries(eco, requester, itemProto, claim.given());
 
-        PaymentOutcome outcome = settleOrderPayment(eco, requester, fulfillerId, claim.payment(), claim.escrowUsed(), detail);
+        PaymentOutcome outcome;
+        try {
+            outcome = settleOrderPayment(eco, requester, fulfillerId, claim.payment(), claim.escrowUsed(), detail);
+        } catch (RuntimeException e) {
+            // The save threw before it committed, so the transaction rolled back: the balances go
+            // back the way the engine found them, and the handoff plus every staged good and the
+            // claim must follow, or a later save would commit goods against a settlement that
+            // refused to happen.
+            abandonFulfillment(eco, orders, fulfillerId, handoff, requester, stagedStockKey,
+                    stagedDeliveries, claim);
+            throw e;
+        }
         if (!outcome.success()) {
-            unstageGoods(eco, requester, stagedStockKey, stagedDeliveries, claim.given());
-            orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
+            // The rejected mutation never saved, so the persisted handoff from the append above is
+            // still the only durable copy — which is exactly right. Restore the live ledger to
+            // match, re-add the handoff and roll the claim back.
+            abandonFulfillment(eco, orders, fulfillerId, handoff, requester, stagedStockKey,
+                    stagedDeliveries, claim);
             return new Result(outcome.failureStatus(), 0, 0, 0, claim.order().amount, itemProto, requester);
         }
 
-        takeItems.accept(claim.given());
+        if (!outcome.committed()) {
+            // A zero-money settlement has no mutation save of its own; commit the handoff's
+            // consumption, the staged goods and the claim here.
+            try {
+                eco.save();
+            } catch (RuntimeException e) {
+                abandonFulfillment(eco, orders, fulfillerId, handoff, requester, stagedStockKey,
+                        stagedDeliveries, claim);
+                throw e;
+            }
+        }
+
         if (claim.exhausted()) {
             NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.ORDER, claim.order().id,
                     EconomyCraft.describeItem(claim.given(), itemProto.getHoverName().getString()),
@@ -302,10 +346,6 @@ public final class OrderFulfillment {
         }
         notifyRequester(eco.getServer(), requester, claim.given(), itemProto);
         orders.notifyChanged();
-        if (!outcome.committed()) {
-            // A zero-money settlement has no mutation save of its own; commit the staged goods here.
-            eco.save();
-        }
 
         int remaining = claim.exhausted() ? 0 : claim.order().amount;
         return new Result(Status.OK, claim.given(), outcome.payout(), claim.payment(), remaining, itemProto, requester);
@@ -527,15 +567,53 @@ public final class OrderFulfillment {
 
     private static List<ItemStack> stageDeliveries(EconomyManager eco, UUID requester, ItemStack proto, int amount) {
         List<ItemStack> staged = new ArrayList<>();
+        for (ItemStack stack : splitForMailbox(proto, amount)) {
+            eco.getDeliveries().addDelivery(requester, stack, false);
+            staged.add(stack);
+        }
+        return staged;
+    }
+
+    /** One stack per mailbox entry, bounded by the item's own max stack size. */
+    private static List<ItemStack> splitForMailbox(ItemStack proto, int amount) {
+        List<ItemStack> stacks = new ArrayList<>();
         int remaining = amount;
         while (remaining > 0) {
             int c = Math.min(proto.getMaxStackSize(), remaining);
-            ItemStack stack = proto.copyWithCount(c);
-            eco.getDeliveries().addDelivery(requester, stack, false);
-            staged.add(stack);
+            stacks.add(proto.copyWithCount(c));
             remaining -= c;
         }
-        return staged;
+        return stacks;
+    }
+
+    /**
+     * Drops the handoff entries from the live mailbox without persisting: the settlement's own
+     * transactional save is what removes them from disk, together with everything else it commits.
+     */
+    private static void consumeHandoff(EconomyManager eco, UUID fulfillerId, List<ItemStack> handoff) {
+        for (ItemStack stack : handoff) {
+            eco.getDeliveries().removeDelivery(fulfillerId, stack, false);
+        }
+    }
+
+    /** Puts the handoff entries back in the live mailbox; they are still claimable compensation. */
+    private static void restoreHandoff(EconomyManager eco, UUID fulfillerId, List<ItemStack> handoff) {
+        for (ItemStack stack : handoff) {
+            eco.getDeliveries().addDelivery(fulfillerId, stack, false);
+        }
+    }
+
+    /**
+     * Everything a settlement that did not commit must give back: the handoff entries (the persisted
+     * copies from their own save are the durable claim, this re-syncs the live ledger), the staged
+     * buyer goods, and the claim.
+     */
+    private static void abandonFulfillment(EconomyManager eco, OrderManager orders, UUID fulfillerId,
+                                           List<ItemStack> handoff, UUID requester, String stagedStockKey,
+                                           List<ItemStack> stagedDeliveries, OrderManager.ClaimResult claim) {
+        restoreHandoff(eco, fulfillerId, handoff);
+        unstageGoods(eco, requester, stagedStockKey, stagedDeliveries, claim.given());
+        orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
     }
 
     private static void unstageGoods(EconomyManager eco, UUID requester, String stockKey,

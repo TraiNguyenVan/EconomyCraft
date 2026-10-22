@@ -126,7 +126,13 @@ final class BalanceMutationEngine {
         long receiverNew = receiver.balance() + creditAmount;
         balances.put(senderId, senderNew);
         if (creditAmount > 0) balances.put(receiverId, receiverNew);
-        onMutationCommitted.run();
+        try {
+            onMutationCommitted.run();
+        } catch (RuntimeException e) {
+            restore(sender);
+            if (creditAmount > 0) restore(receiver);
+            throw e;
+        }
 
         Optional<MutationSource> optionalSource = Optional.ofNullable(source);
         Optional<String> optionalDetail = Optional.ofNullable(detail);
@@ -144,7 +150,14 @@ final class BalanceMutationEngine {
 
     void delete(UUID playerId) {
         Objects.requireNonNull(playerId, "playerId");
-        if (balances.remove(playerId) != null) onMutationCommitted.run();
+        Long previous = balances.remove(playerId);
+        if (previous == null) return;
+        try {
+            onMutationCommitted.run();
+        } catch (RuntimeException e) {
+            balances.put(playerId, previous);
+            throw e;
+        }
     }
 
     private BalanceMutationResult commitSingle(
@@ -156,7 +169,18 @@ final class BalanceMutationEngine {
             String detail
     ) {
         balances.put(state.playerId(), newBalance);
-        onMutationCommitted.run();
+        try {
+            onMutationCommitted.run();
+        } catch (RuntimeException e) {
+            // The persistence step is what commits: its save runs this store's document inside one
+            // SQLite transaction with everything the caller staged around it, so a throw here means
+            // that transaction rolled back and nothing was saved. The in-memory ledger must go back
+            // to the state the caller found, or a later successful save would persist a charge or a
+            // refund the caller — and every handler that restored its own state around this call —
+            // believes never happened.
+            restore(state);
+            throw e;
+        }
         Optional<MutationSource> optionalSource = Optional.ofNullable(source);
         BalanceMutationResult result = new BalanceMutationResult(BalanceMutationStatus.SUCCESS, type,
                 state.playerId(), requestedAmount, state.balance(), newBalance, optionalSource);
@@ -170,6 +194,15 @@ final class BalanceMutationEngine {
         return existing == null
                 ? new BalanceState(playerId, configuredStartingBalance(), false)
                 : new BalanceState(playerId, existing, true);
+    }
+
+    /** Undoes one entry this engine added: back to its previous value, or out of the ledger. */
+    private void restore(BalanceState state) {
+        if (state.existed()) {
+            balances.put(state.playerId(), state.balance());
+        } else {
+            balances.remove(state.playerId());
+        }
     }
 
     private long configuredStartingBalance() {

@@ -45,6 +45,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -96,6 +97,9 @@ class OrderEscrowConsistencyTest {
     private String ordersJsonAtCommit;
     /** The deliveries document as the last successful money mutation's transactional save wrote it. */
     private String deliveriesJsonAtCommit;
+
+    /** One-shot fault: the next transactional save aborts the way a failed SQLite write would. */
+    private boolean failNextCommit;
 
     @BeforeAll
     static void bootstrap() {
@@ -156,7 +160,15 @@ class OrderEscrowConsistencyTest {
                                 id, amount, before, before, source);
                     }
                     balances.put(id, before - amount);
-                    commitDocuments();
+                    try {
+                        commitDocuments();
+                    } catch (RuntimeException e) {
+                        // The production engine puts the ledger back the way the caller found it
+                        // when its transactional save throws; the mock mirrors that so the
+                        // handlers around it see the same failure the real code does.
+                        balances.put(id, before);
+                        throw e;
+                    }
                     return result(BalanceMutationStatus.SUCCESS, BalanceMutationType.REMOVE,
                             id, amount, before, before - amount, source);
                 });
@@ -175,7 +187,14 @@ class OrderEscrowConsistencyTest {
                                 id, amount, before, before, source);
                     }
                     balances.put(id, before + amount);
-                    commitDocuments();
+                    try {
+                        commitDocuments();
+                    } catch (RuntimeException e) {
+                        // The production engine puts the ledger back the way the caller found it
+                        // when its transactional save throws; the mock mirrors that.
+                        balances.put(id, before);
+                        throw e;
+                    }
                     return result(BalanceMutationStatus.SUCCESS, BalanceMutationType.ADD,
                             id, amount, before, before + amount, source);
                 });
@@ -223,12 +242,24 @@ class OrderEscrowConsistencyTest {
     }
 
     /**
+     * Writes the ledger's first baseline commit — the way production always has a persistent
+     * balances document behind the live one — so a restart that must not move money can be asserted.
+     */
+    private void persistBaselineLedger() {
+        commitDocuments();
+    }
+
+    /**
      * The production commit seam in miniature: a committed mutation persists the balances, orders,
      * deliveries and quest-stock documents in one transactional save, and nothing else writes in
      * between.
      */
     private void commitDocuments() {
         ordersJsonBeforeCommit = db.readDocument("orders.json");
+        if (failNextCommit) {
+            failNextCommit = false;
+            throw new IllegalStateException("simulated SQLite write failure");
+        }
         db.runInTransaction(() -> {
             db.writeDocument("balances.json", balancesJson());
             orders.save();
@@ -342,6 +373,28 @@ class OrderEscrowConsistencyTest {
     }
 
     @Test
+    @DisplayName("a thrown escrow debit leaves neither an order, nor a charge, nor a persisted trace")
+    void thrownDebitLeavesNoMoneyNorOrderBehind() throws SQLException {
+        persistBaselineLedger();
+        String baselineOrders = ordersJsonAtCommit;
+        failNextCommit = true;
+
+        assertThrows(RuntimeException.class,
+                () -> OrderFulfillment.createEscrowedRequest(eco, REQUESTER,
+                        new ItemStack(Items.EMERALD, 1), 64, 1_280L));
+
+        assertTrue(orders.getRequests().isEmpty(), "no staged order may stay in memory after a thrown debit");
+        assertEquals(100_000L, balances.get(REQUESTER),
+                "the thrown save must not leave the escrow charge in the live ledger");
+        assertEquals(baselineOrders, ordersJsonAtCommit,
+                "a thrown debit must not trigger the transactional save");
+
+        restart();
+        assertTrue(orders.getRequests().isEmpty(), "no half-created order may survive a restart");
+        assertEquals(100_000L, balances.get(REQUESTER), "the debit must not be persisted with nothing to show for it");
+    }
+
+    @Test
     @DisplayName("the bot quest seam commits escrow and board-week expiry together with the debit")
     void botQuestPostCommitsEscrowTogether() throws SQLException {
         long weekEnd = System.currentTimeMillis() + 7 * 24 * 3_600_000L;
@@ -382,6 +435,8 @@ class OrderEscrowConsistencyTest {
         assertEquals(OrderFulfillment.Status.OK, result.status());
         assertEquals(1, deliveryCount(deliveriesJsonAtCommit, REQUESTER),
                 "the payout's own save must already contain the buyer's delivery");
+        assertEquals(0, deliveryCount(deliveriesJsonAtCommit, SELLER),
+                "the same save must consume the seller's handoff with the settlement");
         assertNull(requestJson(ordersJsonAtCommit, order.id),
                 "the same save must persist the fully fulfilled order as gone");
         assertEquals(98_720L, balances.get(REQUESTER));
@@ -395,6 +450,8 @@ class OrderEscrowConsistencyTest {
         assertEquals(1, stored.size(), "the delivered goods must survive the restart");
         assertEquals(64, stored.get(0).getCount());
         assertTrue(stored.get(0).is(Items.EMERALD));
+        assertTrue(deliveries.getDeliveries(SELLER).isEmpty(),
+                "the consumed handoff must not come back as a second claimable copy");
     }
 
     @Test
@@ -411,6 +468,8 @@ class OrderEscrowConsistencyTest {
         assertEquals(result.payout(), balances.get(SELLER));
         assertTrue(deliveries.getDeliveries(BOT).isEmpty(),
                 "bot orders must not leave goods in an unread mailbox");
+        assertTrue(deliveries.getDeliveries(SELLER).isEmpty(),
+                "the handoff for the taken stacks must be consumed with the settlement");
 
         restart();
         assertNull(orders.getRequest(order.id));
@@ -420,7 +479,7 @@ class OrderEscrowConsistencyTest {
     }
 
     @Test
-    @DisplayName("a rejected payout unstages the delivery and keeps the order intact")
+    @DisplayName("a rejected payout restores the handoff so the seller can claim the stacks back")
     void rejectedFulfillmentRollsBackStagedDelivery() throws SQLException {
         OrderRequest order = funded(1_280L);
         balances.put(SELLER, EconomyManager.MAX);
@@ -432,6 +491,8 @@ class OrderEscrowConsistencyTest {
         assertTrue(eco.getDeliveries().getDeliveries(REQUESTER).isEmpty(),
                 "a rejected payout must not leave the staged goods in the buyer's mailbox");
         assertEquals(64, order.amount, "the claim must be rolled back in memory");
+        assertEquals(64, eco.getDeliveries().getDeliveries(SELLER).get(0).getCount(),
+                "the taken stacks must be claimable compensation, not lost");
 
         restart();
         OrderRequest reloaded = orders.getRequest(order.id);
@@ -441,6 +502,44 @@ class OrderEscrowConsistencyTest {
         assertEquals(98_720L, balances.get(REQUESTER));
         assertTrue(deliveries.getDeliveries(REQUESTER).isEmpty(),
                 "a rejected payout must not persist goods against the escrow");
+        List<ItemStack> handoff = deliveries.getDeliveries(SELLER);
+        assertEquals(1, handoff.size(),
+                "the handoff for the taken stacks must survive the restart as claimable compensation");
+        assertEquals(64, handoff.get(0).getCount());
+        assertTrue(handoff.get(0).is(Items.EMERALD));
+    }
+
+    @Test
+    @DisplayName("a thrown settlement rolls the staged goods, claim and balances back, leaving the handoff claimable")
+    void thrownSettlementRestoresEverythingAroundIt() throws SQLException {
+        OrderRequest order = funded(1_280L);
+        ServerPlayer seller = fulfillerWithEmeralds(64);
+        failNextCommit = true;
+
+        assertThrows(RuntimeException.class, () -> OrderFulfillment.fulfill(eco, seller, order.id, 64),
+                "the thrown save must reach the caller as a real failure");
+
+        assertEquals(1_280L, orders.getRequest(order.id).escrow, "the claim must be rolled back in memory");
+        assertEquals(64, orders.getRequest(order.id).amount);
+        assertTrue(eco.getDeliveries().getDeliveries(REQUESTER).isEmpty(),
+                "the staged delivery must not outlive a settlement that never committed");
+        assertEquals(64, eco.getDeliveries().getDeliveries(SELLER).get(0).getCount(),
+                "the taken stacks must come back claimable, since nothing was paid for them");
+        assertEquals(98_720L, balances.get(REQUESTER), "the settlement must not leave a charge behind");
+        assertEquals(0L, balances.get(SELLER), "the settlement must not leave a payout behind");
+        String liveDeliveryDoc = db.readDocument("deliveries.json");
+        assertEquals(0, deliveryCount(liveDeliveryDoc, REQUESTER),
+                "the buyer's delivery must not be persisted against a failed settlement");
+
+        restart();
+        OrderRequest reloaded = orders.getRequest(order.id);
+        assertNotNull(reloaded, "the order must stay on disk when the settlement aborts");
+        assertEquals(1_280L, reloaded.escrow);
+        assertEquals(64, reloaded.amount);
+        assertTrue(deliveries.getDeliveries(REQUESTER).isEmpty());
+        List<ItemStack> handoff = deliveries.getDeliveries(SELLER);
+        assertEquals(1, handoff.size(), "the handoff must still be claimable after the restart");
+        assertEquals(64, handoff.get(0).getCount());
     }
 
     // === repricing ===
@@ -482,6 +581,46 @@ class OrderEscrowConsistencyTest {
         restart();
         assertEquals(1_280L, orders.getRequest(order.id).price, "the unfunded raise must not survive");
         assertEquals(1_280L, orders.getRequest(order.id).escrow);
+    }
+
+    @Test
+    @DisplayName("a thrown hold leaves neither a charge nor a raised price behind")
+    void thrownHoldLeavesNeitherChargeNorRaisedPrice() throws SQLException {
+        OrderRequest order = funded(1_280L);
+        failNextCommit = true;
+
+        assertThrows(RuntimeException.class,
+                () -> OrderFulfillment.setPrice(eco, REQUESTER, order.id, 2_000L));
+
+        assertEquals(1_280L, order.price, "the staged raise must be rolled back in memory");
+        assertEquals(1_280L, order.escrow);
+        assertEquals(98_720L, balances.get(REQUESTER),
+                "the thrown save must not leave the raise's hold in the live ledger");
+
+        restart();
+        assertEquals(1_280L, orders.getRequest(order.id).price, "the aborted raise must not survive");
+        assertEquals(1_280L, orders.getRequest(order.id).escrow);
+        assertEquals(98_720L, balances.get(REQUESTER), "the hold must not be persisted with nothing to show for it");
+    }
+
+    @Test
+    @DisplayName("a thrown refund leaves neither a refund nor a lowered price behind")
+    void thrownRefundLeavesNeitherRefundNorLoweredPrice() throws SQLException {
+        OrderRequest order = funded(2_000L);
+        failNextCommit = true;
+
+        assertThrows(RuntimeException.class,
+                () -> OrderFulfillment.setPrice(eco, REQUESTER, order.id, 1_200L));
+
+        assertEquals(2_000L, order.price, "the staged reduction must be rolled back in memory");
+        assertEquals(2_000L, order.escrow);
+        assertEquals(98_000L, balances.get(REQUESTER),
+                "the thrown save must not leave the refund in the live ledger");
+
+        restart();
+        assertEquals(2_000L, orders.getRequest(order.id).price, "the aborted reduction must not survive");
+        assertEquals(98_000L, balances.get(REQUESTER),
+                "the refund must not be persisted with nothing to show for it");
     }
 
     @Test

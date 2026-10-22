@@ -3,6 +3,8 @@ package com.reazip.economycraft.orders;
 import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
+import com.reazip.economycraft.db.EconomyDatabase;
+import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -24,6 +26,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -31,6 +36,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
@@ -211,5 +217,110 @@ class OrderEscrowIntegrationTest {
         assertEquals(1, persisted.size(), "the buyer's delivery must survive the restart");
         assertEquals(64, persisted.get(0).getCount());
         assertTrue(persisted.get(0).is(Items.EMERALD));
+        assertTrue(reloaded.getDeliveries().getDeliveries(SELLER).isEmpty(),
+                "the settlement must consume the seller's handoff, never leave a second copy");
+    }
+
+    @Test
+    @DisplayName("a thrown order save returns the ledger the caller found, through the real engine")
+    void thrownSaveLeavesTheBalancesUntouchedThroughTheProductionEngine() throws Exception {
+        OrderRequest created = fundOrder(1_280L);
+        long funded = eco.getBalance(REQUESTER, false);
+
+        failUpdatesTo("orders.json");
+        try {
+            // The debit's save writes balances.json (succeeds), then orders.json — the trigger
+            // aborts there, the transaction rolls back and `removeMoney` must throw without
+            // leaving the debit in the live ledger.
+            assertThrows(RuntimeException.class,
+                    () -> OrderFulfillment.createEscrowedRequest(eco, REQUESTER,
+                            new ItemStack(Items.EMERALD, 1), 64, 1_280L),
+                    "a failed document write must surface as a thrown, non-committed mutation");
+
+            assertEquals(funded, eco.getBalance(REQUESTER, false),
+                    "the engine must put the live ledger back when its save aborts — otherwise the "
+                            + "next successful save would persist a charge with the order unstaged around it");
+            assertTrue(eco.getOrders().getRequests().stream().noneMatch(r -> r.requester.equals(REQUESTER) && r.id != created.id),
+                    "no half-created order may survive a thrown debit in the live store");
+        } finally {
+            dropFailingTrigger();
+        }
+
+        // The retry: with the fault gone, a save must leave exactly the pre-mutation state.
+        eco.save();
+        EconomyManager reloaded = restart();
+        assertNotNull(reloaded.getOrders().getRequest(created.id),
+                "the original funded order must be untouched");
+        assertEquals(funded, reloaded.getBalance(REQUESTER, false),
+                "the failed debit must not end up on disk");
+    }
+
+    @Test
+    @DisplayName("a thrown settlement rolls the fulfillment back and leaves the handoff claimable, through the real engine")
+    void thrownSettlementLeavesTheHandoffClaimableThroughTheProductionEngine() throws Exception {
+        OrderRequest created = fundOrder(1_280L);
+        // A durable baseline for the fulfiller, so "no payout landed" can be asserted on disk.
+        eco.setMoney(SELLER, 1_000L, EconomySources.ADMIN_SET);
+        long requesterFunded = eco.getBalance(REQUESTER, false);
+        long sellerBaseline = eco.getBalance(SELLER, false);
+
+        // The settlement credit's save writes balances.json, then orders.json — the trigger aborts
+        // there and the transaction rolls back, so nothing was committed.
+        failUpdatesTo("orders.json");
+        try {
+            ServerPlayer seller = fulfillerWithEmeralds(64);
+            assertThrows(RuntimeException.class, () -> OrderFulfillment.fulfill(eco, seller, created.id, 64),
+                    "a failed settlement must surface as a thrown error, not a silent half-payment");
+
+            assertEquals(requesterFunded, eco.getBalance(REQUESTER, false),
+                    "the escrow must not move when the settlement aborts");
+            assertEquals(sellerBaseline, eco.getBalance(SELLER, false),
+                    "the engine must put the live ledger back — otherwise the next save keeps a payout the transaction refused");
+            OrderRequest restored = eco.getOrders().getRequest(created.id);
+            assertNotNull(restored,
+                    "a fully claimed order must be restored in memory when the settlement aborts");
+            assertEquals(64, restored.amount, "the claim must be rolled back with the failed settlement");
+            assertEquals(1_280L, restored.escrow);
+            assertTrue(eco.getDeliveries().getDeliveries(REQUESTER).isEmpty(),
+                    "the staged buyer delivery must roll back with the failed settlement");
+            List<ItemStack> handoff = eco.getDeliveries().getDeliveries(SELLER);
+            assertEquals(1, handoff.size(),
+                    "the taken stacks must be claimable compensation once the settlement did not commit");
+            assertEquals(64, handoff.get(0).getCount());
+            assertTrue(handoff.get(0).is(Items.EMERALD));
+        } finally {
+            dropFailingTrigger();
+        }
+
+        // The restart view: the rollback left the order, the escrow and the claimable handoff on
+        // disk, with no buyer delivery and no payout.
+        EconomyManager reloaded = restart();
+        assertNotNull(reloaded.getOrders().getRequest(created.id),
+                "the order must stay on disk when the settlement aborts");
+        assertEquals(requesterFunded, reloaded.getBalance(REQUESTER, false));
+        assertEquals(sellerBaseline, reloaded.getBalance(SELLER, false), "no payout may be on disk");
+        assertTrue(reloaded.getDeliveries().getDeliveries(REQUESTER).isEmpty());
+        List<ItemStack> persistedHandoff = reloaded.getDeliveries().getDeliveries(SELLER);
+        assertEquals(1, persistedHandoff.size(),
+                "the claimable handoff must be the durable recovery path after a crash");
+        assertEquals(64, persistedHandoff.get(0).getCount());
+    }
+
+    /** Fails one document's UPDATE the way a real SQLite write failure aborts the save. */
+    private void failUpdatesTo(String key) throws Exception {
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:"
+                        + EconomyPaths.dataDir(server).resolve(EconomyDatabase.DB_FILE_NAME).toAbsolutePath());
+             Statement st = conn.createStatement()) {
+            st.execute("CREATE TRIGGER fail_document_update BEFORE UPDATE ON documents "
+                    + "WHEN OLD.name = '" + key + "' BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END");
+        }
+    }
+
+    private void dropFailingTrigger() throws Exception {
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:"
+                        + EconomyPaths.dataDir(server).resolve(EconomyDatabase.DB_FILE_NAME).toAbsolutePath());
+             Statement st = conn.createStatement()) {
+            st.execute("DROP TRIGGER IF EXISTS fail_document_update");
+        }
     }
 }

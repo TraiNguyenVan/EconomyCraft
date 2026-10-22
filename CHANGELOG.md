@@ -14,10 +14,14 @@ the refund — a crash in those windows could leave a charged requester with no 
 and the original escrow both honored, or an order that vanished with its escrow. Order creation,
 repricing, cancellation, expiry and admin clears now stage the order state first and let the
 escrow debit or refund's single transactional save commit both sides, restoring the previous
-state when a mutation is rejected. Fulfillment stages the buyer's delivery before the payout,
-so the payment, the order reduction and the delivered goods commit together instead of a crash
-paying the seller while the goods vanish. Failed debits and bounced refunds still leave orders
-untouched and nothing half-written on disk.
+state when a mutation is rejected. Fulfillment takes the seller's stacks out of their inventory
+before any money moves and records them as a claimable delivery in the seller's own mailbox, so
+a settlement that never commits — a rejected payout, a thrown save, a crash between the two —
+still hands the goods back; the same transactional save that pays and delivers consumes it, so
+the mailbox never holds a second copy of goods the buyer already received. Failed debits and
+bounced refunds still leave orders untouched and nothing half-written on disk, and a money
+mutation whose save aborts now restores the live balances it had just changed, so a next
+successful save cannot keep a charge or a payout that was never committed.
 
 ### Quest buyback stock transfers are atomic
 
