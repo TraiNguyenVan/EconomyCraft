@@ -159,6 +159,22 @@ class OrderEscrowIntegrationTest {
         return new SellerFixture(seller, slots);
     }
 
+    /**
+     * How many copies of the taken goods exist: in the seller's hands, in the buyer's mailbox and
+     * in the seller's own mailbox. The goods must exist exactly once at every stage of a
+     * fulfillment — two copies is duplication, none is a loss.
+     */
+    private int goodsCopies(SellerFixture seller, UUID buyer) {
+        int copies = seller.held();
+        for (ItemStack stack : eco.getDeliveries().getDeliveries(buyer)) {
+            if (stack.is(Items.EMERALD)) copies += stack.getCount();
+        }
+        for (ItemStack stack : eco.getDeliveries().getDeliveries(SELLER)) {
+            if (stack.is(Items.EMERALD)) copies += stack.getCount();
+        }
+        return copies;
+    }
+
     /** A seller and the slots that hold their goods. */
     private record SellerFixture(ServerPlayer seller, List<ItemStack> slots) {
         /** How many emeralds the seller is holding right now. */
@@ -237,6 +253,10 @@ class OrderEscrowIntegrationTest {
         assertNull(eco.getOrders().getRequest(created.id));
         assertEquals(98_720L, eco.getBalance(REQUESTER, false), "the escrow must cover the whole payment");
         assertEquals(result.payout(), eco.getBalance(SELLER, false));
+        assertEquals(0, seller.held(),
+                "the seller must not keep the goods the buyer was paid for");
+        assertEquals(64, goodsCopies(seller, REQUESTER),
+                "the goods must exist exactly once: the buyer has them, the seller has none");
         List<ItemStack> delivered = eco.getDeliveries().getDeliveries(REQUESTER);
         assertEquals(1, delivered.size(), "the fulfilled goods must be in the buyer's deliveries");
         assertEquals(64, delivered.get(0).getCount());
@@ -323,6 +343,12 @@ class OrderEscrowIntegrationTest {
                     "the taken stacks must be claimable compensation once the settlement did not commit");
             assertEquals(64, handoff.get(0).getCount());
             assertTrue(handoff.get(0).is(Items.EMERALD));
+            assertEquals(0, seller.held(),
+                    "the goods must have left the seller before the settlement, or a crash would "
+                            + "leave them with the seller while the buyer was paid for them");
+            assertEquals(64, goodsCopies(seller, REQUESTER),
+                    "the goods must exist exactly once: the seller's mailbox has them, and neither "
+                            + "the seller nor the buyer holds a second copy");
         } finally {
             SqliteDocumentFault.dropFailingTrigger(server);
         }

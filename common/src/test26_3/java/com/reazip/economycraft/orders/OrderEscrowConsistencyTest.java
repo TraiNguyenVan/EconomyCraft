@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -102,6 +103,11 @@ class OrderEscrowConsistencyTest {
 
     /** One-shot fault: the next transactional save aborts the way a failed SQLite write would. */
     private boolean failNextCommit;
+
+    /** Reads how many goods the seller holds right now; the payout-ordering test points it at the seller. */
+    private Supplier<Integer> sellerHoldings = () -> 0;
+    /** How many goods the seller held at the instant the payout was attempted. */
+    private int heldAtPayout = -1;
 
     @BeforeAll
     static void bootstrap() {
@@ -183,6 +189,7 @@ class OrderEscrowConsistencyTest {
                     UUID id = call.getArgument(0);
                     long amount = call.getArgument(1);
                     MutationSource source = call.getArgument(2);
+                    if (SELLER.equals(id)) heldAtPayout = sellerHoldings.get();
                     long before = balances.getOrDefault(id, 0L);
                     if (amount <= 0) {
                         return result(BalanceMutationStatus.INVALID_AMOUNT, BalanceMutationType.ADD,
@@ -351,9 +358,24 @@ class OrderEscrowConsistencyTest {
         }
     }
 
+    /**
+     * How many copies of the taken goods exist: in the seller's hands, in the buyer's mailbox and
+     * in the seller's own mailbox. The goods must exist exactly once at every stage of a
+     * fulfillment — two copies is duplication, none is a loss.
+     */
+    private int goodsCopies(SellerFixture seller, UUID buyer) {
+        int copies = seller.held();
+        for (ItemStack stack : deliveries.getDeliveries(buyer)) {
+            if (stack.is(Items.EMERALD)) copies += stack.getCount();
+        }
+        for (ItemStack stack : deliveries.getDeliveries(SELLER)) {
+            if (stack.is(Items.EMERALD)) copies += stack.getCount();
+        }
+        return copies;
+    }
+
     /** How many delivery stacks the persisted document holds for one player. */
-    private static int deliveryCount(String document, UUID player) {
-        if (document == null) return 0;
+    private static int deliveryCount(String document, UUID player) {        if (document == null) return 0;
         JsonObject root = JsonParser.parseString(document).getAsJsonObject();
         if (!root.has(player.toString())) return 0;
         return root.getAsJsonArray(player.toString()).size();
@@ -456,6 +478,24 @@ class OrderEscrowConsistencyTest {
     // === fulfillment ===
 
     @Test
+    @DisplayName("the goods leave the seller before the payout is attempted")
+    void goodsLeaveTheSellerBeforeThePayout() {
+        OrderRequest order = funded(1_280L);
+        SellerFixture seller = fulfillerWithEmeralds(64);
+        sellerHoldings = seller::held;
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64);
+
+        assertTrue(result.success(), "the fixture fulfillment must succeed");
+        assertEquals(0, heldAtPayout,
+                "the goods must leave the seller before the payout: a crash between the payment "
+                        + "and the removal would leave the buyer with the goods and the seller with "
+                        + "the originals, and no transaction spans the ledger and the inventory");
+        assertEquals(64, goodsCopies(seller, REQUESTER),
+                "the goods must exist exactly once: the buyer has them, the seller has none");
+    }
+
+    @Test
     @DisplayName("fulfillment commits the buyer's delivery with the payout and the order reduction")
     void fulfillmentCommitsDeliveryWithSettlement() throws SQLException {
         OrderRequest order = funded(1_280L);
@@ -472,6 +512,10 @@ class OrderEscrowConsistencyTest {
                 "the same save must persist the fully fulfilled order as gone");
         assertEquals(98_720L, balances.get(REQUESTER));
         assertEquals(result.payout(), balances.get(SELLER));
+        assertEquals(0, seller.held(),
+                "the seller must not keep the goods the buyer was paid for");
+        assertEquals(64, goodsCopies(seller, REQUESTER),
+                "the goods must exist exactly once: the buyer has them, the seller has none");
 
         restart();
         assertNull(orders.getRequest(order.id));
@@ -608,6 +652,12 @@ class OrderEscrowConsistencyTest {
                 "the staged delivery must not outlive a settlement that never committed");
         assertEquals(64, eco.getDeliveries().getDeliveries(SELLER).get(0).getCount(),
                 "the taken stacks must come back claimable, since nothing was paid for them");
+        assertEquals(0, seller.held(),
+                "the goods must have left the seller before the settlement, or a crash would leave "
+                        + "them with the seller while the buyer was paid for them");
+        assertEquals(64, goodsCopies(seller, REQUESTER),
+                "the goods must exist exactly once: the seller's mailbox has them, and neither the "
+                        + "seller nor the buyer holds a second copy");
         assertEquals(98_720L, balances.get(REQUESTER), "the settlement must not leave a charge behind");
         assertEquals(0L, balances.get(SELLER), "the settlement must not leave a payout behind");
         String liveDeliveryDoc = db.readDocument("deliveries.json");
