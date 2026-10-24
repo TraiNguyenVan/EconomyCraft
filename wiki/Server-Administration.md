@@ -73,8 +73,8 @@ on and off, toggles the shop-only pool, sets the order fraction, the listing fra
 sets the period length, and — behind the Reset Tools node — forces a re-draw. Every other `quests` key is
 file-only. All of them are in [configuration reference](Server-Configuration.md).
 
-Force Re-draw cancels every open quest order and posts a fresh board immediately. Players receive their escrow
-back, and the current period's budget remains unchanged.
+Force Re-draw cancels every open quest order and posts a fresh board immediately. Reserved money returns to the
+server bot, and the current period's mint cap stays spent.
 
 ### Players
 
@@ -169,3 +169,16 @@ When transaction logging is enabled, balance changes are recorded in daily log f
 ## Placeholder integrations
 
 EconomyCraft can expose player balance, daily sell limit, and leaderboard values through Text Placeholder API on Fabric or Placeholder API NeoForge on NeoForge. These integrations are optional; install the matching loader-specific placeholder mod to use them.
+
+| Placeholder | Description |
+| --- | --- |
+| `%economycraft:balance%` | Raw player balance. |
+| `%economycraft:balance_formatted%` | Formatted player balance. |
+| `%economycraft:balance_short%` | Abbreviated player balance. |
+| `%economycraft:daily_sell_remaining%` | Amount the player can still earn from selling today; `∞` if unlimited. |
+| `%economycraft:top_name <rank>%` | Name of the player at that leaderboard rank (`1` is the highest balance). |
+| `%economycraft:top_balance <rank>%` | Raw balance at that rank. |
+| `%economycraft:top_balance_formatted <rank>%` | Formatted balance at that rank. |
+| `%economycraft:top_balance_short <rank>%` | Abbreviated balance at that rank. |
+
+Leaderboard ranks are one-based. Ranks beyond the number of players resolve as invalid.
