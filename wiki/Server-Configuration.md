@@ -71,7 +71,7 @@ Party tuning. The four parties are `communism`, `capitalism`, `monarchy` and `an
 | `factions.anarchism.color` | `11184810` | Anarchism tag colour, as a 24-bit RGB integer. |
 | `factions.anarchism.icon` | `"Ⓐ"` | Anarchism tag icon, one glyph. |
 | `factions.anarchism.unclaimed_horse_speed_multiplier` | `1.15` | Horse riding speed on unclaimed land. |
-| `factions.anarchism.unclaimed_speed_multiplier` | `1.15` | Movement speed multiplier on unclaimed land (`1.15` = +15%). Requires [ShopGuard](https://github.com/Andrewwwwwwwwwwwwwww/shopguard). |
+| `factions.anarchism.unclaimed_speed_multiplier` | `1.15` | Movement speed multiplier on unclaimed land (`1.15` = +15%). Requires [ShopGuard](https://github.com/TraiNguyenVan/shopguard). |
 | `factions.capitalism.color` | `5635925` | Capitalism tag colour, as a 24-bit RGB integer. |
 | `factions.capitalism.concentration_elasticity` | `1.0` | The single difficulty dial; above `1` punishes concentration harder. |
 | `factions.capitalism.concentration_max_multiplier` | `5.0` | Upper bound on the concentration multiplier. |
@@ -95,7 +95,7 @@ Party tuning. The four parties are `communism`, `capitalism`, `monarchy` and `an
 | `factions.daily_tax_max_catchup_days` | `7` | Most offline days the daily faction tax catches up on. `0` = unlimited. |
 | `factions.enabled` | `true` | Master switch for the party system. |
 | `factions.levy_interval_minutes` | `45` | Accumulated online time between party fees and income tax. |
-| `factions.monarchy.claim_cost_multiplier` | `0.5` | Claim-cost multiplier (`0.5` = 50% lower cost). Requires [ShopGuard](https://github.com/Andrewwwwwwwwwwwwwww/shopguard). |
+| `factions.monarchy.claim_cost_multiplier` | `0.5` | Claim-cost multiplier (`0.5` = 50% lower cost). Requires [ShopGuard](https://github.com/TraiNguyenVan/shopguard). |
 | `factions.monarchy.color` | `16777045` | Monarchy tag colour, as a 24-bit RGB integer. |
 | `factions.monarchy.corruption_multiplier` | `1.0` | Multiplier on the monarchy's daily tax. The amount is removed from the economy. |
 | `factions.monarchy.daily_tax_rate` | `0.01` | Base daily rate (`0.01` = 1%). Monarchy taxes well below Capitalism. |
@@ -104,7 +104,7 @@ Party tuning. The four parties are `communism`, `capitalism`, `monarchy` and `an
 | `factions.monarchy.import_tax_factor` | `0.5` | Import surcharge when the tax applies (`0.5` = +50%). |
 | `factions.monarchy.money_supply_inflation_max` | `3.0` | Ceiling on that factor, so one rich player cannot push the whole server's tax up without limit. |
 | `factions.monarchy.money_supply_reference_per_player` | `1000.0` | Money per active player at which Monarchy's inflation factor is exactly `1.0`. |
-| `factions.monarchy.own_claim_damage_multiplier` | `1.15` | Damage dealt and damage resistance inside your own claim. Requires [ShopGuard](https://github.com/Andrewwwwwwwwwwwwwww/shopguard). |
+| `factions.monarchy.own_claim_damage_multiplier` | `1.15` | Damage dealt and damage resistance inside your own claim. Requires [ShopGuard](https://github.com/TraiNguyenVan/shopguard). |
 | `factions.selection_lockout_hours` | `30` | How long a party choice holds. Independent of the profession lockout. `0` = off. |
 
 ### `professions`
