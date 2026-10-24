@@ -6,6 +6,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Gameplay',
+      link: {type: 'doc', id: 'Gameplay'},
       items: [
         'Choosing-a-Party-and-Profession',
         'Factions',
