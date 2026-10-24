@@ -1,0 +1,240 @@
+name: CI
+
+# One workflow, three triggers:
+#   - PR / push to main  -> tests + full jar smoke build, jars uploaded as artifacts
+#   - push of a v* tag   -> verify, build jars, cut CHANGELOG, GitHub Release
+#   - manual (Actions tab, dry_run or real)
+# Tag-push and manual runs share the same steps; the manual run creates the tag itself.
+#
+# Release contract:
+#   - The tag must equal v<mod_version from gradle.properties>, or the run fails.
+#   - CHANGELOG.md must have a non-empty '## Unreleased' section; the cut turns it into
+#     '## [<version>] - <date>' and opens a fresh empty '## Unreleased'. The section content
+#     becomes the GitHub Release body. The cut is committed to main as github-actions[bot].
+#   - A manual-run dry_run does everything short of the cut, tag, commit and Release,
+#     and uploads the jars as artifacts instead.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run - tests and jars only, no changelog cut, tag or Release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Tests + jar build
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-checks-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Same gate the release job uses: releases are never built from an untested commit.
+      - name: Common tests
+        run: ./gradlew :common:test --no-daemon
+
+      # PR checks only covered compile before; building the actual jars surfaces packaging
+      # (remapping, shadow jar, resources) breaks on every PR instead of at release time.
+      - name: Build both loader jars (MC 26.3)
+        run: ./gradlew buildAndCopyFabricJars_26.03 buildAndCopyNeoForgeJars_26.03 --no-daemon
+
+      - name: Upload jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: jars
+          path: |
+            build/fabric/26.3/*.jar
+            build/neoforge/26.3/*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Release
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.workflow }}-release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Helper used by both flows. Run cut-changelog from a checkout whose CHANGELOG.md still
+      # has '## Unreleased'; it validates the section, turns it into '## [<ver>] - <date>'
+      # (after inserting a fresh empty '## Unreleased') and writes releasenotes.md next to it.
+      - name: Write changelog helper
+        run: |
+          cat > cut-changelog.py <<'PY'
+          import datetime
+          import os
+          import re
+          import sys
+
+          ver = os.environ["VERSION"]
+          path = "CHANGELOG.md"
+          with open(path, encoding="utf-8") as f:
+              text = f.read()
+
+          pattern = re.compile(r"^## Unreleased[^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
+          m = pattern.search(text)
+          if m is None:
+              sys.exit("error: CHANGELOG.md has no '## Unreleased' section - write the release notes there before cutting a release")
+          body = m.group(1).strip("\n").rstrip()
+          if not body:
+              sys.exit("error: '## Unreleased' in CHANGELOG.md is empty - write the release notes for this version first")
+
+          with open("releasenotes.md", "w", encoding="utf-8") as f:
+              f.write(body + "\n")
+
+          today = datetime.date.today().isoformat()
+          replacement = "## Unreleased\n\n## [%s] - %s\n\n" % (ver, today)
+          new_text = text[: m.start()] + replacement + text[m.start(1):]
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(new_text)
+          PY
+
+      # Tag-push: the tag already exists and must carry the gradle.properties version.
+      # Manual: the version is the source of truth; the tag v<version> must not exist yet.
+      - name: Resolve version and tag
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          MOD_VERSION=$(grep -E '^mod_version' gradle.properties | sed -E 's/^mod_version\s*=\s*//' | tr -d '[:space:]')
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="v${MOD_VERSION}"
+            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "::error::Tag ${TAG} already exists; bump mod_version before releasing again."
+              exit 1
+            fi
+            DRY="${{ inputs.dry_run }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VER="${TAG#v}"
+            if [ "${VER}" = "${TAG}" ]; then
+              echo "::error::Refusing non-semver tag name: ${TAG}"
+              exit 1
+            fi
+            if [ "${VER}" != "${MOD_VERSION}" ]; then
+              echo "::error::Tag ${TAG} does not match gradle.properties mod_version ${MOD_VERSION}."
+              exit 1
+            fi
+            DRY="false"
+          fi
+
+          {
+            echo "ver=${MOD_VERSION}"
+            echo "tag=${TAG}"
+            echo "dry=${DRY}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Common tests
+        run: ./gradlew :common:test --no-daemon
+
+      - name: Build Fabric jar (MC 26.3)
+        run: ./gradlew buildAndCopyFabricJars_26.03 --no-daemon
+
+      - name: Build NeoForge jar (MC 26.3)
+        run: ./gradlew buildAndCopyNeoForgeJars_26.03 --no-daemon
+
+      - name: Collect jars and checksums
+        run: |
+          set -euo pipefail
+          mkdir release
+          cp build/fabric/26.3/*.jar build/neoforge/26.3/*.jar release/
+          (cd release && for f in *.jar; do sha256sum -- "$f" > "$f.sha256"; done)
+          ls -la release
+
+      - name: Upload dry-run jars
+        if: steps.resolve.outputs.dry == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jars
+          path: |
+            release/*.jar
+            release/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+        # Dry run ends here; every step below is gated on dry != true.
+
+      # Flow difference: a manual run cuts the changelog BEFORE tagging so the tag points at a
+      # commit that already has '## [<version>]'; a tag push can only open the section after the
+      # fact, so the cut lands as a follow-up commit on main and the Release keeps the original tag.
+      - name: Cut CHANGELOG and extract release body
+        if: steps.resolve.outputs.dry != 'true'
+        env:
+          VERSION: ${{ steps.resolve.outputs.ver }}
+        run: python3 cut-changelog.py
+
+      - name: Commit cut, tag and push (manual run)
+        if: steps.resolve.outputs.dry != 'true' && github.event_name == 'workflow_dispatch'
+        env:
+          VER: ${{ steps.resolve.outputs.ver }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "release: cut CHANGELOG for ${VER} [skip ci]"
+          git tag -a "${TAG}" -m "EconomyCraft ${VER}"
+          git push origin "refs/heads/main" "refs/tags/${TAG}"
+
+      - name: Move cut onto main and push (tag push)
+        if: steps.resolve.outputs.dry != 'true' && github.event_name == 'push'
+        env:
+          VER: ${{ steps.resolve.outputs.ver }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The previous step edited the tagged checkout's CHANGELOG.md; discard that edit and
+          # re-apply the cut on main, where the section belongs. (Jars are untracked, clean too.)
+          git restore CHANGELOG.md
+          git checkout -B main --track origin/main 2>/dev/null || git checkout main
+          python3 cut-changelog.py
+          git add CHANGELOG.md
+          git commit -m "release: cut CHANGELOG for ${VER} [skip ci]"
+          git push origin "refs/heads/main"
+
+      - name: Create GitHub Release
+        if: steps.resolve.outputs.dry != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ steps.resolve.outputs.ver }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          gh release create "${TAG}" release/* \
+            --title "EconomyCraft ${VER}" \
+            --notes-file releasenotes.md
