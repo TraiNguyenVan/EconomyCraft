@@ -303,7 +303,8 @@ public class VillagerMemoryService {
     private CompletableFuture<PlayerMemory> loadMemory(UUID villagerUuid, UUID playerUuid, String key, long generation) {
         PlayerMemory cached = memoryCache.get(key);
         if (cached != null) return CompletableFuture.completedFuture(cached);
-        return memoryLoads.computeIfAbsent(key, ignored -> database.getEligiblePlayerMemory(villagerUuid, playerUuid, System.currentTimeMillis())
+        CompletableFuture<PlayerMemory> load = memoryLoads.computeIfAbsent(key, ignored ->
+                database.getEligiblePlayerMemory(villagerUuid, playerUuid, System.currentTimeMillis())
                 .handle((found, error) -> {
                     if (error != null) {
                         LOGGER.warn("[EconomyCraft-AI] Memory read failed; using an empty, non-persisted context: {}", error.getMessage());
@@ -320,7 +321,15 @@ public class VillagerMemoryService {
                         }
                     }
                     return memory;
-                }).whenComplete((value, error) -> memoryLoads.remove(key)));
+                }));
+        // The cleanup must be registered OUTSIDE the computeIfAbsent: the database executor can
+        // complete the lookup while this mapping function is still running, and a whenComplete
+        // that fires inside it would touch this very map from within computeIfAbsent, which
+        // produces ConcurrentHashMap's IllegalStateException: Recursive update. That failure
+        // then swallows the dialogue through handleInteraction's catch-all. The interaction
+        // test pins this with an instantly-completing memory lookup.
+        load.whenComplete((value, error) -> memoryLoads.remove(key, load));
+        return load;
     }
 
     public CompletableFuture<VillagerDatabase.MemoryInspection> inspectMemory(UUID villagerUuid, UUID playerUuid) {

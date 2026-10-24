@@ -149,6 +149,29 @@ class VillagerInteractionTest {
         assertEquals("Bob", nameplate.get().getString());
     }
 
+    @Test
+    @DisplayName("An interaction survives a memory lookup that completes before the load is shared")
+    void instantMemoryLookupDoesNotBreakTheInteraction() throws Exception {
+        UUID villagerUuid = UUID.randomUUID();
+        VillagerProfile stored = storedProfile(villagerUuid, "Barnaby");
+
+        DelayedLookupDatabase database = new InstantMemoryLookupDatabase();
+        CapturingApiClient client = new CapturingApiClient();
+        VillagerMemoryService service = service(database, client);
+
+        AtomicReference<Component> nameplate = new AtomicReference<>();
+        Villager villager = mockVillager(villagerUuid, nameplate);
+        ServerPlayer player = mockPlayer();
+
+        CompletableFuture<Optional<String>> interaction = service.handleInteraction(player, villager);
+
+        database.answerNextLookup(Optional.of(stored));
+
+        Optional<String> line = interaction.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        assertTrue(line.isPresent(), "the interaction was dropped: see the memory load cleanup in VillagerMemoryService.loadMemory");
+        assertEquals(1, client.requests.get());
+    }
+
     private static VillagerMemoryService service(VillagerDatabase database, GossipApiClient client) {
         return new VillagerMemoryService(
                 database,
@@ -212,7 +235,7 @@ class VillagerInteractionTest {
      * be observed while the persona is still unknown. Every lookup is answered on its own, so a
      * retry after a failure gets its own answer.
      */
-    private static final class DelayedLookupDatabase extends VillagerDatabase {
+    private static class DelayedLookupDatabase extends VillagerDatabase {
         private final Queue<CompletableFuture<Optional<VillagerProfile>>> lookups = new ConcurrentLinkedQueue<>();
 
         DelayedLookupDatabase() {
@@ -236,6 +259,19 @@ class VillagerInteractionTest {
             CompletableFuture<Optional<VillagerProfile>> next = lookups.poll();
             assertNotNull(next, "no profile lookup was started");
             next.completeExceptionally(error);
+        }
+    }
+
+    /**
+     * A database whose memory read completes the moment it is asked, before the service can even
+     * finish wiring its load bookkeeping. Reproduces the ConcurrentHashMap recursive update that
+     * used to drop interactions when the cleanup callback was registered inside the
+     * computeIfAbsent mapping function.
+     */
+    private static final class InstantMemoryLookupDatabase extends DelayedLookupDatabase {
+        @Override
+        public CompletableFuture<Optional<PlayerMemory>> getEligiblePlayerMemory(UUID villagerUuid, UUID playerUuid, long now) {
+            return CompletableFuture.completedFuture(Optional.empty());
         }
     }
 
