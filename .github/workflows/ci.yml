@@ -180,7 +180,9 @@ jobs:
               exit 1
             fi
             TAG="v${MOD_VERSION}"
-            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            # The existing-tag check is release bookkeeping; dry runs promise build-only
+            # and must never be blocked by it.
+            if [ "${DRY}" != "true" ] && git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
               if [ "$(git rev-list -n1 "refs/tags/${TAG}")" != "$(git rev-parse HEAD)" ]; then
                 echo "::error::Tag ${TAG} already exists but points at a different commit; a release can only be retried from the exact commit it tagged. Bump mod_version if this is a new release."
                 exit 1
