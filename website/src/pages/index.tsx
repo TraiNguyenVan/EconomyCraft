@@ -1,5 +1,6 @@
 import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 
@@ -13,6 +14,8 @@ const features = [
 ];
 
 export default function Home(): ReactNode {
+  const heroImage = useBaseUrl('/img/economycraft-hero.png');
+
   return (
     <Layout title="A server-side economy mod" description="Give your Minecraft server a player economy with shops, auctions, orders, and quests. Works with vanilla clients on Fabric and NeoForge.">
       <main>
@@ -28,7 +31,7 @@ export default function Home(): ReactNode {
               </div>
             </div>
             <figure className={styles.screenshot}>
-              <img src="/img/economycraft-hero.png" alt="EconomyCraft's in-game economy menu open over a Minecraft market square" width="1920" height="1054" fetchPriority="high" />
+              <img src={heroImage} alt="EconomyCraft's in-game economy menu open over a Minecraft market square" width="1920" height="1054" fetchPriority="high" />
               <figcaption><span className={styles.liveDot} aria-hidden="true" /> EconomyCraft, in game</figcaption>
             </figure>
           </div>
