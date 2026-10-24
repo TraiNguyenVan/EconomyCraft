@@ -35,7 +35,7 @@ export default function Home(): ReactNode {
                 <div><dt>Java</dt><dd>25</dd></div>
                 <div><dt>Client</dt><dd>Vanilla compatible</dd></div>
               </dl>
-              <p className={styles.ledgerNote}>Architectury API required. ShopGuard is optional for claim-based faction features on Fabric.</p>
+              <p className={styles.ledgerNote}>Architectury API required. <a href="https://github.com/TraiNguyenVan/shopguard">ShopGuard</a> is optional for claim-based faction features on Fabric.</p>
             </aside>
           </div>
         </header>
