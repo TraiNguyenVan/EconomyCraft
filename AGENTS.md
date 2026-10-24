@@ -61,8 +61,10 @@ against an unsupported API. Source sets are `main` plus the `modern` and `unobfu
 ./gradlew -Pfilter_platforms=neoforge :neoforge:build
 ```
 
-Common tests live in `common/src/test`; 26.3-only tests live in `common/src/test26_3`. CI runs the first
-two command groups on every push to `main` and every pull request.
+Common tests live in `common/src/test`; 26.3-only tests live in `common/src/test26_3`. CI (`.github/workflows/ci.yml`)
+is the build authority: deployable jars come from Actions runs (PRs) or GitHub Releases (`v*` tags). Invoke Gradle
+locally only for the exceptional rollback case — expired artifact and no release; the commands above describe what
+CI runs.
 
 ## High-risk checks
 
