@@ -249,19 +249,30 @@ jobs:
           VERSION: ${{ steps.resolve.outputs.ver }}
         run: python3 cut-changelog.py
 
+      # Resume (tag already exists because a previous run died mid-release) still checks the
+      # cut into main - it only skips re-creating the tag, which already points here.
       - name: Commit cut, tag and push (manual run)
-        if: steps.resolve.outputs.dry != 'true' && github.event_name == 'workflow_dispatch' && steps.resolve.outputs.resume != 'true'
+        if: steps.resolve.outputs.dry != 'true' && github.event_name == 'workflow_dispatch'
         env:
           VER: ${{ steps.resolve.outputs.ver }}
           TAG: ${{ steps.resolve.outputs.tag }}
+          RESUME: ${{ steps.resolve.outputs.resume }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md
-          git commit -m "release: cut CHANGELOG for ${VER} [skip ci]"
-          git tag -a "${TAG}" -m "EconomyCraft ${VER}"
-          git push origin "refs/heads/main" "refs/tags/${TAG}"
+          if git diff --cached --quiet; then
+            echo "CHANGELOG cut already committed on main; nothing to commit."
+          else
+            git commit -m "release: cut CHANGELOG for ${VER} [skip ci]"
+          fi
+          if [ "${RESUME}" = "true" ]; then
+            git push origin "refs/heads/main"
+          else
+            git tag -a "${TAG}" -m "EconomyCraft ${VER}"
+            git push origin "refs/heads/main" "refs/tags/${TAG}"
+          fi
 
       # Idempotent: on a retry where the release already exists, edit its notes and
       # re-upload the files instead of failing on 'release already exists'.
