@@ -34,3 +34,4 @@ The API works with UUIDs, including offline players.
 - [Prices and leaderboard](Prices-and-Leaderboard)
 - [Balance events](Balance-Events)
 - [Complete API reference](API-Reference)
+- [HTTP market API](HTTP-Market-API)

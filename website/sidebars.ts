@@ -26,7 +26,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'API and integrations',
-      items: ['Home', 'Getting-Started', 'Balances-and-Payments', 'Prices-and-Leaderboard', 'Balance-Events', 'API-Reference'],
+      items: ['Home', 'Getting-Started', 'Balances-and-Payments', 'Prices-and-Leaderboard', 'Balance-Events', 'API-Reference', 'HTTP-Market-API'],
     },
   ],
 };

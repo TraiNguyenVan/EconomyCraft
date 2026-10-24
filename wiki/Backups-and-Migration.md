@@ -1,11 +1,9 @@
 # Backups and migration
 
-EconomyCraft keeps its configuration, prices, transaction logs, and economy data together under one folder:
+EconomyCraft keeps its configuration, prices, transaction logs, and saved economy under one folder:
 
 - Dedicated server: `config/economycraft/`
 - Singleplayer world: `saves/<world>/economycraft/`
-
-The economy data is in `data/economycraft.db`. Configuration files are in the folder root, and transaction logs are under `logs/`.
 
 ## Back up or restore a world
 
@@ -21,4 +19,4 @@ Use `/eco import` from the singleplayer world when EconomyCraft detects an older
 
 The import copies supported settings and economy data into the world folder. If that world already has EconomyCraft data, the import first creates a timestamped backup folder beside the world's `economycraft` folder. After a successful import, the old shared folder is renamed to `config/economycraft_imported/`. If the import fails, the old folder stays in place so you can retry.
 
-If the old folder contains `data/economycraft.db`, the database is copied with its saved economy. Imports from older sets of separate JSON files do not carry party and profession selections or online-time progress. During startup, legacy data files that are read into the current database are kept in `data/_migrated-json/`.
+Imports from older data formats do not carry party and profession selections or online-time progress. Other supported settings and saved economy data are copied into the world folder.

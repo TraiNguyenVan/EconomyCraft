@@ -39,5 +39,6 @@ All wiki pages are written in **English**.
 - [Prices and leaderboard](Prices-and-Leaderboard)
 - [Balance events](Balance-Events)
 - [API reference](API-Reference)
+- [HTTP market API](HTTP-Market-API)
 
 ---

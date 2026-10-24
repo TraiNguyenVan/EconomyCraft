@@ -3,7 +3,7 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
-  title: 'EconomyCraft Wiki',
+  title: 'EconomyCraft Documentation',
   tagline: 'A server-side economy for Fabric and NeoForge',
   favicon: 'img/favicon.svg',
   url: 'https://trainguyenvan.github.io',
@@ -59,7 +59,7 @@ const config: Config = {
       title: 'EconomyCraft',
       logo: {alt: 'EconomyCraft', src: 'img/logo.svg'},
       items: [
-        {type: 'docSidebar', sidebarId: 'wikiSidebar', position: 'left', label: 'Wiki'},
+        {type: 'docSidebar', sidebarId: 'wikiSidebar', position: 'left', label: 'Documentation'},
         {to: '/contributors/architecture', label: 'Contributing', position: 'left'},
         {href: 'https://github.com/TraiNguyenVan/EconomyCraft', label: 'GitHub', position: 'right'},
       ],
@@ -67,7 +67,7 @@ const config: Config = {
     footer: {
       style: 'dark',
       links: [
-        {title: 'Guides', items: [{label: 'Getting started', to: '/docs/Getting-Started'}, {label: 'Server administration', to: '/docs/Server-Administration'}]},
+        {title: 'Guides', items: [{label: 'Installation and compatibility', to: '/docs/Installation-and-Compatibility'}, {label: 'Server administration', to: '/docs/Server-Administration'}]},
         {title: 'Development', items: [{label: 'Contributor guides', to: '/contributors/architecture'}, {label: 'GitHub', href: 'https://github.com/TraiNguyenVan/EconomyCraft'}]},
       ],
       copyright: `EconomyCraft is licensed under GPL-3.0. Built with Docusaurus.`,
