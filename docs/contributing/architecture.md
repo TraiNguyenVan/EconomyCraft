@@ -36,7 +36,7 @@ it is not online time and must not be merged with it.
 
 ## Land claims and faction effects
 
-Claims are implemented in ShopGuard, an external Fabric-only mod. EconomyCraft references it reflectively
+Claims are implemented in [ShopGuard](https://github.com/TraiNguyenVan/shopguard), an external Fabric-only mod. EconomyCraft references it reflectively
 through package-private `ClaimBridge` and `ReflectiveShopGuardBackend`; `FactionEffects` is the only consumer.
 When ShopGuard is absent, claim rules are skipped. The Communism `Tài trợ` entry is deliberately read-only;
 any future implementation belongs on the ShopGuard side of the seam.

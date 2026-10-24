@@ -13,7 +13,7 @@ Use the EconomyCraft jar built for the loader running on your server. Do not ins
 
 ## Optional integration
 
-ShopGuard is an optional Fabric-only dependency. It enables faction features that depend on land claims. Those claim-dependent effects are unavailable on NeoForge and on Fabric servers without ShopGuard; other faction and profession features continue to work.
+[ShopGuard](https://github.com/TraiNguyenVan/shopguard) is an optional Fabric-only dependency. It enables faction features that depend on land claims. Those claim-dependent effects are unavailable on NeoForge and on Fabric servers without ShopGuard; other faction and profession features continue to work.
 
 ## Next steps
 
