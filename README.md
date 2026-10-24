@@ -12,12 +12,12 @@ Requires Architectury API. Install the EconomyCraft jar that matches your server
 
 ## Guides
 
-- [Installation and compatibility](https://github.com/TraiNguyenVan/EconomyCraft/wiki/Installation-and-Compatibility)
-- [Gameplay guides](https://github.com/TraiNguyenVan/EconomyCraft/wiki/Gameplay)
-- [Server administration](https://github.com/TraiNguyenVan/EconomyCraft/wiki/Server-Administration)
-- [Configuration reference](https://github.com/TraiNguyenVan/EconomyCraft/wiki/Server-Configuration)
-- [Backups and migration](https://github.com/TraiNguyenVan/EconomyCraft/wiki/Backups-and-Migration)
-- [API reference](https://github.com/TraiNguyenVan/EconomyCraft/wiki/API-Reference)
+- [Installation and compatibility](https://trainguyenvan.github.io/EconomyCraft/docs/Installation-and-Compatibility)
+- [Gameplay guides](https://trainguyenvan.github.io/EconomyCraft/docs/Gameplay)
+- [Server administration](https://trainguyenvan.github.io/EconomyCraft/docs/Server-Administration)
+- [Configuration reference](https://trainguyenvan.github.io/EconomyCraft/docs/Server-Configuration)
+- [Backups and migration](https://trainguyenvan.github.io/EconomyCraft/docs/Backups-and-Migration)
+- [API reference](https://trainguyenvan.github.io/EconomyCraft/docs/API-Reference)
 - [Latest release](https://github.com/TraiNguyenVan/EconomyCraft/releases)
 
 ## Contributing

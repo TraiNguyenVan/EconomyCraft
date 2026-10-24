@@ -14,19 +14,26 @@ that does not ship. State each default once. Keys are case-sensitive and must ma
 Do not include phase numbers, task identifiers or internal decision IDs in user-facing docs. Preserve the
 GPL-3.0 upstream attribution in `README.md`.
 
-## Wiki language and audience
+## User-document language and audience
 
-Wiki page language is English for players, server owners and integrators. Do not mix languages within a page.
+Documentation language is English for players, server owners and integrators. Do not mix languages within a page.
 Player-facing pages contain no code, Gradle commands, test class names or internal identifiers. The
 server-owner page may name shipped commands, config keys and permission nodes, but contains no source code
 or internal implementation details. Integrator pages may contain Java.
 
-The same policy is summarized in `wiki/_Sidebar.md` for wiki readers. Keep the policy stated in these two
-places only.
+The same policy is summarized in `wiki/_Sidebar.md` for documentation readers. Keep the policy stated in
+these two places only.
 
-## Publishing the GitHub wiki
+## Publishing the documentation site
 
-The `wiki/` directory in this repository is not the hosted GitHub wiki; that wiki is a separate Git clone.
-Copy changed pages to the wiki clone, commit and push them there. Include `_Sidebar.md` whenever navigation
-changes, then check the hosted page because GitHub may serve a stale cached render. Wiki-to-wiki links are
-relative; links from `README.md` to wiki pages must use absolute GitHub wiki URLs.
+The `wiki/` directory is the canonical source for player, server-owner, and integrator guides. The Docusaurus
+site reads these files directly; contributor guides come from `docs/contributing/`. Do not maintain copies of
+these pages in the website directory.
+
+`website/sidebars.ts` controls the site navigation. `wiki/_Sidebar.md` is retained for legacy wiki navigation
+and is excluded from the Docusaurus docs. Links between Markdown guides should remain relative. Links from
+`README.md` should use absolute URLs to the published Docusaurus pages under `/EconomyCraft/docs/`.
+
+Pull requests build the site with `.github/workflows/docs-check.yml`. Changes to documentation on `main`
+deploy through `.github/workflows/docs-deploy.yml`. Configure repository Pages to use **GitHub Actions** as
+the source before the first deployment.

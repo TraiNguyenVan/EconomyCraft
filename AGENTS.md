@@ -8,7 +8,7 @@ the implementation, correct the guidance.
 - `api/`: public API v1 (`com.reazip.economycraft.api.v1`).
 - `common/`: shared logic and Minecraft compatibility source sets.
 - `fabric/`, `neoforge/`: loader entrypoints and loader-specific mixins.
-- `wiki/`: content for the separate GitHub wiki repository; see [contributor docs](docs/contributing/documentation.md).
+- `wiki/`: canonical player, server-owner, and integrator documentation read directly by Docusaurus; see [contributor docs](docs/contributing/documentation.md).
 - `.specify/memory/constitution.md`: normative project principles. This file provides operational mechanics.
 
 EconomyCraft is a server-side Architectury mod for Fabric and NeoForge. It must work with an unmodified
