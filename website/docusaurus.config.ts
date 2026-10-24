@@ -61,6 +61,7 @@ const config: Config = {
       items: [
         {type: 'docSidebar', sidebarId: 'wikiSidebar', position: 'left', label: 'Documentation'},
         {to: '/contributors/architecture', label: 'Contributing', position: 'left'},
+        {to: '/docs/Installation-and-Compatibility', label: 'Install', position: 'right', className: 'navbarInstall'},
         {href: 'https://github.com/TraiNguyenVan/EconomyCraft', label: 'GitHub', position: 'right'},
       ],
     },
