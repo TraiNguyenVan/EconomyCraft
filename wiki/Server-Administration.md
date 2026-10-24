@@ -1,48 +1,109 @@
 # Server administration
 
-EconomyCraft's main menu is `/eco`; administrators can open its **Admin** section with `/eco admin`. The available controls depend on permission configuration.
+This guide covers the in-game admin menu, server commands, permissions, and optional integrations. For installation requirements, see [Installation and compatibility](Installation-and-Compatibility.md).
 
 ## Admin menu
 
-- **Shop editor:** add and edit catalog entries, prices, categories, visibility, and bulk amounts.
-- **Settings:** change the settings exposed by the in-game editor, including feature switches, shop and order limits, and the wealth-tax block.
-- **Players:** manage player balances and leaderboard stats, remove an account, and set per-player auction or order limits.
-- **Server Quests:** control the quest board and buyback options exposed by the editor.
-- **Reload:** reload configuration and price data from disk.
-- **Reset Tools:** reset daily data, clear listings or orders, run configured tax passes, or reset the economy. Review each confirmation carefully; some actions change balances or erase history.
+### Shop editor
 
-Reset Tools include:
+Browse categories and click an item to edit it.
 
-| Tool | Effect |
-|---|---|
-| Reset All Balances | Set account balances back to the configured starting balance. |
-| Reset Daily Reward Data | Let everyone claim the daily reward again. |
-| Reset Daily Sell Limits | Reset everyone's daily sell total. |
-| Clear Auctions | Cancel active listings and return listed items through deliveries. |
-| Clear Orders | Cancel open requests and refund reserved balances. |
-| Run Wealth Tax Now | Run the configured daily wealth tax immediately. |
-| Run Faction Daily Tax | Run Capitalism and Monarchy daily taxes immediately. |
-| Reset Entire Economy | Run the listed resets, clear leaderboard stats, and delete the transaction log. |
+- **Category editor**: right-click a category to rename it, change its color, icon or visibility, or exclude it from dynamic pricing. Deleting a category moves its items to `misc` and zeroes their buy prices.
+- **Add item**: pick any item in the game, or one from your inventory. Custom names, enchantments and container contents are kept.
+- **Buy Price / Sell Price**: the price of one item; `0` disables that direction. If dynamic pricing applies, this also shows the current price and multiplier.
+- **Dynamic Pricing**: opt this item out of dynamic pricing even while it's enabled server-wide.
+- **Bulk Amount**: how many a shift-click buys or sells.
+- **Category**: which shop page the item appears on. `blocks.wood` creates a sub-page.
+- **Delete**: removes the entry.
 
-The tax tools move player balances. **Reset Entire Economy** also deletes transaction history; use the confirmation screen to check the action before accepting it.
+### Dynamic shop pricing
 
-Some configuration sections are file-only. Edit `config/economycraft/config.json` and use **Reload from disk** to apply them. The [bundled `config.json`](https://github.com/TraiNguyenVan/EconomyCraft/blob/main/common/src/main/resources/assets/economycraft/config.json) lists the exact setting names and shipped defaults; refer to that file when tuning values.
+When enabled (`dynamic_prices_enabled`), this scales every buy price by:
+
+```
+current price = base price × active-player median balance / starting balance
+```
+
+The scale is clamped between `dynamic_price_min_multiplier` and `dynamic_price_max_multiplier`, and recalculated at most once an hour. Sell prices are never affected. Opt out per category or item from the Shop editor above.
+
+### Daily wealth tax
+
+When enabled (`wealth_tax_enabled`), this applies a daily percentage to each balance's surplus above the floor:
+
+```
+floor = max(wealth_tax_floor, active-player median balance x wealth_tax_median_floor_factor)
+tax   = (balance - floor) x rate
+```
+
+Because the floor is a fraction of the median rather than a fixed number, it follows the economy: as rich balances pay down and the median drifts lower, the tax base shrinks on its own.
+
+`wealth_tax_median_floor_factor` decides who is reached:
+
+| Factor  | Floor        | Reaches                                    |
+|---------|--------------|--------------------------------------------|
+| `0.0`   | fixed        | everyone above the floor, including the poorest players |
+| `0.5`   | half median  | the upper half                              |
+| `1.0`   | the median   | only the top half, and the median can then never fall |
+
+Players unseen for `wealth_tax_inactive_days` are charged `rate x wealth_tax_inactive_multiplier`, so the policy drains idle stock rather than taxing play.
+
+The optional rebate (`wealth_tax_rebate_enabled`) pays players below the floor only when the active median falls below `startingBalance x wealth_tax_rebate_trigger_factor`.
+
+Balances at or below the floor are never taxed, and a tax can never push a balance below the floor. These tax and rebate movements do not count as earned or spent money on leaderboards.
+
+### Settings
+
+Most of the top-level `config.json` keys, editable in-game: starting balance, daily reward, sell limit, tax
+rate, number separator, the feature toggles, both dynamic-pricing bounds and the active-player window, both
+expiration windows, the per-player order/auction caps, and the whole daily wealth tax block.
+
+The `factions`, `professions`, `gemini_gossip`, and `motd` sections are **file-only**. Some `quests` settings
+are available in the Server Quests screen; the remaining quest settings are file-only. Edit file-only keys in
+`config.json` and press **Reload from disk**. The [configuration reference](Server-Configuration.md) lists
+every key and shipped default.
+
+The login MOTD uses ordered `motd.blocks`. `motd.delay_ticks` delays the first block; each block's
+`next_delay_seconds` delays its successor. `/eco motd` previews all blocks immediately. Reloading cancels an
+in-progress login sequence.
+
+### Server Quests
+
+The server-funded bounty board, behind the same node as Settings. It switches the board and the buyback market
+on and off, toggles the shop-only pool, sets the order fraction, the listing fraction and the period budget,
+sets the period length, and — behind the Reset Tools node — forces a re-draw. Every other `quests` key is
+file-only. All of them are in [configuration reference](Server-Configuration.md).
+
+Force Re-draw cancels every open quest order and posts a fresh board immediately. Players receive their escrow
+back, and the current period's budget remains unchanged.
+
+### Players
+
+Select any player, online or not, to give, take or set their balance, clear their Leaderboard stats, remove them from the economy, or override their max active orders/auctions.
+
+### Reset Tools
+
+
+| Tool                        | Does                                                                                        |
+|-----------------------------|---------------------------------------------------------------------------------------------|
+| **Reset All Balances**      | Sets every player's balance back to `startingBalance`.                                      |
+| **Reset Daily Reward Data** | Everyone can claim their daily reward again immediately.                                    |
+| **Reset Daily Sell Limits** | Everyone's daily sell limit resets to full immediately.                                     |
+| **Clear Auctions**          | Cancels every active listing. Items are returned to sellers' deliveries.                    |
+| **Clear Orders**            | Cancels every open order. Escrowed money is refunded to requesters.                         |
+| **Run Wealth Tax Now**      | Applies the daily wealth tax immediately and reports what it took, per day.                |
+| **Run Faction Daily Tax**   | Applies the Capitalism and Monarchy daily taxes immediately.                                |
+| **Reset Entire Economy**    | All of the above, plus wipes the Leaderboards stats and deletes the entire transaction log. |
+
+None of these touch shop prices/categories or permission settings. **Run Wealth Tax Now** and **Run Faction
+Daily Tax** are the two tools that move real balances as a side effect; the first does nothing while
+`wealth_tax_enabled` is off, and the second does nothing while `factions.enabled` is off or a player has no
+party.
 
 ## HTTP market snapshot and command endpoint
 
-EconomyCraft can publish the auction and order market as JSON, and accept one player-scoped command, for a consumer that is not an in-process mod. Both are off by default and share one listener and the three keys that control it:
+EconomyCraft can publish the auction and order market as JSON and accept player-scoped commands through one optional HTTP listener. The `http_market_enabled`, `http_market_port`, and `http_market_token` settings are documented in the [configuration reference](Server-Configuration.md). Set a non-empty token before enabling the listener. The listener starts with the server; changes to its settings take effect after a restart.
 
-| Key | Default | Meaning |
-|---|---|---|
-| `http_market_enabled` | `false` | Master switch for the listener. |
-| `http_market_port` | `0` | Bind port. `0` binds an ephemeral port, which is logged at server start. |
-| `http_market_token` | `""` | Shared secret for the `X-EconomyCraft-Token` request header, on both routes. Empty means the listener refuses to start. |
-
-Set a token before enabling it — an empty token leaves both routes closed, because per-player scoping and the command route both depend on knowing who is asking.
-
-The listener starts with the server and stops with it. These keys take effect on the next start; **Reload from disk** re-reads them but does not rebind a running listener.
-
-The market route serves `GET /economycraft/v1/market`, which reads and never writes. The command route serves `POST /economycraft/v1/command`, with `claimDelivery` using a delivery's stable ID and the listing and order commands described in the [API reference](API-Reference.md#command-route). The request names the player whose inventory or balance is used; counterparties come from the selected listing or order, not a caller-supplied player UUID. Both routes, their auth requirement, every refusal and the data they deliberately never expose are documented there. The port the listener binds is printed in the log at start; the token never is.
+The market route is `GET /economycraft/v1/market`, which reads and never writes. The command route is `POST /economycraft/v1/command`. Its actions, authentication requirements, and response formats are in the [API reference](API-Reference.md#command-route). The request names the player whose inventory or balance is used; counterparties come from the selected listing or order, not a caller-supplied player UUID. The selected port is printed in the server log when the listener starts. The token is never printed.
 
 ## Commands
 
@@ -70,29 +131,21 @@ The market route serves `GET /economycraft/v1/market`, which reads and never wri
 
 ### Login MOTD
 
-Configure the login message in `motd.blocks` in `config/economycraft/config.json`. Each block has a `lines` array
-and a `next_delay_seconds` wait before the following block. `motd.delay_ticks` still controls the wait before
-the first block. The per-block wait defaults to 30 seconds and is clamped to 0-3600; zero sends the next block
-on the following server tick, and the final block's wait is unused. A login sequence ends after its last block.
-
-Existing `motd.lines` configurations are automatically migrated to a single block before bundled defaults are
-merged. If both `lines` and `blocks` are present, `blocks` takes precedence and the old field is ignored. Use
-`/eco reload` after editing the file; this cancels any in-progress sequence. `/eco motd` previews all blocks at
-once, separated in chat, without waiting for their configured intervals.
-
-`/eco import` is available only when the server has importable shared-folder data. The player commands and `/eco` subcommands are listed on the relevant gameplay pages. Standalone admin command aliases are off by default and can be enabled in configuration.
+Configure login messages in the `motd` section of `config/economycraft/config.json`. The [configuration reference](Server-Configuration.md) describes the keys. Use `/eco reload` after editing the file; this also cancels an in-progress message sequence. `/eco motd` previews all configured message blocks immediately.
 
 ## Permissions and optional integrations
 
 | Permission node | Access |
 |---|---|
 | `economycraft.admin` | All admin permissions. |
+| `economycraft.admin.contracts` | List and resolve contract disputes. |
 | `economycraft.admin.players` | Player management and balance commands. |
 | `economycraft.admin.settings` | Settings and server quest controls. |
 | `economycraft.admin.shop` | Shop editor. |
 | `economycraft.admin.reload` | Reload from disk. |
 | `economycraft.admin.reset` | Reset tools. |
 | `economycraft.command.menu` | `/eco` and `/eco menu`. |
+| `economycraft.command.contracts` | Contract commands. |
 | `economycraft.command.balance` | Balance command. |
 | `economycraft.command.pay` | Payment command. |
 | `economycraft.command.shop` | Shop command and menu button. |
@@ -107,4 +160,12 @@ once, separated in chat, without waiting for their configured intervals.
 | `economycraft.command.tag` | Tag, party, and profession menus. |
 | `economycraft.command.offers` | Price offers. |
 
-Permission plugins may override default access behavior. Land-claim faction effects require ShopGuard on Fabric; they are unavailable on NeoForge and when ShopGuard is not installed.
+Permission plugins may override default access behavior. Without a permission plugin, admin nodes require operator access and command nodes are allowed for everyone. Land-claim faction effects require the optional, Fabric-only ShopGuard mod; they are unavailable on NeoForge and on Fabric servers without ShopGuard.
+
+## Transaction logs and webhooks
+
+When transaction logging is enabled, balance changes are recorded in daily log files under the EconomyCraft configuration folder. The retention setting and webhook options are listed in the [configuration reference](Server-Configuration.md). A Discord-compatible webhook can receive transaction notices and can be limited by a minimum transaction amount.
+
+## Placeholder integrations
+
+EconomyCraft can expose player balance, daily sell limit, and leaderboard values through Text Placeholder API on Fabric or Placeholder API NeoForge on NeoForge. These integrations are optional; install the matching loader-specific placeholder mod to use them.

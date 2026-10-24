@@ -1,5 +1,6 @@
 **Gameplay**
 
+- [Gameplay guides](Gameplay)
 - [Choosing a Party and Profession](Choosing-a-Party-and-Profession)
 - [Factions](Factions)
 - [Professions](Professions)
@@ -13,7 +14,10 @@
 
 **Server owners**
 
+- [Installation and compatibility](Installation-and-Compatibility)
 - [Server administration](Server-Administration)
+- [Server configuration](Server-Configuration)
+- [Backups and migration](Backups-and-Migration)
 
 ---
 

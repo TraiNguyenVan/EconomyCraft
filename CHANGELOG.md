@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes to EconomyCraft are documented here. This file is the `changelog-file` consumed by
-`.github/workflows/release.yml`, so a release published without updating it ships an empty changelog body.
+`.github/workflows/ci.yml`, so a release published without updating it ships an empty changelog body.
 
 ## Unreleased
 
