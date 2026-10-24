@@ -215,6 +215,7 @@ jobs:
         if: steps.resolve.outputs.dry != 'true' && github.event_name == 'push'
         env:
           VER: ${{ steps.resolve.outputs.ver }}
+          VERSION: ${{ steps.resolve.outputs.ver }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
