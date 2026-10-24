@@ -1,0 +1,317 @@
+name: CI
+
+# One workflow, three triggers:
+#   - PR / push to main  -> tests + full jar smoke build, jars uploaded as artifacts
+#   - push of a v* tag   -> verify, build jars, cut CHANGELOG, GitHub Release
+#   - manual (Actions tab, dry_run or real)
+# Tag-push and manual runs share the same steps; the manual run creates the tag itself.
+#
+# Release contract:
+#   - The tag must equal v<mod_version from gradle.properties>, or the run fails.
+#   - CHANGELOG.md must have a non-empty '## Unreleased' section; the cut turns it into
+#     '## [<version>] - <date>' and opens a fresh empty '## Unreleased'. The section content
+#     becomes the GitHub Release body. The cut is committed to main as github-actions[bot].
+#   - The release always publishes from the tag-derived notes; if main moved past the tag,
+#     the later cut on main refuses instead of filing newer changes under the release.
+#   - Release runs are retry-safe: a repeated run after a partial failure reuses the
+#     existing tag and version notes instead of demanding a re-version.
+#   - A manual-run dry_run does everything short of the cut, tag, commit and Release,
+#     and uploads the jars as artifacts instead.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run - tests and jars only, no changelog cut, tag or Release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Tests + jar build
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-checks-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Same gate the release job uses: releases are never built from an untested commit.
+      - name: Common tests
+        run: ./gradlew :common:test --no-daemon
+
+      # PR checks only covered compile before; building the actual jars surfaces packaging
+      # (remapping, shadow jar, resources) breaks on every PR instead of at release time.
+      - name: Build both loader jars (MC 26.3)
+        run: ./gradlew buildAndCopyFabricJars_26.3 buildAndCopyNeoForgeJars_26.3 --no-daemon
+
+      - name: Upload jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: jars
+          path: |
+            build/fabric/26.3/*.jar
+            build/neoforge/26.3/*.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Release
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      # One shared group: every release run edits and pushes main, so two concurrent
+      # releases (a tag push and a manual run) must serialize, not race on different refs.
+      group: ${{ github.workflow }}-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Helper used by both flows. Run cut-changelog from a checkout whose CHANGELOG.md still
+      # has '## Unreleased'; it validates the section, turns it into '## [<ver>] - <date>'
+      # (after inserting a fresh empty '## Unreleased') and writes releasenotes.md next to it.
+      #
+      # Retry/resume safety:
+      #   - releasenotes.md is never overwritten once written, so the tag-derived notes
+      #     survive a second cut on main.
+      #   - unreleased.sha256 pins the content the tag carried; a later cut on main that
+      #     sees a different '## Unreleased' (main moved past the tag) refuses instead of
+      #     filing new changes under the released version heading.
+      #   - with no live '## Unreleased' at all (a rerun after the cut), the notes are
+      #     re-extracted from the versioned section and the file is left untouched.
+      - name: Write changelog helper
+        run: |
+          cat > cut-changelog.py <<'PY'
+          import datetime
+          import hashlib
+          import os
+          import re
+          import sys
+
+          ver = os.environ["VERSION"]
+          path = "CHANGELOG.md"
+          guard = "unreleased.sha256"
+          with open(path, encoding="utf-8") as f:
+              text = f.read()
+
+          pattern = re.compile(r"^## Unreleased[^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
+          m = pattern.search(text)
+
+          if m is None or not m.group(1).strip("\n").rstrip():
+              # No live Unreleased work in this checkout: either this run is a retry after the
+              # cut already happened (fall back to the versioned section for the notes), or the
+              # changelog never carried the release notes at all.
+              versioned = re.compile(r"^## \[" + re.escape(ver) + r"\][^\n]*\n(.*?)(?=^## |\Z)", re.M | re.S)
+              vm = versioned.search(text)
+              if vm is None or not vm.group(1).strip("\n").rstrip():
+                  sys.exit("error: CHANGELOG.md has no usable '## Unreleased' section and no versioned '## [%s]' section - write the release notes there before cutting a release" % ver)
+              if not os.path.exists("releasenotes.md"):
+                  with open("releasenotes.md", "w", encoding="utf-8") as f:
+                      f.write(vm.group(1).strip("\n").rstrip() + "\n")
+              sys.exit(0)
+
+          body = m.group(1).strip("\n").rstrip()
+          body_sha = hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+          if os.path.exists(guard):
+              with open(guard, encoding="utf-8") as f:
+                  expected = f.read().strip()
+              if expected != body_sha:
+                  sys.exit("error: CHANGELOG.md '## Unreleased' changed since the release tag was made; refusing to cut those newer changes under version %s - this release keeps its tagged notes, cut the extra work under the next version yourself" % ver)
+
+          if not os.path.exists("releasenotes.md"):
+              with open("releasenotes.md", "w", encoding="utf-8") as f:
+                  f.write(body + "\n")
+          with open(guard, "w", encoding="utf-8") as f:
+              f.write(body_sha + "\n")
+
+          today = datetime.date.today().isoformat()
+          replacement = "## Unreleased\n\n## [%s] - %s\n\n" % (ver, today)
+          new_text = text[: m.start()] + replacement + text[m.start(1):]
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(new_text)
+          PY
+
+      # Tag-push: the tag already exists and must carry the gradle.properties version.
+      # Manual: the version is the source of truth; a real run must come from main so the
+      # cut-commit and tag land there, and a tag that already exists now resumes the run
+      # (a failed 'gh release create' after the cut and tag were pushed) instead of dying
+      # on 'tag already exists'.
+      - name: Resolve version and tag
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          MOD_VERSION=$(grep -E '^mod_version' gradle.properties | sed -E 's/^mod_version\s*=\s*//' | tr -d '[:space:]')
+          RESUME="false"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            DRY="${{ inputs.dry_run }}"
+            if [ "${{ github.ref_name }}" != "main" ] && [ "${DRY}" != "true" ]; then
+              echo "::error::Manual release runs must be dispatched from 'main' (only dry runs may use another branch); you picked '${{ github.ref_name }}'."
+              exit 1
+            fi
+            TAG="v${MOD_VERSION}"
+            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+              if [ "$(git rev-list -n1 "refs/tags/${TAG}")" != "$(git rev-parse HEAD)" ]; then
+                echo "::error::Tag ${TAG} already exists but points at a different commit; a release can only be retried from the exact commit it tagged. Bump mod_version if this is a new release."
+                exit 1
+              fi
+              # Tag + cut already landed; finish the rest of the release (publish retry).
+              RESUME="true"
+            fi
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VER="${TAG#v}"
+            if [ "${VER}" = "${TAG}" ]; then
+              echo "::error::Refusing non-semver tag name: ${TAG}"
+              exit 1
+            fi
+            if [ "${VER}" != "${MOD_VERSION}" ]; then
+              echo "::error::Tag ${TAG} does not match gradle.properties mod_version ${MOD_VERSION}."
+              exit 1
+            fi
+            DRY="false"
+          fi
+
+          {
+            echo "ver=${MOD_VERSION}"
+            echo "tag=${TAG}"
+            echo "dry=${DRY}"
+            echo "resume=${RESUME}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Common tests
+        run: ./gradlew :common:test --no-daemon
+
+      - name: Build Fabric jar (MC 26.3)
+        run: ./gradlew buildAndCopyFabricJars_26.3 --no-daemon
+
+      - name: Build NeoForge jar (MC 26.3)
+        run: ./gradlew buildAndCopyNeoForgeJars_26.3 --no-daemon
+
+      - name: Collect jars and checksums
+        run: |
+          set -euo pipefail
+          mkdir release
+          cp build/fabric/26.3/*.jar build/neoforge/26.3/*.jar release/
+          (cd release && for f in *.jar; do sha256sum -- "$f" > "$f.sha256"; done)
+          ls -la release
+
+      - name: Upload dry-run jars
+        if: steps.resolve.outputs.dry == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: jars
+          path: |
+            release/*.jar
+            release/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+        # Dry run ends here; every step below is gated on dry != true.
+
+      # Flow difference: a manual run cuts the changelog BEFORE tagging so the tag points at a
+      # commit that already has '## [<version>]'; a tag push can only open the section after the
+      # fact, so the cut lands as a follow-up commit on main and the Release keeps the original
+      # tag. The Release is created from the tag-derived notes in both flows, before the
+      # main-side cut commit, so main can never rewrite the notes under the published jars.
+      - name: Cut CHANGELOG and extract release body
+        if: steps.resolve.outputs.dry != 'true'
+        env:
+          VERSION: ${{ steps.resolve.outputs.ver }}
+        run: python3 cut-changelog.py
+
+      # Resume (tag already exists because a previous run died mid-release) still checks the
+      # cut into main - it only skips re-creating the tag, which already points here.
+      - name: Commit cut, tag and push (manual run)
+        if: steps.resolve.outputs.dry != 'true' && github.event_name == 'workflow_dispatch'
+        env:
+          VER: ${{ steps.resolve.outputs.ver }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          RESUME: ${{ steps.resolve.outputs.resume }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "CHANGELOG cut already committed on main; nothing to commit."
+          else
+            git commit -m "release: cut CHANGELOG for ${VER} [skip ci]"
+          fi
+          if [ "${RESUME}" = "true" ]; then
+            git push origin "refs/heads/main"
+          else
+            git tag -a "${TAG}" -m "EconomyCraft ${VER}"
+            git push origin "refs/heads/main" "refs/tags/${TAG}"
+          fi
+
+      # Idempotent: on a retry where the release already exists, edit its notes and
+      # re-upload the files instead of failing on 'release already exists'.
+      - name: Create GitHub Release
+        if: steps.resolve.outputs.dry != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ steps.resolve.outputs.ver }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if gh release create "${TAG}" release/* \
+            --title "EconomyCraft ${VER}" \
+            --notes-file releasenotes.md; then
+            exit 0
+          fi
+          echo "Release ${TAG} already exists; treating it as a resume and updating notes and files."
+          gh release edit "${TAG}" --title "EconomyCraft ${VER}" --notes-file releasenotes.md
+          gh release upload "${TAG}" release/* --clobber
+
+      # Tag-push only, and deliberately LAST: if main moved past the tag since the cut, the
+      # helper above already published correct tag-derived notes; this step then either files
+      # the same Unreleased content under the version heading or refuses cleanly.
+      - name: Move cut onto main and push (tag push)
+        if: steps.resolve.outputs.dry != 'true' && github.event_name == 'push'
+        env:
+          VERSION: ${{ steps.resolve.outputs.ver }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The first cut edited the tagged checkout's CHANGELOG.md; discard that edit and
+          # re-apply the cut on main, where the section belongs. (Jars are untracked, clean too.)
+          git restore CHANGELOG.md
+          git checkout -B main --track origin/main 2>/dev/null || git checkout main
+          python3 cut-changelog.py
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "CHANGELOG already cut on main; nothing to commit."
+          else
+            git commit -m "release: cut CHANGELOG for ${VERSION} [skip ci]"
+          fi
+          git push origin "refs/heads/main"
