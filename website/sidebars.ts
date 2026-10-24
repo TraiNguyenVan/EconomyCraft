@@ -21,6 +21,8 @@ const sidebars: SidebarsConfig = {
       ],
     },
     'Server-Administration',
+    'Server-Configuration',
+    'Backups-and-Migration',
     {
       type: 'category',
       label: 'API and integrations',
