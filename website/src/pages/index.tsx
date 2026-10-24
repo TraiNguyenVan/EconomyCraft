@@ -1,59 +1,79 @@
 import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
 
 import styles from './index.module.css';
 
-const sections = [
-  {title: 'For players', description: 'Choose a faction and profession, then explore trading, quests, tolls, and contracts.', link: '/docs/Choosing-a-Party-and-Profession', label: 'Browse gameplay guides'},
-  {title: 'For server owners', description: 'Install the right jar, configure the server, and review available commands and permissions.', link: '/docs/Server-Administration', label: 'Read server documentation'},
-  {title: 'For mod developers', description: 'Use the public API to read balances and prices, make payments, and listen for balance events.', link: '/docs/API-Reference', label: 'Read the API reference'},
-  {title: 'For contributors', description: 'Learn how the project is structured and how to contribute changes.', link: '/contributors/architecture', label: 'Read contributor guides'},
+const features = [
+  {number: '01', title: 'A server-run shop', description: 'Set prices, organize categories, and let players buy or sell through a familiar in-game menu.', link: '/docs/Shop-and-Selling', label: 'Explore the shop'},
+  {number: '02', title: 'Player auctions', description: 'Give players a place to list items, make offers, and find the next deal.', link: '/docs/Auctions-Orders-and-Offers', label: 'Explore auctions'},
+  {number: '03', title: 'Wanted orders', description: 'Players post what they need and what they will pay. Other players deliver the goods.', link: '/docs/Auctions-Orders-and-Offers', label: 'Explore orders'},
+  {number: '04', title: 'Server-funded quests', description: 'Turn the market into a shared goal with a board of item requests and rewards.', link: '/docs/Server-Quests', label: 'Explore quests'},
 ];
 
 export default function Home(): ReactNode {
+  const heroImage = useBaseUrl('/img/economycraft-hero.png');
+
   return (
-    <Layout title="A server-side economy mod" description="Player, server owner, and integrator guides for EconomyCraft.">
+    <Layout title="A server-side economy mod" description="Give your Minecraft server a player economy with shops, auctions, orders, and quests. Works with vanilla clients on Fabric and NeoForge.">
       <main>
         <header className={styles.hero}>
           <div className={`container ${styles.heroLayout}`}>
-            <div>
-              <p className={styles.kicker}>A server economy for Minecraft</p>
-              <Heading as="h1">Make room for a different kind of trade.</Heading>
-              <p className={styles.lead}>Factions, professions, shops, and an API for Fabric and NeoForge servers. Players join with the vanilla client they already use.</p>
+            <div className={styles.heroCopy}>
+              <p className={styles.kicker}><span aria-hidden="true" /> BUILT FOR YOUR SERVER</p>
+              <Heading as="h1">Give every trade a place to happen.</Heading>
+              <p className={styles.lead}>A complete player economy for Fabric and NeoForge: shops, auctions, orders, and quests. Your players join with the vanilla client they already have.</p>
               <div className={styles.actions}>
-              <Link className={`button button--primary button--lg ${styles.primaryCta}`} to="/docs/Installation-and-Compatibility">Installation guide</Link>
-                <Link className={styles.textLink} to="/docs/Server-Administration">Server owner guide</Link>
+                <Link className={`button button--primary button--lg ${styles.primaryCta}`} to="/docs/Installation-and-Compatibility">Installation guide</Link>
+                <Link className={styles.textLink} to="/docs/Server-Administration">Server administration <span aria-hidden="true">↗</span></Link>
               </div>
             </div>
-            <aside className={styles.ledger} aria-label="EconomyCraft compatibility">
-              <p className={styles.ledgerTitle}>At a glance</p>
-              <dl>
-                <div><dt>Game</dt><dd>Minecraft 26.3</dd></div>
-                <div><dt>Loaders</dt><dd>Fabric and NeoForge</dd></div>
-                <div><dt>Java</dt><dd>25</dd></div>
-                <div><dt>Client</dt><dd>Vanilla compatible</dd></div>
-              </dl>
-              <p className={styles.ledgerNote}>Architectury API required. <a href="https://github.com/TraiNguyenVan/shopguard">ShopGuard</a> is optional for claim-based faction features on Fabric.</p>
-            </aside>
+            <figure className={styles.screenshot}>
+              <img src={heroImage} alt="EconomyCraft's in-game economy menu open over a Minecraft market square" width="1920" height="1054" fetchPriority="high" />
+              <figcaption><span className={styles.liveDot} aria-hidden="true" /> EconomyCraft, in game</figcaption>
+            </figure>
           </div>
         </header>
-        <section className={`container ${styles.section}`} aria-labelledby="guide-heading">
-          <div className={styles.sectionHeading}>
-            <Heading as="h2" id="guide-heading">Find your way in</Heading>
-            <p>Choose a guide for what you want to do.</p>
+
+        <section className={styles.compatibility} aria-label="Compatibility">
+          <div className={`container ${styles.compatibilityInner}`}>
+            <div><span>GAME VERSION</span><strong>Minecraft 26.3</strong></div>
+            <div><span>LOADERS</span><strong>Fabric <i aria-hidden="true">/</i> NeoForge</strong></div>
+            <div><span>JAVA</span><strong>25</strong></div>
+            <div><span>PLAYER CLIENT</span><strong>Vanilla</strong></div>
+            <p>Architectury API required. <Link href="https://github.com/TraiNguyenVan/shopguard">ShopGuard</Link> is optional for claim-based faction features on Fabric.</p>
           </div>
-          <div className={styles.guideList}>
-            {sections.map((section) => (
-              <article className={styles.guide} key={section.title}>
-                <Heading as="h3">{section.title}</Heading>
-                <p>{section.description}</p>
-                <Link to={section.link}>{section.label}</Link>
+        </section>
+
+        <section className={`container ${styles.features}`} aria-labelledby="features-heading">
+          <div className={styles.sectionHeading}>
+            <div>
+              <p className={styles.eyebrow}>THE ECONOMY, IN MOTION</p>
+              <Heading as="h2" id="features-heading">More than a balance command.</Heading>
+            </div>
+            <p>Give players useful ways to earn, trade, and work together—right inside your world.</p>
+          </div>
+          <div className={styles.featureGrid}>
+            {features.map((feature) => (
+              <article className={styles.featureCard} key={feature.number}>
+                <span className={styles.featureNumber}>{feature.number}</span>
+                <div>
+                  <Heading as="h3">{feature.title}</Heading>
+                  <p>{feature.description}</p>
+                  <Link to={feature.link}>{feature.label}<span aria-hidden="true"> ↗</span></Link>
+                </div>
               </article>
             ))}
           </div>
-          <p className={styles.release}>Download the <Link href="https://github.com/TraiNguyenVan/EconomyCraft/releases">latest release</Link> from GitHub.</p>
+          <div className={styles.moreLinks}>
+            <span>Looking for something else?</span>
+            <Link to="/docs/Choosing-a-Party-and-Profession">Player guides</Link>
+            <Link to="/docs/API-Reference">Developer API</Link>
+            <Link to="/contributors/architecture">Contributing</Link>
+            <Link href="https://github.com/TraiNguyenVan/EconomyCraft/releases">Latest release</Link>
+          </div>
         </section>
       </main>
     </Layout>
