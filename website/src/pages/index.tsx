@@ -7,7 +7,7 @@ import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
 const features = [
-  {icon: '▤', title: 'Player shops', description: 'Build a market where players set up stalls, choose their prices, and trade face to face.', link: '/docs/Shop-and-Selling', label: 'How shops work'},
+  {icon: '▤', title: 'A server-run shop', description: 'Set prices, organize categories, and let players buy or sell through a familiar in-game menu.', link: '/docs/Shop-and-Selling', label: 'How shops work'},
   {icon: '◇', title: 'Auctions', description: 'List rare finds, place offers, and let the best deal find its buyer.', link: '/docs/Auctions-Orders-and-Offers', label: 'Explore auctions'},
   {icon: '⌕', title: 'Wanted orders', description: 'Name the item you need and the reward. Someone in the world may have it.', link: '/docs/Auctions-Orders-and-Offers', label: 'Explore orders'},
   {icon: '✦', title: 'Community quests', description: 'Pool server funds into requests that give everyone a reason to pitch in.', link: '/docs/Server-Quests', label: 'Explore quests'},
