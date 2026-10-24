@@ -103,7 +103,7 @@ party.
 
 EconomyCraft can publish the auction and order market as JSON and accept player-scoped commands through one optional HTTP listener. The `http_market_enabled`, `http_market_port`, and `http_market_token` settings are documented in the [configuration reference](Server-Configuration.md). Set a non-empty token before enabling the listener. The listener starts with the server; changes to its settings take effect after a restart.
 
-The market route is `GET /economycraft/v1/market`, which reads and never writes. The command route is `POST /economycraft/v1/command`. Its actions, authentication requirements, and response formats are in the [API reference](API-Reference.md#command-route). The request names the player whose inventory or balance is used; counterparties come from the selected listing or order, not a caller-supplied player UUID. The selected port is printed in the server log when the listener starts. The token is never printed.
+The market route is `GET /economycraft/v1/market`, which reads and never writes. The command route is `POST /economycraft/v1/command`. Its actions, authentication requirements, and response formats are in the [HTTP market API guide](HTTP-Market-API.md#command-route). The request names the player whose inventory or balance is used; counterparties come from the selected listing or order, not a caller-supplied player UUID. The selected port is printed in the server log when the listener starts. The token is never printed.
 
 ## Commands
 

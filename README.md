@@ -18,6 +18,7 @@ Requires Architectury API. Install the EconomyCraft jar that matches your server
 - [Configuration reference](https://trainguyenvan.github.io/EconomyCraft/docs/Server-Configuration)
 - [Backups and migration](https://trainguyenvan.github.io/EconomyCraft/docs/Backups-and-Migration)
 - [API reference](https://trainguyenvan.github.io/EconomyCraft/docs/API-Reference)
+- [HTTP market API](https://trainguyenvan.github.io/EconomyCraft/docs/HTTP-Market-API)
 - [Latest release](https://github.com/TraiNguyenVan/EconomyCraft/releases)
 
 ## Contributing
