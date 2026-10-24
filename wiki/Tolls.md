@@ -14,7 +14,7 @@ Transfers and removals both require confirmation. Selecting **Cancel** returns w
 Changes are saved to the existing `tolls.json` store. Payment, tax, cooldown, right-click, and gravity-drop behavior is unchanged. No client mod or data migration is required.
 
 > [!NOTE]
-> Land-claim features require **ShopGuard**, which runs on Fabric only. On NeoForge servers, or Fabric servers without ShopGuard, these features are unavailable: the 50% claim-cost discount and increased damage on Monarchy land, and increased speed in Anarchism wilderness.
+> Land-claim features require [**ShopGuard**](https://github.com/Andrewwwwwwwwwwwwwww/shopguard), which runs on Fabric only. On NeoForge servers, or Fabric servers without ShopGuard, these features are unavailable: the 50% claim-cost discount and increased damage on Monarchy land, and increased speed in Anarchism wilderness.
 
 ## Chest behavior
 

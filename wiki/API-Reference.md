@@ -35,7 +35,7 @@ public interface EconomyCraftApi {
 
 ## FactionApi
 
-Read-only access to a player's party. Added for ShopGuard's claim rules, which live in another repository and
+Read-only access to a player's party. Added for [ShopGuard's](https://github.com/Andrewwwwwwwwwwwwwww/shopguard) claim rules, which live in another repository and
 cannot import EconomyCraft's internals.
 
 ```java
@@ -85,7 +85,7 @@ public final class FactionIds {
 ```
 
 They exist because a party name crosses repository boundaries — a save file, a command argument, and
-ShopGuard's claim pricing — and a consumer in another repository cannot import EconomyCraft's internal
+[ShopGuard's](https://github.com/Andrewwwwwwwwwwwwwww/shopguard) claim pricing — and a consumer in another repository cannot import EconomyCraft's internal
 `FactionId` enum. Passing strings across that boundary is unavoidable; what is avoidable is the typo. Write
 `FactionIds.MONARCHY` and you get a compile error when the party is renamed, instead of a discount that
 silently never applies because it compared against `"Monarchy"`.

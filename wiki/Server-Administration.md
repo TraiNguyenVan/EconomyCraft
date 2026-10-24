@@ -160,7 +160,7 @@ Configure login messages in the `motd` section of `config/economycraft/config.js
 | `economycraft.command.tag` | Tag, party, and profession menus. |
 | `economycraft.command.offers` | Price offers. |
 
-Permission plugins may override default access behavior. Without a permission plugin, admin nodes require operator access and command nodes are allowed for everyone. Land-claim faction effects require the optional, Fabric-only ShopGuard mod; they are unavailable on NeoForge and on Fabric servers without ShopGuard.
+Permission plugins may override default access behavior. Without a permission plugin, admin nodes require operator access and command nodes are allowed for everyone. Land-claim faction effects require the optional, Fabric-only [ShopGuard](https://github.com/Andrewwwwwwwwwwwwwww/shopguard) mod; they are unavailable on NeoForge and on Fabric servers without ShopGuard.
 
 ## Transaction logs and webhooks
 
