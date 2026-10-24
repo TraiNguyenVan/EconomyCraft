@@ -5,6 +5,9 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+## [1.10.1] - 2026-10-24
+
+
 ### Villager personas survive a failed database read
 
 A villager's saved persona is no longer lost when its database lookup fails. The lookup used to
