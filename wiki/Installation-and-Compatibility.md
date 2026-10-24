@@ -9,7 +9,16 @@ EconomyCraft is a server-side mod for Minecraft 26.3. It supports Fabric and Neo
 - Fabric or NeoForge
 - Architectury API
 
-Use the EconomyCraft jar built for the loader running on your server. Do not install both loader jars on one server.
+## Download
+
+Download the jar for your server loader from the [latest EconomyCraft release](https://github.com/TraiNguyenVan/EconomyCraft/releases/latest):
+
+- Fabric: `economycraft-fabric-<version>_26.3.jar`
+- NeoForge: `economycraft-neoforge-<version>_26.3.jar`
+
+Choose the matching `.jar` asset; the `.sha256` files are checksums, not mods.
+
+Do not install both loader jars on one server.
 
 ## Optional integration
 
