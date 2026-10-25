@@ -5,6 +5,9 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+## [1.11.0] - 2026-10-25
+
+
 ### Upstream feature integration
 
 - Integrated the upstream 1.11.0 feature release while keeping EconomyCraft's faction, tax, contracts,
