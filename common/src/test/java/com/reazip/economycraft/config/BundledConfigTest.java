@@ -175,7 +175,8 @@ class BundledConfigTest {
         Package typePackage = value.getClass().getPackage();
         return typePackage != null
                 && (typePackage.getName().equals("com.reazip.economycraft.config")
-                    || typePackage.getName().equals("com.reazip.economycraft.gossip"))
+                    || typePackage.getName().equals("com.reazip.economycraft.gossip")
+                    || value.getClass().getEnclosingClass() == EconomyConfig.class)
                 && !value.getClass().isEnum();
     }
 
@@ -190,7 +191,8 @@ class BundledConfigTest {
         Map<String, Field> byName = new LinkedHashMap<>();
         for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
             for (Field field : current.getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers()) || field.isSynthetic()) continue;
+                if (Modifier.isStatic(field.getModifiers()) || Modifier.isTransient(field.getModifiers())
+                        || field.isSynthetic()) continue;
                 SerializedName annotation = field.getAnnotation(SerializedName.class);
                 byName.putIfAbsent(annotation != null ? annotation.value() : field.getName(), field);
             }
@@ -218,7 +220,7 @@ class BundledConfigTest {
             return json.isJsonPrimitive() && json.getAsBoolean() == flag;
         }
         if (value instanceof Enum<?> constant) {
-            return json.isJsonPrimitive() && constant.name().equals(json.getAsString());
+            return json.isJsonPrimitive() && constant.name().equalsIgnoreCase(json.getAsString());
         }
         if (value instanceof String text) {
             return json.isJsonPrimitive() && text.equals(json.getAsString());

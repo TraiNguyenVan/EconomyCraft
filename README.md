@@ -8,7 +8,7 @@ EconomyCraft is a server-side economy mod for Fabric and NeoForge. It adds playe
 | --- | --- | --- |
 | 26.3 | 25 | Fabric, NeoForge |
 
-Requires Architectury API. Install the EconomyCraft jar that matches your server loader. Land-claim-dependent faction features optionally use [ShopGuard](https://github.com/TraiNguyenVan/shopguard), which is Fabric-only.
+Install the EconomyCraft jar that matches your server loader. Land-claim-dependent faction features optionally use [ShopGuard](https://github.com/TraiNguyenVan/shopguard), which is Fabric-only.
 
 ## Guides
 

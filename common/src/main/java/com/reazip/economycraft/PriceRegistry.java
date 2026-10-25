@@ -12,6 +12,7 @@ import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentifierCompat;
 import com.reazip.economycraft.util.ItemsCompat;
 import com.reazip.economycraft.util.MenuUiSupport;
+import com.reazip.economycraft.util.MoneyMath;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
@@ -52,6 +53,8 @@ public final class PriceRegistry {
     private final HolderLookup.Provider registryAccess;
     private final Map<IdentifierCompat.Id, List<PriceEntry>> prices = new LinkedHashMap<>();
     private final Map<String, CategorySettings> categorySettings = new LinkedHashMap<>();
+    private final List<PriceEntry> removedEntries = new ArrayList<>();
+    private JsonObject bundledDefaults;
 
     public PriceRegistry(MinecraftServer server) {
         this.file = EconomyPaths.configDir(server).resolve("prices.json");
@@ -70,6 +73,7 @@ public final class PriceRegistry {
     public void reload() {
         this.prices.clear();
         this.categorySettings.clear();
+        this.removedEntries.clear();
 
         if (Files.notExists(file)) {
             LOGGER.warn("[EconomyCraft] prices.json not found at {} (prices map will be empty).", file);
@@ -107,25 +111,30 @@ public final class PriceRegistry {
                 }
                 JsonObject obj = el.getAsJsonObject();
 
-                if (isRemoved(obj)) continue;
+                boolean removed = isRemoved(obj);
+                if (removed) {
+                    obj = removedEntryData(key, obj);
+                    if (obj == null) continue;
+                }
 
                 boolean isRealItem = IdentifierCompat.registryContainsKey(BuiltInRegistries.ITEM, id);
                 boolean isVirtual = isVirtualPriceId(id);
                 if (!isRealItem && !isVirtual) {
-                    missingItems.add(key);
+                    if (!removed) missingItems.add(key);
                     continue;
                 }
 
                 ItemStack customItem = null;
                 if (obj.has("components")) {
                     if (!isRealItem) {
+                        if (removed) continue;
                         LOGGER.warn("[EconomyCraft] Price entry '{}' has 'components' but '{}' is not a real item; skipping.", key, id.asString());
                         invalidCustomItemCount++;
                         continue;
                     }
                     customItem = decodeComponents(key, id, obj.get("components"));
                     if (customItem == null || customItem.isEmpty()) {
-                        invalidCustomItemCount++;
+                        if (!removed) invalidCustomItemCount++;
                         continue;
                     }
                 }
@@ -137,6 +146,10 @@ public final class PriceRegistry {
                 boolean dynamicPriceEnabled = getBoolean(obj, "dynamic_price_enabled", true);
 
                 PriceEntry entry = new PriceEntry(key, id, category, stack, unitBuy, unitSell, customItem, dynamicPriceEnabled);
+                if (removed) {
+                    removedEntries.add(entry);
+                    continue;
+                }
                 prices.computeIfAbsent(id, k -> new ArrayList<>()).add(entry);
                 entryCount++;
             }
@@ -291,6 +304,7 @@ public final class PriceRegistry {
         if (expected.customItem() != null) {
             return ItemStack.isSameItemSameComponents(stack, expected.customItem());
         }
+        if (stack.is(Items.ENCHANTED_BOOK) && storedEnchantments(stack).size() > 1) return false;
         for (IdentifierCompat.Id key : resolvePriceKeys(stack)) {
             if (!key.equals(expected.id())) continue;
             List<PriceEntry> candidates = prices.get(key);
@@ -326,12 +340,52 @@ public final class PriceRegistry {
         }
     }
 
-    public Long getUnitSell(ItemStack stack) {
-        PriceEntry p = resolve(stack);
-        return (p != null && p.unitSell() > 0) ? p.unitSell() : null;
+    public Long getUnitSell(ItemStack stack, PriceEntry p) {
+        if (p == null || p.unitSell() <= 0) return null;
+        if (p.customItem() != null) return p.unitSell();
+        long total;
+        try {
+            total = stack.is(Items.ENCHANTED_BOOK)
+                    ? Math.max(p.unitSell(), enchantmentSellValue(storedEnchantments(stack)))
+                    : Math.addExact(p.unitSell(), enchantmentSellValue(stack.getOrDefault(DataComponents.ENCHANTMENTS, ItemEnchantments.EMPTY)));
+        } catch (ArithmeticException ex) {
+            return null;
+        }
+        if (isDamaged(stack)) total = scaleByDurability(total, stack);
+        return total > 0 ? total : null;
     }
 
-    public boolean isSellBlockedByDamage(ItemStack stack) {
+    private static ItemEnchantments storedEnchantments(ItemStack stack) {
+        return stack.getOrDefault(DataComponents.STORED_ENCHANTMENTS, ItemEnchantments.EMPTY);
+    }
+
+    private long enchantmentSellValue(ItemEnchantments enchantments) {
+        long sum = 0;
+        for (Object2IntMap.Entry<Holder<Enchantment>> e : enchantments.entrySet()) {
+            sum = Math.addExact(sum, enchantmentUnitSell(e.getKey(), e.getIntValue()));
+        }
+        return sum;
+    }
+
+    private long enchantmentUnitSell(Holder<Enchantment> holder, int level) {
+        for (IdentifierCompat.Id key : enchantedBookKeys(holder, level)) {
+            List<PriceEntry> candidates = prices.get(key);
+            if (candidates == null) continue;
+            for (PriceEntry p : candidates) {
+                if (p.customItem() == null && p.unitSell() > 0) return p.unitSell();
+            }
+        }
+        return 0;
+    }
+
+    private static long scaleByDurability(long unit, ItemStack stack) {
+        long max = stack.getMaxDamage();
+        if (max <= 0) return unit;
+        long remaining = Math.max(0, max - stack.getDamageValue());
+        return MoneyMath.scale(unit, remaining, max);
+    }
+
+    public boolean isDamaged(ItemStack stack) {
         return stack != null && stack.isDamageableItem() && stack.getDamageValue() > 0;
     }
 
@@ -347,6 +401,11 @@ public final class PriceRegistry {
 
     private boolean isBuyable(PriceEntry entry) {
         return entry.unitBuy() > 0 && isCategoryEnabled(entry.category());
+    }
+
+    public boolean isBuyable(ItemStack stack, PriceEntry entry) {
+        return EconomyConfig.get().shop.enabled && isBuyable(entry)
+                && ItemStack.isSameItemSameComponents(stack, createPrototype(entry));
     }
 
     public Set<String> buyCategories() {
@@ -471,13 +530,36 @@ public final class PriceRegistry {
         return out;
     }
 
+    public List<PriceEntry> removedEntries() {
+        List<PriceEntry> out = new ArrayList<>(removedEntries);
+        out.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a.key(), b.key()));
+        return out;
+    }
+
+    public List<PriceEntry> searchRemoved(String query) {
+        return search(query, null, removedEntries());
+    }
+
+    @Nullable
+    public PriceEntry findRemovedByKey(String key) {
+        if (key == null) return null;
+        for (PriceEntry p : removedEntries) {
+            if (key.equals(p.key())) return p;
+        }
+        return null;
+    }
+
     private List<PriceEntry> search(String query, @Nullable String category, Predicate<PriceEntry> keep) {
+        return search(query, category, entries(keep));
+    }
+
+    private static List<PriceEntry> search(String query, @Nullable String category, List<PriceEntry> source) {
         if (query == null || query.isBlank()) return List.of();
         String q = query.trim().toLowerCase(Locale.ROOT);
         String c = category != null ? category.trim().toLowerCase(Locale.ROOT) : null;
 
         List<PriceEntry> out = new ArrayList<>();
-        for (PriceEntry p : entries(keep)) {
+        for (PriceEntry p : source) {
             if (c != null && !matchesCategory(p, c)) continue;
             String name = p.id().path().replace('_', ' ').toLowerCase(Locale.ROOT);
             if (name.contains(q)
@@ -536,17 +618,47 @@ public final class PriceRegistry {
         });
     }
 
-    public synchronized boolean delete(String key) {
+    public synchronized boolean remove(String key) {
+        if (key == null || key.isBlank()) return false;
+        return mutate(root -> markRemoved(root, key));
+    }
+
+    public synchronized int removeAll() {
+        int count = allEntries().size();
+        boolean ok = mutate(root -> {
+            for (String key : root.keySet()) {
+                markRemoved(root, key);
+            }
+        });
+        return ok ? count : -1;
+    }
+
+    public synchronized boolean restore(String key) {
         if (key == null || key.isBlank()) return false;
         return mutate(root -> {
-            if (isBundledDefaultKey(key)) {
-                JsonObject tombstone = new JsonObject();
-                tombstone.addProperty("removed", true);
-                root.add(key, tombstone);
+            JsonElement element = root.get(key);
+            if (element == null || !element.isJsonObject()) return;
+            JsonObject obj = element.getAsJsonObject();
+            obj.remove("removed");
+            if (obj.size() > 0) return;
+
+            JsonObject defaults = readBundledDefaultJson();
+            JsonElement fallback = defaults == null ? null : defaults.get(key);
+            if (fallback != null && fallback.isJsonObject()) {
+                root.add(key, fallback.deepCopy());
             } else {
                 root.remove(key);
             }
         });
+    }
+
+    public synchronized boolean resetToDefaults() {
+        if (readBundledDefaultJson() == null) return false;
+        if (Files.exists(file) && backup("prices.json.before-reset-") == null) return false;
+        if (!createFromBundledDefault()) return false;
+        addMissingModdedItems();
+        reload();
+        return true;
     }
 
     public synchronized boolean upsertCategory(String category, @Nullable String name, @Nullable String color,
@@ -621,9 +733,10 @@ public final class PriceRegistry {
         return candidate;
     }
 
-    private boolean isBundledDefaultKey(String key) {
-        JsonObject defaults = readBundledDefaultJson();
-        return defaults != null && defaults.has(key);
+    private static void markRemoved(JsonObject root, String key) {
+        if (CATEGORY_OVERRIDES_KEY.equals(key)) return;
+        JsonElement element = root.get(key);
+        if (element != null && element.isJsonObject()) element.getAsJsonObject().addProperty("removed", true);
     }
 
     private boolean mutate(java.util.function.Consumer<JsonObject> edit) {
@@ -729,13 +842,23 @@ public final class PriceRegistry {
                 && obj.get("removed").getAsBoolean();
     }
 
-    private void createFromBundledDefault() {
+    @Nullable
+    private JsonObject removedEntryData(String key, JsonObject obj) {
+        for (String field : obj.keySet()) {
+            if (!"removed".equals(field)) return obj;
+        }
+        JsonObject defaults = readBundledDefaultJson();
+        JsonElement fallback = defaults == null ? null : defaults.get(key);
+        return fallback != null && fallback.isJsonObject() ? fallback.getAsJsonObject() : null;
+    }
+
+    private boolean createFromBundledDefault() {
         try (InputStream in = PriceRegistry.class.getResourceAsStream(DEFAULT_RESOURCE_PATH)) {
             if (in == null) {
                 LOGGER.error("[EconomyCraft] Default prices resource not found at {}. Creating empty {}",
                         DEFAULT_RESOURCE_PATH, file);
                 Files.writeString(file, "{}", StandardCharsets.UTF_8);
-                return;
+                return false;
             }
 
             Files.copy(in, file, StandardCopyOption.REPLACE_EXISTING);
@@ -745,8 +868,10 @@ public final class PriceRegistry {
                 Files.writeString(file, GSON.toJson(created), StandardCharsets.UTF_8);
             }
             LOGGER.info("[EconomyCraft] Created {} from bundled default {}", file, DEFAULT_RESOURCE_PATH);
+            return true;
         } catch (IOException e) {
             LOGGER.error("[EconomyCraft] Failed to create prices.json at {}", file, e);
+            return false;
         }
     }
 
@@ -862,12 +987,14 @@ public final class PriceRegistry {
     }
 
     private JsonObject readBundledDefaultJson() {
+        if (bundledDefaults != null) return bundledDefaults;
         try (InputStream in = PriceRegistry.class.getResourceAsStream(DEFAULT_RESOURCE_PATH)) {
             if (in == null) return null;
 
             byte[] bytes = in.readAllBytes();
             String json = new String(bytes, StandardCharsets.UTF_8);
-            return GSON.fromJson(json, JsonObject.class);
+            bundledDefaults = GSON.fromJson(json, JsonObject.class);
+            return bundledDefaults;
 
         } catch (Exception ex) {
             LOGGER.error("[EconomyCraft] Failed to read bundled default prices.json from {}", DEFAULT_RESOURCE_PATH, ex);
@@ -876,14 +1003,20 @@ public final class PriceRegistry {
     }
 
     private void backupBrokenConfig() {
+        backup("prices.json.broken-");
+    }
+
+    @Nullable
+    private Path backup(String prefix) {
+        if (Files.notExists(file)) return null;
+        Path target = file.resolveSibling(prefix + System.currentTimeMillis());
         try {
-            if (Files.exists(file)) {
-                Path backup = file.resolveSibling("prices.json.broken-" + System.currentTimeMillis());
-                Files.copy(file, backup, StandardCopyOption.REPLACE_EXISTING);
-                LOGGER.warn("[EconomyCraft] Backed up broken prices.json to {}", backup);
-            }
+            Files.copy(file, target, StandardCopyOption.REPLACE_EXISTING);
+            LOGGER.warn("[EconomyCraft] Backed up prices.json to {}", target);
+            return target;
         } catch (IOException e) {
-            LOGGER.error("[EconomyCraft] Failed to backup broken prices.json at {}", file, e);
+            LOGGER.error("[EconomyCraft] Failed to back up prices.json at {}", file, e);
+            return null;
         }
     }
 
@@ -932,26 +1065,28 @@ public final class PriceRegistry {
         }
 
         if (stack.is(Items.ENCHANTED_BOOK)) {
-            ItemEnchantments stored = stack.getOrDefault(DataComponents.STORED_ENCHANTMENTS, ItemEnchantments.EMPTY);
+            ItemEnchantments stored = storedEnchantments(stack);
             for (Object2IntMap.Entry<Holder<Enchantment>> e : stored.entrySet()) {
-                Holder<Enchantment> holder = e.getKey();
-                int level = e.getIntValue();
-                if (level <= 0) continue;
-                IdentifierCompat.Id enchId = holder.unwrapKey().map(IdentifierCompat::fromResourceKey).orElse(null);
-                if (enchId == null) continue;
-                String base = "enchanted_book_" + enchId.path() + "_" + level;
-                IdentifierCompat.Id key = IdentifierCompat.fromNamespaceAndPath(enchId.namespace(), base);
-                out.add(key);
-
-                if ("binding_curse".equals(enchId.path())) {
-                    out.add(IdentifierCompat.fromNamespaceAndPath(enchId.namespace(), "enchanted_book_curse_of_binding_" + level));
-                } else if ("vanishing_curse".equals(enchId.path())) {
-                    out.add(IdentifierCompat.fromNamespaceAndPath(enchId.namespace(), "enchanted_book_curse_of_vanishing_" + level));
-                }
+                out.addAll(enchantedBookKeys(e.getKey(), e.getIntValue()));
             }
         }
 
         out.add(itemId);
+        return out;
+    }
+
+    private static List<IdentifierCompat.Id> enchantedBookKeys(Holder<Enchantment> holder, int level) {
+        if (level <= 0) return List.of();
+        IdentifierCompat.Id enchId = holder.unwrapKey().map(IdentifierCompat::fromResourceKey).orElse(null);
+        if (enchId == null) return List.of();
+
+        List<IdentifierCompat.Id> out = new ArrayList<>(2);
+        out.add(IdentifierCompat.fromNamespaceAndPath(enchId.namespace(), "enchanted_book_" + enchId.path() + "_" + level));
+        if ("binding_curse".equals(enchId.path())) {
+            out.add(IdentifierCompat.fromNamespaceAndPath(enchId.namespace(), "enchanted_book_curse_of_binding_" + level));
+        } else if ("vanishing_curse".equals(enchId.path())) {
+            out.add(IdentifierCompat.fromNamespaceAndPath(enchId.namespace(), "enchanted_book_curse_of_vanishing_" + level));
+        }
         return out;
     }
 

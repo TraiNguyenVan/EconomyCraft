@@ -2,8 +2,6 @@ package com.reazip.economycraft.gossip;
 
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.EconomyConfig;
-import dev.architectury.event.EventResult;
-import dev.architectury.event.events.common.InteractionEvent;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -87,21 +85,6 @@ public final class VillagerGossipListener {
         if (spokenTracker != null) {
             recentSpokenTracker = spokenTracker;
         }
-    }
-
-    /**
-     * Registers the listener on the cross-platform entity interaction event.
-     */
-    public static void register() {
-        InteractionEvent.INTERACT_ENTITY.register(VillagerGossipListener::onInteract);
-    }
-
-    /**
-     * Architectury interaction callback.
-     */
-    public static EventResult onInteract(Player player, Entity entity, InteractionHand hand) {
-        handleVillagerInteraction(player, entity, hand);
-        return EventResult.pass();
     }
 
     /**

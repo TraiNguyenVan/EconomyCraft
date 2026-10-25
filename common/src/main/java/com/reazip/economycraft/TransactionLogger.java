@@ -25,12 +25,12 @@ final class TransactionLogger {
         this.nameResolver = nameResolver;
     }
 
-    void onBalanceChanged(BalanceChangeEvent event) {
+    void onBalanceChanged(BalanceChangeEvent event, String item) {
         EconomyConfig config = EconomyConfig.get();
         WebhookConfig webhook = WebhookConfig.get();
         boolean isTransfer = event.type() == BalanceMutationType.PAYMENT_SENT
                 || event.type() == BalanceMutationType.PAYMENT_RECEIVED;
-        boolean logging = config.transactionLogEnabled;
+        boolean logging = config.transactionLog.enabled;
         boolean notifying = !isTransfer && webhook.webhookEnabled && !webhook.webhookUrl.isBlank()
                 && Math.abs(event.difference()) >= webhook.webhookMinAmount;
         if (!logging && !notifying) return;
@@ -40,8 +40,8 @@ final class TransactionLogger {
         String source = event.source().map(MutationSource::asString).orElse(null);
 
         if (logging) {
-            TransactionLogWriter.append(logsDir, config.transactionLogRetentionDays,
-                    toJsonLine(event, playerName, counterpartyName, source));
+            TransactionLogWriter.append(logsDir, config.transactionLog.retentionDays,
+                    toJsonLine(event, playerName, counterpartyName, source, item));
         }
         if (notifying) {
             WebhookNotifier.send(webhook.webhookUrl, toMessage(event, playerName, counterpartyName, source));
@@ -66,7 +66,7 @@ final class TransactionLogger {
         return name == null || name.isBlank() ? null : name;
     }
 
-    private static String toJsonLine(BalanceChangeEvent event, String playerName, String counterpartyName, String source) {
+    private static String toJsonLine(BalanceChangeEvent event, String playerName, String counterpartyName, String source, String item) {
         JsonObject obj = new JsonObject();
         obj.addProperty("time", Instant.now().toString());
         obj.addProperty("type", event.type().name());
@@ -79,6 +79,7 @@ final class TransactionLogger {
         obj.addProperty("balance_after", event.newBalance());
         if (source != null) obj.addProperty("source", source);
         event.detail().ifPresent(detail -> obj.addProperty("detail", detail));
+        if (item != null) obj.addProperty("item", item);
         return GSON.toJson(obj);
     }
 

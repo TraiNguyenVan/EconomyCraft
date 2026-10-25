@@ -1,6 +1,5 @@
 package com.reazip.economycraft.integration;
 
-import dev.architectury.platform.Platform;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,7 +49,7 @@ public final class ClaimBridge {
         if (current != null) return current;
 
         try {
-            if (!Platform.isModLoaded("shopguard")) {
+            if (!isModLoaded("shopguard")) {
                 if (!warnedMissing) {
                     warnedMissing = true;
                     LOGGER.warn("[EconomyCraft] ShopGuard is not installed — land-claim faction rules "
@@ -115,5 +114,25 @@ public final class ClaimBridge {
 
     public static boolean mayBuild(ServerPlayer player, String dim, int x, int z) {
         return player != null && mayBuild(player.getUUID(), dim, x, z);
+    }
+
+    /** Checks the active loader without coupling common code to a loader API. */
+    private static boolean isModLoaded(String modId) {
+        try {
+            Class<?> fabricLoader = Class.forName("net.fabricmc.loader.api.FabricLoader");
+            Object loader = fabricLoader.getMethod("getInstance").invoke(null);
+            return (boolean) fabricLoader.getMethod("isModLoaded", String.class).invoke(loader, modId);
+        } catch (ClassNotFoundException ignored) {
+            // NeoForge or a plain unit-test classpath.
+        } catch (Throwable t) {
+            return false;
+        }
+        try {
+            Class<?> modList = Class.forName("net.neoforged.fml.ModList");
+            Object list = modList.getMethod("get").invoke(null);
+            return (boolean) modList.getMethod("isLoaded", String.class).invoke(list, modId);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 }
