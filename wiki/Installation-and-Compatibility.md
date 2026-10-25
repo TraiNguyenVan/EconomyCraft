@@ -7,7 +7,6 @@ EconomyCraft is a server-side mod for Minecraft 26.3. It supports Fabric and Neo
 - Minecraft 26.3
 - Java 25
 - Fabric or NeoForge
-- Architectury API
 
 ## Download
 

@@ -1,12 +1,16 @@
 package com.reazip.economycraft.fabric;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.TollManager;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
+import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import com.reazip.economycraft.profession.ProfessionHooks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -24,7 +28,14 @@ import java.util.Set;
 public final class EconomyCraftFabric implements ModInitializer {
     @Override
     public void onInitialize() {
-        EconomyCraft.registerEvents();
+        EconomyCraft.init();
+        ServerLifecycleEvents.SERVER_STARTING.register(EconomyCraft::onServerStarting);
+        CommandRegistrationCallback.EVENT.register(EconomyCraft::registerCommands);
+        ServerLifecycleEvents.SERVER_STARTED.register(EconomyCraft::onServerStarted);
+        ServerLifecycleEvents.SERVER_STOPPING.register(EconomyCraft::onServerStopping);
+        ServerPlayerEvents.JOIN.register(EconomyCraft::onPlayerJoin);
+        ServerTickEvents.END_SERVER_TICK.register(EconomyCraft::onServerTick);
+        UseEntityCallback.EVENT.register(com.reazip.economycraft.gossip.VillagerGossipListener::onUseEntity);
         ServerTickEvents.END_SERVER_TICK.register(server -> TollManager.of(server).tickPressurePlateDepartures(server));
         UseBlockCallback.EVENT.register((player, level, hand, hit) -> {
             if (level.isClientSide() || !(player instanceof net.minecraft.server.level.ServerPlayer serverPlayer))
@@ -54,8 +65,6 @@ public final class EconomyCraftFabric implements ModInitializer {
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {
             if (!(level instanceof ServerLevel serverLevel)) return;
             if (player instanceof ServerPlayer serverPlayer) {
-                // AFTER means the break already succeeded, and `state` is the pre-break one, which is the only
-                // way to know a crop was mature or a stone was an ore. Counting lives in common.
                 ProfessionHooks.onBlockBroken(serverPlayer, pos, state);
             }
             TollManager manager = TollManager.of(serverLevel.getServer());

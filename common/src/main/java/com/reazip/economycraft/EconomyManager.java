@@ -1,6 +1,7 @@
 package com.reazip.economycraft;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.api.v1.BalanceChangeEvent;
@@ -34,6 +35,7 @@ import com.reazip.economycraft.time.CooldownService;
 import com.reazip.economycraft.time.OnlineTimeService;
 import com.reazip.economycraft.util.EconomyPaths;
 import com.reazip.economycraft.util.IdentityCompat;
+import com.reazip.economycraft.util.MoneyMath;
 import com.reazip.economycraft.util.ProfileCompat;
 import com.reazip.economycraft.util.TransactionLogWriter;
 import com.reazip.economycraft.util.UuidLongMapStore;
@@ -90,7 +92,6 @@ public class EconomyManager {
     );
     private static final String ECO_BALANCE_OBJECTIVE = "eco_balance";
     private static final int LEADERBOARD_SIZE = 5;
-    private static final long SCOREBOARD_SCORE_SCALE = 1000L;
     private static final long LOOKUP_RETRY_COOLDOWN_MS = TimeUnit.MINUTES.toMillis(5);
     private static final ExecutorService PROFILE_LOOKUP_EXECUTOR = Executors.newFixedThreadPool(4, r -> {
         Thread thread = new Thread(r, "EconomyCraft-ProfileLookup");
@@ -155,7 +156,13 @@ public class EconomyManager {
     /** Five seconds: fast enough that a stale tag is a non-event, slow enough to be invisible in a profiler. */
     private static final int TAG_SWEEP_INTERVAL_TICKS = 100;
 
-    public static final long MAX = 999_999_999_999L;
+    /** Hard safety ceiling; the configured max balance may be lower. */
+    public static final long ABSOLUTE_MAX_BALANCE = 1_000_000_000_000_000_000L;
+    public static final long MAX = ABSOLUTE_MAX_BALANCE;
+
+    public static long maxBalance() {
+        return Math.clamp(EconomyConfig.get().economy.maxBalance, 1, ABSOLUTE_MAX_BALANCE);
+    }
 
     public EconomyManager(MinecraftServer server) {
         this.server = server;
@@ -191,12 +198,12 @@ public class EconomyManager {
         loadPlayerNames();
 
         this.logsDir = EconomyPaths.logsDir(server);
-        TransactionLogWriter.cleanup(logsDir, EconomyConfig.get().transactionLogRetentionDays);
+        TransactionLogWriter.cleanup(logsDir, EconomyConfig.get().transactionLog.retentionDays);
         TransactionLogger transactionLogger = new TransactionLogger(logsDir, this::getBestName);
 
         this.balanceMutations = new BalanceMutationEngine(
                 balances,
-                () -> EconomyConfig.get().startingBalance,
+                () -> EconomyConfig.get().economy.startingBalance,
                 this::updateLeaderboard,
                 () -> {
                     updateLeaderboard();
@@ -249,7 +256,7 @@ public class EconomyManager {
             }
         });
 
-        balanceEvents.register(transactionLogger::onBalanceChanged);
+        balanceEvents.registerInternal(transactionLogger::onBalanceChanged);
         balanceEvents.register(this::recordStats);
 
         scheduleProfileLookups(balances.keySet());
@@ -484,8 +491,8 @@ public class EconomyManager {
         return balanceMutations.getBalance(player);
     }
 
-    public void addMoney(UUID player, long amount) {
-        addMoney(player, amount, null);
+    public long peekBalance(UUID player) {
+        return balanceMutations.peekBalance(player);
     }
 
     public BalanceMutationResult addMoney(UUID player, long amount, @Nullable MutationSource source) {
@@ -493,12 +500,13 @@ public class EconomyManager {
     }
 
     public BalanceMutationResult addMoney(UUID player, long amount, @Nullable MutationSource source, @Nullable String detail) {
-        requireServerThread();
-        return balanceMutations.add(player, amount, source, detail);
+        return addMoney(player, amount, source, detail, null);
     }
 
-    public void setMoney(UUID player, long amount) {
-        setMoney(player, amount, null);
+    public BalanceMutationResult addMoney(UUID player, long amount, @Nullable MutationSource source,
+                                          @Nullable String detail, @Nullable String item) {
+        requireServerThread();
+        return balanceMutations.add(player, amount, source, detail, item);
     }
 
     public BalanceMutationResult setMoney(UUID player, long amount, @Nullable MutationSource source) {
@@ -510,21 +518,18 @@ public class EconomyManager {
         return balanceMutations.set(player, amount, source, detail);
     }
 
-    public boolean removeMoney(UUID player, long amount) {
-        return removeMoney(player, amount, null).successful();
-    }
-
     public BalanceMutationResult removeMoney(UUID player, long amount, @Nullable MutationSource source) {
         return removeMoney(player, amount, source, null);
     }
 
     public BalanceMutationResult removeMoney(UUID player, long amount, @Nullable MutationSource source, @Nullable String detail) {
-        requireServerThread();
-        return balanceMutations.remove(player, amount, source, detail);
+        return removeMoney(player, amount, source, detail, null);
     }
 
-    public boolean pay(UUID from, UUID to, long amount) {
-        return pay(from, to, amount, null).successful();
+    public BalanceMutationResult removeMoney(UUID player, long amount, @Nullable MutationSource source,
+                                             @Nullable String detail, @Nullable String item) {
+        requireServerThread();
+        return balanceMutations.remove(player, amount, source, detail, item);
     }
 
     public PaymentResult pay(UUID from, UUID to, long amount, @Nullable MutationSource source) {
@@ -537,14 +542,14 @@ public class EconomyManager {
     }
 
     public PaymentResult transferMoney(UUID from, UUID to, long debitAmount, long creditAmount,
-                                       MutationSource source) {
-        return transferMoney(from, to, debitAmount, creditAmount, source, null);
+                                       MutationSource source, @Nullable String detail) {
+        return transferMoney(from, to, debitAmount, creditAmount, source, detail, null);
     }
 
     public PaymentResult transferMoney(UUID from, UUID to, long debitAmount, long creditAmount,
-                                       MutationSource source, @Nullable String detail) {
+                                       MutationSource source, @Nullable String detail, @Nullable String item) {
         requireServerThread();
-        return balanceMutations.transfer(from, to, debitAmount, creditAmount, source, detail);
+        return balanceMutations.transfer(from, to, debitAmount, creditAmount, source, detail, item);
     }
 
     public BalanceEvents getBalanceEvents() {
@@ -559,7 +564,7 @@ public class EconomyManager {
             if (map != null) {
                 for (Map.Entry<UUID, Double> e : map.entrySet()) {
                     if (e.getValue() == null) continue;
-                    balances.put(e.getKey(), clamp(e.getValue().longValue()));
+                    balances.put(e.getKey(), Math.clamp(e.getValue().longValue(), 0, ABSOLUTE_MAX_BALANCE));
                 }
             }
         } catch (Exception ex) {
@@ -614,13 +619,20 @@ public class EconomyManager {
         if (FISCAL_SOURCES.contains(source)) return;
 
         boolean trade = TRADE_SOURCES.contains(source);
+        boolean escrowRefund = EconomySources.ORDER_ESCROW_REFUND.asString().equals(source);
         stats.compute(event.playerId(), (id, current) -> {
             PlayerStats base = current != null ? current : new PlayerStats(0, 0, 0, 0);
+            if (escrowRefund && diff > 0) {
+                return new PlayerStats(base.earned(), Math.max(0, base.spent() - diff), base.sold(),
+                        Math.max(0, base.bought() - diff));
+            }
             if (diff > 0) {
-                return new PlayerStats(base.earned() + diff, base.spent(), base.sold() + (trade ? diff : 0), base.bought());
+                return new PlayerStats(MoneyMath.saturatedAdd(base.earned(), diff), base.spent(),
+                        MoneyMath.saturatedAdd(base.sold(), trade ? diff : 0), base.bought());
             }
             long amount = -diff;
-            return new PlayerStats(base.earned(), base.spent() + amount, base.sold(), base.bought() + (trade ? amount : 0));
+            return new PlayerStats(base.earned(), MoneyMath.saturatedAdd(base.spent(), amount), base.sold(),
+                    MoneyMath.saturatedAdd(base.bought(), trade ? amount : 0));
         });
     }
 
@@ -639,7 +651,7 @@ public class EconomyManager {
         Scoreboard board = server.getScoreboard();
         teardownObjective(board);
 
-        if (EconomyConfig.get().scoreboardEnabled) {
+        if (EconomyConfig.get().display.scoreboardEnabled) {
             setupObjective();
         }
     }
@@ -698,7 +710,7 @@ public class EconomyManager {
     private void syncScoreboard() {
         Scoreboard board = server.getScoreboard();
 
-        if (!EconomyConfig.get().scoreboardEnabled) {
+        if (!EconomyConfig.get().display.scoreboardEnabled) {
             teardownObjective(board);
             return;
         }
@@ -730,12 +742,13 @@ public class EconomyManager {
             }
         }
 
-        for (LeaderboardEntry e : entries) {
+        for (int i = 0; i < entries.size(); i++) {
+            LeaderboardEntry e = entries.get(i);
             ScoreAccess score = board.getOrCreatePlayerScore(
                     ScoreHolder.forNameOnly(e.name()),
                     objective
             );
-            score.set((int) Math.min(e.value() / SCOREBOARD_SCORE_SCALE, Integer.MAX_VALUE));
+            score.set(entries.size() - i);
             score.numberFormatOverride(new FixedFormat(Component.literal(EconomyCraft.formatMoneyShort(e.value()))));
         }
 
@@ -789,10 +802,6 @@ public class EconomyManager {
         });
     }
 
-    public List<LeaderboardEntry> getLeaderboardEntries(int limit) {
-        return getLeaderboardEntries(LeaderboardCategory.BALANCE, limit);
-    }
-
     public @Nullable LeaderboardEntry getLeaderboardEntry(int rank) {
         return getLeaderboardEntry(LeaderboardCategory.BALANCE, rank);
     }
@@ -805,7 +814,7 @@ public class EconomyManager {
             case SPENT -> computeLeaderboardFrom(PlayerStats::spent, safeLimit);
             case SOLD -> computeLeaderboardFrom(PlayerStats::sold, safeLimit);
             case BOUGHT -> computeLeaderboardFrom(PlayerStats::bought, safeLimit);
-            case TRADED -> computeLeaderboardFrom(s -> s.sold() + s.bought(), safeLimit);
+            case TRADED -> computeLeaderboardFrom(s -> MoneyMath.saturatedAdd(s.sold(), s.bought()), safeLimit);
         };
     }
 
@@ -818,16 +827,16 @@ public class EconomyManager {
     public record LeaderboardEntry(UUID id, String name, long value) {}
 
     public boolean toggleScoreboard() {
-        EconomyConfig.get().scoreboardEnabled = !EconomyConfig.get().scoreboardEnabled;
+        EconomyConfig.get().display.scoreboardEnabled = !EconomyConfig.get().display.scoreboardEnabled;
         EconomyConfig.save();
 
-        if (EconomyConfig.get().scoreboardEnabled) {
+        if (EconomyConfig.get().display.scoreboardEnabled) {
             setupObjective();
         } else {
             teardownObjective(server.getScoreboard());
         }
 
-        return EconomyConfig.get().scoreboardEnabled;
+        return EconomyConfig.get().display.scoreboardEnabled;
     }
 
     public AuctionManager getAuctions() {
@@ -1046,7 +1055,7 @@ public class EconomyManager {
     }
 
     public boolean isDynamicPricingActive(String category, boolean itemEnabled) {
-        return EconomyConfig.get().dynamicPricesEnabled && prices.isDynamicPricingEnabled(category, itemEnabled);
+        return EconomyConfig.get().dynamicPrices.enabled && prices.isDynamicPricingEnabled(category, itemEnabled);
     }
 
     public long getEffectiveBuyPrice(long baseBuyPrice, boolean dynamicPricingActive) {
@@ -1054,13 +1063,8 @@ public class EconomyManager {
         return dynamicPrices.applyMultiplier(baseBuyPrice);
     }
 
-    public long getEffectiveBuyPrice(long baseBuyPrice, String category, boolean itemEnabled) {
-        if (baseBuyPrice <= 0) return baseBuyPrice;
-        return getEffectiveBuyPrice(baseBuyPrice, isDynamicPricingActive(category, itemEnabled));
-    }
-
     public long getEffectiveBuyPrice(PriceRegistry.PriceEntry entry) {
-        return getEffectiveBuyPrice(entry.unitBuy(), entry.category(), entry.dynamicPriceEnabled());
+        return getEffectiveBuyPrice(entry.unitBuy(), isDynamicPricingActive(entry.category(), entry.dynamicPriceEnabled()));
     }
 
     public Map<UUID, Long> getBalances() {
@@ -1072,11 +1076,7 @@ public class EconomyManager {
         return Map.copyOf(balances);
     }
 
-    /**
-     * The cached uuid-to-name map, and nothing else — no balance, no faction, no profession. It backs
-     * the market snapshot's roster, which is why it is a copy of the names rather than a lookup that
-     * could be widened into an account.
-     */
+    /** Cached UUID-to-name map used by the market snapshot roster. */
     public Map<UUID, String> getPlayerNames() {
         requireServerThread();
         return Map.copyOf(playerNames);
@@ -1089,7 +1089,7 @@ public class EconomyManager {
 
     public int resetAllBalances() {
         requireServerThread();
-        long starting = clamp(EconomyConfig.get().startingBalance);
+        long starting = Math.clamp(EconomyConfig.get().economy.startingBalance, 0, maxBalance());
         int changed = 0;
         for (UUID id : new ArrayList<>(balances.keySet())) {
             long previous = balances.get(id);
@@ -1146,7 +1146,7 @@ public class EconomyManager {
         long today = LocalDate.now().toEpochDay();
         long last = lastDaily.getOrDefault(player, -1L);
         if (last == today) return false;
-        BalanceMutationResult result = addMoney(player, EconomyConfig.get().dailyAmount, EconomySources.DAILY_REWARD);
+        BalanceMutationResult result = addMoney(player, EconomyConfig.get().economy.dailyReward, EconomySources.DAILY_REWARD);
         if (!result.successful()) return false;
         lastDaily.put(player, today);
         save();
@@ -1157,27 +1157,25 @@ public class EconomyManager {
         return lastDaily.getOrDefault(player, -1L) == LocalDate.now().toEpochDay();
     }
 
-    public boolean tryRecordDailySell(UUID player, long saleAmount) {
-        long limit = EconomyConfig.get().dailySellLimit;
-        if (limit <= 0) return false;
+    public void recordDailySell(UUID player, long saleAmount) {
+        long limit = EconomyConfig.get().selling.dailyLimit;
+        if (limit <= 0) return;
 
         DailySellData data = getOrCreateTodaySellData(player);
         long newTotal = data.amount() + saleAmount;
-        if (newTotal > limit) {
-            return true;
-        }
+        if (newTotal > limit) return;
 
         dailySells.put(player, new DailySellData(data.day(), newTotal));
         save();
-        return false;
     }
 
     public long getDailySellRemaining(UUID player) {
-        long limit = EconomyConfig.get().dailySellLimit;
+        long limit = EconomyConfig.get().selling.dailyLimit;
         if (limit <= 0) return Long.MAX_VALUE;
 
-        DailySellData data = getOrCreateTodaySellData(player);
-        return Math.max(0, limit - data.amount());
+        DailySellData data = dailySells.get(player);
+        long sold = data != null && data.day() == LocalDate.now().toEpochDay() ? data.amount() : 0;
+        return Math.max(0, limit - sold);
     }
 
     private DailySellData getOrCreateTodaySellData(UUID player) {
@@ -1188,10 +1186,6 @@ public class EconomyManager {
             dailySells.put(player, data);
         }
         return data;
-    }
-
-    private long clamp(long value) {
-        return Math.clamp(value, 0, MAX);
     }
 
     public void requireServerThread() {

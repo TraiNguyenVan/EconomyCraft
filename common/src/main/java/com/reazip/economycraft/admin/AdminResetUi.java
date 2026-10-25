@@ -33,12 +33,14 @@ public final class AdminResetUi {
     private AdminResetUi() {}
 
     private static final int SIZE = 27;
-    private static final int RESET_BALANCES = 2;
-    private static final int RESET_DAILY_REWARD = 4;
-    private static final int RESET_DAILY_SELL = 6;
-    private static final int CLEAR_AUCTIONS = 10;
-    private static final int CLEAR_ORDERS = 12;
-    private static final int RESET_EVERYTHING = 16;
+    private static final int RESET_BALANCES = 1;
+    private static final int RESET_DAILY_REWARD = 3;
+    private static final int RESET_DAILY_SELL = 5;
+    private static final int CLEAR_AUCTIONS = 7;
+    private static final int CLEAR_ORDERS = 9;
+    private static final int REMOVE_ALL_ITEMS = 11;
+    private static final int RESET_PRICES = 13;
+    private static final int RESET_EVERYTHING = 15;
     private static final int RUN_FISCAL_PASS = 19;
     private static final int RUN_FACTION_FISCAL = 21;
     private static final int BACK = 23;
@@ -90,8 +92,17 @@ public final class AdminResetUi {
                     MenuUiSupport.hint("Cancels every open order."),
                     MenuUiSupport.hint("Escrowed money is refunded.")));
 
+            container.setItem(REMOVE_ALL_ITEMS, MenuUiSupport.button(Items.BARRIER, "Remove All Items", ChatFormatting.RED,
+                    MenuUiSupport.hint("Empties the shop.")));
+
+            container.setItem(RESET_PRICES, MenuUiSupport.button(Items.EMERALD, "Reset Shop Prices", ChatFormatting.RED,
+                    MenuUiSupport.hint("Puts every price and category"),
+                    MenuUiSupport.hint("back to the defaults.")));
+
             container.setItem(RESET_EVERYTHING, MenuUiSupport.button(Items.TNT, "Reset Entire Economy", ChatFormatting.DARK_RED,
-                    MenuUiSupport.line("Everything above, all at once.", ChatFormatting.RED)));
+                    MenuUiSupport.line("Balances, rewards, sell limits,", ChatFormatting.RED),
+                    MenuUiSupport.line("auctions and orders, all at once.", ChatFormatting.RED),
+                    MenuUiSupport.hint("Shop prices are not touched.")));
 
             container.setItem(RUN_FISCAL_PASS, MenuUiSupport.button(Items.NETHERITE_INGOT, "Run Wealth Tax Now", ChatFormatting.GOLD,
                     MenuUiSupport.hint("Applies the daily wealth tax to every"),
@@ -133,6 +144,14 @@ public final class AdminResetUi {
                     EconomySounds.click(viewer);
                     confirmClearOrders(viewer, eco);
                 }
+                case REMOVE_ALL_ITEMS -> {
+                    EconomySounds.click(viewer);
+                    confirmRemoveAllItems(viewer, eco);
+                }
+                case RESET_PRICES -> {
+                    EconomySounds.click(viewer);
+                    confirmResetPrices(viewer, eco);
+                }
                 case RESET_EVERYTHING -> {
                     EconomySounds.click(viewer);
                     confirmResetEverything(viewer, eco);
@@ -157,7 +176,7 @@ public final class AdminResetUi {
     }
 
     private static void confirmResetBalances(ServerPlayer viewer, EconomyManager eco) {
-        long starting = EconomyConfig.get().startingBalance;
+        long starting = EconomyConfig.get().economy.startingBalance;
         ConfirmUi.open(viewer, "Reset all balances?", warningIcon(Items.GOLD_INGOT, "Reset All Balances"),
                 "Reset balances",
                 List.of(MenuUiSupport.line("Every player's balance is set to " + EconomyCraft.formatMoney(starting) + ".", ChatFormatting.RED),
@@ -165,7 +184,7 @@ public final class AdminResetUi {
                 p -> {
                     int changed = eco.resetAllBalances();
                     announce(p, "Reset " + changed + " balance" + (changed == 1 ? "" : "s")
-                            + " to " + EconomyCraft.formatMoney(starting) + ".");
+                            + " to " + EconomyCraft.formatMoneyChat(starting) + ".");
                     open(p, eco);
                 },
                 p -> open(p, eco));
@@ -251,12 +270,47 @@ public final class AdminResetUi {
             announce(viewer, "Faction daily tax pass completed (no changes).");
         } else {
             announce(viewer, "Faction daily tax pass completed: "
-                    + report.capitalismTaxed() + " Capitalism ($" + EconomyCraft.formatMoney(report.capitalismTotal())
-                    + "), " + report.monarchyTaxed() + " Monarchy ($" + EconomyCraft.formatMoney(report.monarchyTotal()) + ").");
+                    + report.capitalismTaxed() + " Capitalism (" + EconomyCraft.formatMoney(report.capitalismTotal())
+                    + "), " + report.monarchyTaxed() + " Monarchy (" + EconomyCraft.formatMoney(report.monarchyTotal()) + ").");
         }
         open(viewer, eco);
     }
 
+    private static void confirmRemoveAllItems(ServerPlayer viewer, EconomyManager eco) {
+        ConfirmUi.open(viewer, "Remove all items?", warningIcon(Items.BARRIER, "Remove All Items"),
+                "Remove all",
+                List.of(MenuUiSupport.line("Empties the shop.", ChatFormatting.RED),
+                        MenuUiSupport.hint("Put items back from \"Removed items\".")),
+                p -> {
+                    int removed = eco.getPrices().removeAll();
+                    if (removed < 0) {
+                        EconomySounds.failure(p);
+                        p.sendSystemMessage(MenuUiSupport.line("Could not write prices.json. Check the server log.", ChatFormatting.RED));
+                    } else {
+                        announce(p, "Removed " + removed + " item" + (removed == 1 ? "" : "s") + " from the shop.");
+                    }
+                    open(p, eco);
+                },
+                p -> open(p, eco));
+    }
+
+    private static void confirmResetPrices(ServerPlayer viewer, EconomyManager eco) {
+        ConfirmUi.open(viewer, "Reset all shop prices?", warningIcon(Items.EMERALD, "Reset Shop Prices"),
+                "Reset prices",
+                List.of(MenuUiSupport.line("Every price, category and removed item", ChatFormatting.RED),
+                        MenuUiSupport.line("goes back to the defaults.", ChatFormatting.RED),
+                        MenuUiSupport.line("Custom items you added are deleted.", ChatFormatting.RED),
+                        MenuUiSupport.hint("A backup of prices.json is kept next to it.")),
+                p -> {
+                    if (eco.getPrices().resetToDefaults()) announce(p, "Reset all shop prices to the defaults.");
+                    else {
+                        EconomySounds.failure(p);
+                        p.sendSystemMessage(MenuUiSupport.line("Could not reset prices.json. Check the server log.", ChatFormatting.RED));
+                    }
+                    open(p, eco);
+                },
+                p -> open(p, eco));
+    }
     private static void confirmResetEverything(ServerPlayer viewer, EconomyManager eco) {
         ConfirmUi.open(viewer, "Reset the entire economy?", warningIcon(Items.TNT, "Reset Entire Economy"),
                 "Reset everything",
@@ -265,13 +319,13 @@ public final class AdminResetUi {
                         MenuUiSupport.line("Cancels every auction and order.", ChatFormatting.RED),
                         MenuUiSupport.hint("This cannot be undone.")),
                 p -> {
+                    int auctionsCleared = AuctionExpiration.clearAll(eco);
+                    int ordersCleared = OrderFulfillment.clearAll(eco);
                     int changed = eco.resetAllBalances();
                     eco.resetDailyRewards();
                     eco.resetDailySellLimits();
                     eco.resetStats();
                     eco.resetTransactionLog();
-                    int auctionsCleared = AuctionExpiration.clearAll(eco);
-                    int ordersCleared = OrderFulfillment.clearAll(eco);
                     announce(p, "Reset the entire economy: " + changed + " balance" + (changed == 1 ? "" : "s")
                             + ", " + auctionsCleared + " auction" + (auctionsCleared == 1 ? "" : "s")
                             + ", " + ordersCleared + " order" + (ordersCleared == 1 ? "" : "s") + ".");

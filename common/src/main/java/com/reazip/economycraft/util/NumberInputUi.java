@@ -15,11 +15,16 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.ItemLore;
 import org.jetbrains.annotations.Nullable;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.LongFunction;
+import java.util.regex.Pattern;
 
 public final class NumberInputUi {
     private NumberInputUi() {}
@@ -28,6 +33,9 @@ public final class NumberInputUi {
     private static final int[] COUNT_STEPS = {512, 64, 8, 1};
     private static final int[] PERCENT_STEPS = {25, 10, 5, 1};
     private static final int[] DAY_STEPS = {30, 7, 1};
+    private static final int[] DECIMAL_STEPS = {1000, 100, 25, 1};
+    private static final Pattern DECIMAL_NUMBER = Pattern.compile("\\d+\\.?\\d*|\\.\\d+");
+    private static final Input WHOLE = new Input(String::valueOf, EconomyCraft::parseMoneyShort);
 
     private static final int VALUE_SLOT = 4;
     private static final int TYPE_SLOT = 13;
@@ -63,10 +71,7 @@ public final class NumberInputUi {
                 confirmLabel, confirmLore, onConfirm, onCancel);
     }
 
-    /**
-     * A whole-day count. The steps are 30/7/1 because the only two day counts anyone sets are a week
-     * and a month — {@code openCount}'s item-stack steps would make both take thirty clicks.
-     */
+    /** A whole-day count, using week/month-sized steps. */
     public static void openDays(ServerPlayer player, String title, ItemStack subject, String label,
                                 long initial, long min, long max,
                                 BiConsumer<ServerPlayer, Long> onConfirm, Consumer<ServerPlayer> onCancel) {
@@ -80,14 +85,46 @@ public final class NumberInputUi {
                 "Confirm", null, onConfirm, onCancel);
     }
 
+    public static void openDecimal(ServerPlayer player, String title, ItemStack subject, String label,
+                                   long initialHundredths, long minHundredths, long maxHundredths, String unit,
+                                   BiConsumer<ServerPlayer, Long> onConfirm, Consumer<ServerPlayer> onCancel) {
+        open(player, title, subject, label, initialHundredths, minHundredths, maxHundredths, DECIMAL_STEPS,
+                v -> formatHundredths(v) + unit, "Confirm", null,
+                new Input(NumberInputUi::formatHundredths, text -> parseHundredths(text, unit)), onConfirm, onCancel);
+
+    }
+
     public static void open(ServerPlayer player, String title, ItemStack subject, String label,
                             long initial, long min, long max, int[] steps, LongFunction<String> format,
                             String confirmLabel, @Nullable LongFunction<List<Component>> confirmLore,
                             BiConsumer<ServerPlayer, Long> onConfirm, Consumer<ServerPlayer> onCancel) {
+        open(player, title, subject, label, initial, min, max, steps, format, confirmLabel, confirmLore,
+                WHOLE, onConfirm, onCancel);
+    }
+
+    private static void open(ServerPlayer player, String title, ItemStack subject, String label,
+                             long initial, long min, long max, int[] steps, LongFunction<String> format,
+                             String confirmLabel, @Nullable LongFunction<List<Component>> confirmLore,
+                             Input input,
+                             BiConsumer<ServerPlayer, Long> onConfirm, Consumer<ServerPlayer> onCancel) {
         MenuUiSupport.openMenu(player, title, (id, inv) ->
                 new NumberMenu(id, inv, subject, label, initial, min, max, steps, format,
-                        confirmLabel, confirmLore, onConfirm, onCancel));
+                        confirmLabel, confirmLore, input, onConfirm, onCancel));
     }
+
+    public static String formatHundredths(long hundredths) {
+        return BigDecimal.valueOf(hundredths, 2).stripTrailingZeros().toPlainString();
+    }
+
+    private static Long parseHundredths(String text, String unit) {
+        String s = text.trim();
+        if (s.toLowerCase(Locale.ROOT).endsWith(unit)) s = s.substring(0, s.length() - unit.length()).trim();
+        if (!DECIMAL_NUMBER.matcher(s).matches()) return null;
+        return new BigDecimal(s).movePointRight(2).setScale(0, RoundingMode.HALF_UP)
+                .min(BigDecimal.valueOf(Long.MAX_VALUE)).longValue();
+    }
+
+    private record Input(LongFunction<String> show, Function<String, Long> parse) {}
 
     private static class NumberMenu extends CompatMenu {
         private final ItemStack subject;
@@ -98,6 +135,7 @@ public final class NumberInputUi {
         private final LongFunction<String> format;
         private final String confirmLabel;
         @Nullable private final LongFunction<List<Component>> confirmLore;
+        private final Input input;
         private final BiConsumer<ServerPlayer, Long> onConfirm;
         private final Consumer<ServerPlayer> onCancel;
         private final SimpleContainer container = new SimpleContainer(GRID_SLOTS);
@@ -105,7 +143,7 @@ public final class NumberInputUi {
 
         NumberMenu(int id, Inventory inv, ItemStack subject, String label, long initial, long min, long max,
                    int[] steps, LongFunction<String> format, String confirmLabel,
-                   @Nullable LongFunction<List<Component>> confirmLore,
+                   @Nullable LongFunction<List<Component>> confirmLore, Input input,
                    BiConsumer<ServerPlayer, Long> onConfirm, Consumer<ServerPlayer> onCancel) {
             super(MenuType.GENERIC_9x3, id);
             this.subject = subject == null || subject.isEmpty() ? new ItemStack(Items.PAPER) : subject.copy();
@@ -116,6 +154,7 @@ public final class NumberInputUi {
             this.format = format;
             this.confirmLabel = confirmLabel;
             this.confirmLore = confirmLore;
+            this.input = input;
             this.onConfirm = onConfirm;
             this.onCancel = onCancel;
             this.value = Math.clamp(initial, min, max);
@@ -134,9 +173,9 @@ public final class NumberInputUi {
 
             for (int i = 0; i < steps.length && i < 4; i++) {
                 container.setItem(i, MenuUiSupport.button(ItemsCompat.redStainedGlassPane(),
-                        "-" + steps[i], ChatFormatting.RED, MenuUiSupport.italicHint("Shift-click for x10")));
+                        "-" + input.show().apply(steps[i]), ChatFormatting.RED, MenuUiSupport.italicHint("Shift-click for x10")));
                 container.setItem(8 - i, MenuUiSupport.button(ItemsCompat.limeStainedGlassPane(),
-                        "+" + steps[i], ChatFormatting.GREEN, MenuUiSupport.italicHint("Shift-click for x10")));
+                        "+" + input.show().apply(steps[i]), ChatFormatting.GREEN, MenuUiSupport.italicHint("Shift-click for x10")));
             }
 
             ItemStack display = subject.copy();
@@ -192,15 +231,15 @@ public final class NumberInputUi {
 
             if (slot == TYPE_SLOT) {
                 EconomySounds.click(serverPlayer);
-                TextInputUi.open(serverPlayer, "Enter a value", String.valueOf(value), Items.NAME_TAG,
+                TextInputUi.open(serverPlayer, "Enter a value", input.show().apply(value), Items.NAME_TAG,
                         "Use: ", "Type a number", (p, text) -> {
-                            Long parsed = parse(text);
+                            Long parsed = input.parse().apply(text);
                             if (parsed == null) {
                                 p.sendSystemMessage(MenuUiSupport.line("\"" + text + "\" is not a number.", ChatFormatting.RED));
                             }
                             long next = parsed == null ? value : Math.clamp(parsed, min, max);
                             open(p, "Set " + label, subject, label, next, min, max, steps, format,
-                                    confirmLabel, confirmLore, onConfirm, onCancel);
+                                    confirmLabel, confirmLore, input, onConfirm, onCancel);
                         });
                 return true;
             }
@@ -219,20 +258,6 @@ public final class NumberInputUi {
             }
 
             return true;
-        }
-
-        private static Long parse(String text) {
-            String trimmed = text.trim();
-            Long shorthand = EconomyCraft.parseMoneyShort(trimmed);
-            if (shorthand != null) return shorthand;
-
-            String cleaned = trimmed.replaceAll("[^0-9-]", "");
-            if (cleaned.isEmpty() || cleaned.equals("-")) return null;
-            try {
-                return Long.parseLong(cleaned);
-            } catch (NumberFormatException ex) {
-                return null;
-            }
         }
     }
 }

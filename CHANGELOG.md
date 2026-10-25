@@ -5,6 +5,18 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+### Upstream feature integration
+
+- Integrated the upstream 1.11.0 feature release while keeping EconomyCraft's faction, tax, contracts,
+  quests, negotiation, shared-database, and delivery behavior.
+- Added damaged and enchanted item selling, configurable maximum balances and currency formatting, including
+  shorthand parsing and configurable symbol placement.
+- Added grouped core configuration with automatic migration from the previous flat keys, preservation of unknown
+  settings, and safe failure when old and new values are ambiguous.
+- Added configurable dynamic-price refresh intervals and the upstream admin reset and shop-editor options.
+- Removed the runtime Architectury API dependency; Fabric and NeoForge now register their interaction hooks
+  directly. Minecraft 26.3 remains the only supported target.
+
 ## [1.10.2] - 2026-10-25
 
 

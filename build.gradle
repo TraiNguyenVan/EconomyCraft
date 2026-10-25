@@ -34,7 +34,7 @@ ext.bumpLastSegment = { String v ->
 }
 
 ext.mcTargets = [
-        [ mc: "26.3", fabricApi: "0.160.5+26.3", architecturyVer: "22.0.1", neoforge: "26.3.0.3-beta", neoforgeLineLo: "26.3", neoforgeLineHi: ext.bumpLastSegment("26.3"), textPlaceholderApi: "3.2.0+26.3", placeholderApiNeoForge: "3.2.0+26.3+neoforge" ],
+        [ mc: "26.3", fabricApi: "0.160.5+26.3", neoforge: "26.3.0.3-beta", neoforgeLineLo: "26.3", neoforgeLineHi: ext.bumpLastSegment("26.3"), textPlaceholderApi: "3.2.0+26.3", placeholderApiNeoForge: "3.2.0+26.3+neoforge" ],
 ]
 
 // ---- TARGET RESOLVER
@@ -116,7 +116,7 @@ subprojects {
                 from components.java
             }
         }
-        // Intentionally empty: release jars are published to Modrinth/CurseForge in CI, not a Maven repo.
+        // Intentionally empty: release jars are attached to GitHub Releases in CI, not a Maven repo.
         repositories {}
     }
 
@@ -127,16 +127,12 @@ subprojects {
             def nfLo = (rootProject.findProperty("neoforge_line_lo") ?: tgt.neoforgeLineLo).toString()
             def nfHi = (rootProject.findProperty("neoforge_line_hi") ?: tgt.neoforgeLineHi).toString()
 
-            def archVer = (rootProject.findProperty("architectury_version_plain")
-                    ?: project.findProperty("architectury_version_plain")
-                    ?: tgt.architecturyVer).toString()
             def placeholderModId = rootProject.ext.placeholderModId
 
             inputs.property "mcLo", mcLo
             inputs.property "mcHi", mcHi
             inputs.property "nfLo", nfLo
             inputs.property "nfHi", nfHi
-            inputs.property "archVer", archVer
             inputs.property "placeholderModId", placeholderModId
 
             filesMatching("META-INF/neoforge.mods.toml") {
@@ -145,7 +141,6 @@ subprojects {
                         mcHi    : mcHi,
                         nfLo    : nfLo,
                         nfHi    : nfHi,
-                        archVer : archVer,
                         placeholderModId: placeholderModId,
                         version : project.version
                 ])
@@ -183,7 +178,6 @@ ext.mcTargets.each { t ->
                 "-Pfilter_platforms=fabric",
                 "-Pminecraft_version=${t.mc}",
                 "-Pfabric_api_version=${t.fabricApi}",
-                "-Parchitectury_version_plain=${t.architecturyVer}",
                 "-Ptext_placeholder_api_version=${t.textPlaceholderApi}",
                 ":fabric:clean", ":fabric:build"
         ])
@@ -255,7 +249,6 @@ ext.mcTargets.each { t ->
                 "-Pfilter_platforms=neoforge",
                 "-Pminecraft_version=${t.mc}",
                 "-Pneoforge_version=${t.neoforge}",
-                "-Parchitectury_version_plain=${t.architecturyVer}",
                 "-Pneoforge_line_lo=${t.neoforgeLineLo}",
                 "-Pneoforge_line_hi=${t.neoforgeLineHi}",
                 *(t.placeholderApiNeoForge

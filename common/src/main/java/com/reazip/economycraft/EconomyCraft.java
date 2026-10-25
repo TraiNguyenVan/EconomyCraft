@@ -1,6 +1,7 @@
 package com.reazip.economycraft;
 
 import com.mojang.logging.LogUtils;
+import com.mojang.brigadier.CommandDispatcher;
 import com.reazip.economycraft.auction.AuctionExpiration;
 import com.reazip.economycraft.orders.OrderFulfillment;
 import com.reazip.economycraft.util.AsyncFileWriter;
@@ -15,12 +16,11 @@ import com.reazip.economycraft.util.ProfileCompat;
 import com.reazip.economycraft.faction.FactionEffects;
 import com.reazip.economycraft.profession.ProfessionHaste;
 import com.reazip.economycraft.profession.ProfessionEffects;
-import dev.architectury.event.events.common.CommandRegistrationEvent;
-import dev.architectury.event.events.common.LifecycleEvent;
-import dev.architectury.event.events.common.PlayerEvent;
-import dev.architectury.event.events.common.TickEvent;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.commands.CommandBuildContext;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -32,6 +32,7 @@ import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import com.reazip.economycraft.gossip.*;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 public final class EconomyCraft {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -57,59 +58,53 @@ public final class EconomyCraft {
         return GOSSIP_RECENT_SPOKEN;
     }
 
-    public static void registerEvents() {
+    public static void init() {
         if (EconomyCraftApiBootstrap.INITIALIZED == null) {
             throw new IllegalStateException("EconomyCraft API bootstrap failed");
         }
-        LifecycleEvent.SERVER_STARTING.register(EconomyConfig::load);
-        LifecycleEvent.SERVER_STARTING.register(WebhookConfig::load);
-
-        CommandRegistrationEvent.EVENT.register((dispatcher, registry, selection) -> {
-            EconomyCommands.register(dispatcher, registry, selection);
-        });
-
-        // Initialize and register Villager gossip interaction listener
         VillagerGossipListener.init(
                 GOSSIP_COOLDOWN_TRACKER,
-                () -> {
-                    var cfg = EconomyConfig.get();
-                    return cfg != null ? cfg.geminiGossip : GossipConfig.createDefault();
-                },
-                GOSSIP_RECENT_SPOKEN
-        );
-        VillagerGossipListener.register();
+                () -> EconomyConfig.get().geminiGossip,
+                GOSSIP_RECENT_SPOKEN);
+    }
 
-        LifecycleEvent.SERVER_STARTED.register(server -> {
-            EconomyCraft.getManager(server);
-            reloadGossipService(server);
-            com.reazip.economycraft.market.MarketSnapshotServer.start(server);
-        });
+    public static void onServerStarting(MinecraftServer server) {
+        EconomyConfig.load(server);
+        WebhookConfig.load(server);
+    }
 
-        LifecycleEvent.SERVER_STOPPING.register(server -> {
-            com.reazip.economycraft.market.MarketSnapshotServer.stop(server);
-            VillagerGossipListener.setMemoryService(null);
-            if (villagerDatabase != null) {
-                try {
-                    villagerDatabase.close();
-                } catch (Exception e) {
-                    LOGGER.warn("[EconomyCraft] Error closing villager database", e);
-                } finally {
-                    villagerDatabase = null;
-                    villagerMemoryService = null;
-                }
+    public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher,
+                                        CommandBuildContext buildContext,
+                                        Commands.CommandSelection selection) {
+        EconomyCommands.register(dispatcher, buildContext, selection);
+    }
+
+    public static void onServerStarted(MinecraftServer server) {
+        getManager(server);
+        reloadGossipService(server);
+        com.reazip.economycraft.market.MarketSnapshotServer.start(server);
+    }
+
+    public static void onServerStopping(MinecraftServer server) {
+        com.reazip.economycraft.market.MarketSnapshotServer.stop(server);
+        VillagerGossipListener.setMemoryService(null);
+        if (villagerDatabase != null) {
+            try {
+                villagerDatabase.close();
+            } catch (Exception e) {
+                LOGGER.warn("[EconomyCraft] Error closing villager database", e);
+            } finally {
+                villagerDatabase = null;
+                villagerMemoryService = null;
             }
-            gossipApiClient = null;
-            if (manager != null && lastServer == server) {
-                manager.deactivate();
-                manager.save();
-                manager.closeDatabase();
-            }
-            AsyncFileWriter.flush();
-        });
-
-        PlayerEvent.PLAYER_JOIN.register(EconomyCraft::onPlayerJoin);
-        PlayerEvent.PLAYER_QUIT.register(EconomyCraft::onPlayerQuit);
-        TickEvent.SERVER_POST.register(EconomyCraft::onServerTick);
+        }
+        gossipApiClient = null;
+        if (manager != null && lastServer == server) {
+            manager.deactivate();
+            manager.save();
+            manager.closeDatabase();
+        }
+        AsyncFileWriter.flush();
     }
 
     public static CooldownTracker getGossipCooldownTracker() {
@@ -172,7 +167,7 @@ public final class EconomyCraft {
         }
     }
 
-    private static void onServerTick(MinecraftServer server) {
+    public static void onServerTick(MinecraftServer server) {
         TollHud.tick(server);
         com.reazip.economycraft.motd.MotdService.tick(server);
         BookInputUi.tick(server);
@@ -224,7 +219,7 @@ public final class EconomyCraft {
         }
     }
 
-    private static void onPlayerJoin(ServerPlayer player) {
+    public static void onPlayerJoin(ServerPlayer player) {
         try {
             MinecraftServer server = player.level().getServer();
             ProfileCompat.cacheName(server, player.getUUID(), IdentityCompat.of(player).name());
@@ -344,9 +339,30 @@ public final class EconomyCraft {
     }
 
     public static String formatMoney(long amount) {
+        return withCurrency(amount < 0, groupedNumber(Math.abs(amount)));
+    }
+
+    public static String formatMoneyChat(long amount) {
+        String name = EconomyConfig.get().display.currencyName;
+        if (name.isEmpty()) return formatMoney(amount);
+        return (amount < 0 ? "-" : "") + groupedNumber(Math.abs(amount)) + " " + name;
+    }
+
+    private static String groupedNumber(long value) {
         DecimalFormatSymbols symbols = DecimalFormatSymbols.getInstance(Locale.ROOT);
-        symbols.setGroupingSeparator(EconomyConfig.get().balanceSeparator.charAt(0));
-        return "$" + new DecimalFormat("#,##0", symbols).format(amount);
+        symbols.setGroupingSeparator(EconomyConfig.get().display.balanceSeparator.charAt(0));
+        return new DecimalFormat("#,##0", symbols).format(value);
+    }
+
+    private static String withCurrency(boolean negative, String number) {
+        EconomyConfig.Display display = EconomyConfig.get().display;
+        String symbol = display.currencySymbol;
+        String sign = negative ? "-" : "";
+        if (symbol.isEmpty()) return sign + number;
+        if (display.currencySymbolPosition == EconomyConfig.CurrencyPosition.SUFFIX) {
+            return sign + number + (Character.isLetter(symbol.codePointAt(0)) ? " " : "") + symbol;
+        }
+        return sign + symbol + (Character.isLetter(symbol.codePointBefore(symbol.length())) ? " " : "") + number;
     }
 
     public static String describeItem(int count, String name) {
@@ -362,7 +378,16 @@ public final class EconomyCraft {
         return new DecimalFormat("0.##", symbols).format(multiplier) + "x";
     }
 
-    private static final String[] SHORT_MONEY_SUFFIXES = {"", "k", "M", "B", "T"};
+    private static final String[] SHORT_MONEY_SUFFIXES = {"", "k", "M", "B", "T", "Qa", "Qi"};
+    private static final Pattern SHORT_MONEY_NUMBER = Pattern.compile("\\d+\\.?\\d*|\\.\\d+");
+
+    public static boolean isShortMoneySuffix(String text) {
+        if (text == null) return false;
+        for (String suffix : SHORT_MONEY_SUFFIXES) {
+            if (!suffix.isEmpty() && suffix.equalsIgnoreCase(text)) return true;
+        }
+        return false;
+    }
 
     public static String formatMoneyShort(long amount) {
         long value = Math.abs(amount);
@@ -378,7 +403,7 @@ public final class EconomyCraft {
             magnitude++;
             number = format.format(scaled / 1000);
         }
-        return "$" + (amount < 0 ? "-" : "") + number + SHORT_MONEY_SUFFIXES[magnitude];
+        return withCurrency(amount < 0, number + SHORT_MONEY_SUFFIXES[magnitude]);
     }
 
     public static @Nullable Long parseMoneyShort(String input) {
@@ -386,22 +411,43 @@ public final class EconomyCraft {
         String s = input.trim();
         if (s.isEmpty()) return null;
 
+        Long parsed = parsePlainMoneyShort(s);
+        if (parsed != null) return parsed;
+        String stripped = stripCurrency(s);
+        return stripped.equals(s) ? null : parsePlainMoneyShort(stripped);
+    }
+
+    private static String stripCurrency(String input) {
+        EconomyConfig.Display display = EconomyConfig.get().display;
+        String s = stripAffix(input, display.currencyName);
+        return stripAffix(s, display.currencySymbol);
+    }
+
+    private static String stripAffix(String input, String affix) {
+        if (affix.isEmpty() || input.length() <= affix.length()) return input;
+        if (input.regionMatches(true, 0, affix, 0, affix.length())) {
+            return input.substring(affix.length()).trim();
+        }
+        int start = input.length() - affix.length();
+        if (input.regionMatches(true, start, affix, 0, affix.length())) {
+            return input.substring(0, start).trim();
+        }
+        return input;
+    }
+
+    private static @Nullable Long parsePlainMoneyShort(String s) {
+        if (s.isEmpty()) return null;
         for (int magnitude = SHORT_MONEY_SUFFIXES.length - 1; magnitude >= 1; magnitude--) {
             String suffix = SHORT_MONEY_SUFFIXES[magnitude];
-            if (s.length() > suffix.length() && s.regionMatches(true, s.length() - suffix.length(), suffix, 0, suffix.length())) {
-                double value;
-                try {
-                    value = Double.parseDouble(s.substring(0, s.length() - suffix.length()));
-                } catch (NumberFormatException e) {
-                    return null;
-                }
-                if (!Double.isFinite(value) || value < 0) return null;
-                double scaled = value * Math.pow(1000, magnitude);
-                if (scaled > Long.MAX_VALUE) return null;
+            if (s.length() > suffix.length()
+                    && s.regionMatches(true, s.length() - suffix.length(), suffix, 0, suffix.length())) {
+                String number = s.substring(0, s.length() - suffix.length()).trim();
+                if (!SHORT_MONEY_NUMBER.matcher(number).matches()) return null;
+                double scaled = Double.parseDouble(number) * Math.pow(1000, magnitude);
+                if (!Double.isFinite(scaled) || scaled > Long.MAX_VALUE) return null;
                 return Math.round(scaled);
             }
         }
-
         try {
             return Long.parseLong(s);
         } catch (NumberFormatException e) {

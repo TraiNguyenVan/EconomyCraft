@@ -302,8 +302,8 @@ reason is for diagnosis — the set of reasons can grow without the contract cha
 | `deliveryId must be a UUID` | `deliveryId` is not a UUID |
 | `no delivery with id <uuid>` | that delivery is no longer in the player's ledger |
 | `inventory full` | the whole stack would not fit, so nothing was claimed |
-| `the auction house is disabled` | `auction_enabled` is off, so `listItem`, `buyListing` and `cancelListing` are refused |
-| `orders are disabled` | `orders_enabled` is off, so the order commands are refused |
+| `the auction house is disabled` | `auction.enabled` is off, so `listItem`, `buyListing` and `cancelListing` are refused |
+| `orders are disabled` | `orders.enabled` is off, so the order commands are refused |
 | `listItem requires an integer slot` / `slot must be an integer` | `listItem` was called with no `slot`, or one that is not a whole number |
 | `slot must be between 0 and 35` | the slot is outside the addressable range, e.g. armour online |
 | `listItem requires an integer count` / `count must be an integer` | `listItem` was called with no `count`, or one that is not a whole number |

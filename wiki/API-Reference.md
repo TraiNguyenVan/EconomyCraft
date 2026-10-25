@@ -26,10 +26,16 @@ public interface EconomyCraftApi {
     BalanceEvents balanceEvents();
     FactionApi factions();
     String formatMoney(long amount);
+    String formatMoneyChat(long amount);
+    OptionalLong parseMoney(String input);
     double inflationMultiplier();
     double medianActiveBalance();
 }
 ```
+
+- `formatMoney` formats an amount the way menus show it, e.g. `$125.000`.
+- `formatMoneyChat` formats an amount the way chat messages show it. It uses the optional currency name when one is set (`125.000 coins`), otherwise it is the same as `formatMoney`.
+- `parseMoney` reads an amount the same way `/pay` does: plain numbers, shorthand like `1.5k`, `20M` or `2.5Qa`, and the configured currency symbol or name, e.g. `$5k`. It returns an empty value when the text is not an amount. It does not check limits, so validate the minimum and `balances().getMaximumBalance()` yourself.
 
 ---
 
@@ -311,8 +317,9 @@ double inflationMultiplier();
 double medianActiveBalance();
 ```
 
-`inflationMultiplier()` is the median balance of the players counted as active, divided by `startingBalance`,
-clamped to the `dynamic_price_min_multiplier`..`dynamic_price_max_multiplier` range. `1.0` means the median
+`inflationMultiplier()` is the median balance of the players counted as active, divided by
+`economy.starting_balance`, clamped to the `dynamic_prices.min_multiplier`..`dynamic_prices.max_multiplier`
+range. `1.0` means the median
 sits exactly at the starting balance; `7.36` means it sits at 7.36x. `medianActiveBalance()` is the numerator in
 the same units, and is `0` when no player is active — in which case the multiplier is `1.0`.
 
@@ -322,7 +329,7 @@ ages out of that window. If you need a stable figure, compress it into your own 
 reference value rather than using it raw — and never let it decide a price at a finer grain than the hourly
 refresh.
 
-It is independent of `dynamic_prices_enabled`: that flag gates whether item buy prices are scaled, not whether
+It is independent of `dynamic_prices.enabled`: that flag gates whether item buy prices are scaled, not whether
 this signal is maintained. Daily faction taxes do not use this signal; it is a market-pricing signal only.
 
 ---

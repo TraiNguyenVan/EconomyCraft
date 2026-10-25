@@ -4,6 +4,7 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.HubUi;
+import com.reazip.economycraft.SellService;
 import com.reazip.economycraft.negotiation.NegotiationEvents;
 import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.orders.OrdersUi;
@@ -182,7 +183,7 @@ public final class AuctionUi {
 
     private static void choosePrice(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount) {
         NumberInputUi.openMoney(player, "Set your price", prototype.copyWithCount(amount), "Price",
-                100, 1, EconomyManager.MAX, "Next: Note", price -> listingLore(player, amount, price),
+                100, 1, EconomyManager.maxBalance(), "Next: Note", price -> listingLore(player, amount, price),
                 (p, price) -> chooseNote(p, auctions, prototype, amount, price),
                 p -> backFromPrice(player, auctions, prototype));
     }
@@ -201,7 +202,7 @@ public final class AuctionUi {
     }
 
     private static void backFromPrice(ServerPlayer player, AuctionManager auctions, ItemStack prototype) {
-        int held = countHeld(player, prototype);
+        int held = SellService.countHeld(player, prototype);
         if (Math.min(held, prototype.getMaxStackSize()) <= 1) {
             startListing(player, auctions);
         } else {
@@ -229,6 +230,12 @@ public final class AuctionUi {
     }
 
     private static void createListing(ServerPlayer player, AuctionManager auctions, ItemStack prototype, int amount, long price, @org.jetbrains.annotations.Nullable String description) {
+        if (!EconomyConfig.get().auction.enabled) {
+            EconomySounds.failure(player);
+            player.sendSystemMessage(MenuUiSupport.line("The auction house is disabled.", ChatFormatting.RED));
+            player.closeContainer();
+            return;
+        }
         if (auctions.hasReachedLimit(player.getUUID())) {
             EconomySounds.failure(player);
             player.sendSystemMessage(MenuUiSupport.line("You have reached your limit of "
@@ -249,7 +256,7 @@ public final class AuctionUi {
         listing.price = price;
         listing.item = prototype.copyWithCount(amount);
         listing.createdAt = System.currentTimeMillis();
-        listing.expiresAt = ExpirationUtil.expiresAt(listing.createdAt, EconomyConfig.get().auctionExpirationHours);
+        listing.expiresAt = ExpirationUtil.expiresAt(listing.createdAt, EconomyConfig.get().auction.expirationHours);
         listing.description = description;
         auctions.addListing(listing);
 
@@ -263,29 +270,10 @@ public final class AuctionUi {
         open(player, auctions);
     }
 
-    private static int countHeld(ServerPlayer player, ItemStack prototype) {
-        Inventory inv = player.getInventory();
-        int total = 0;
-        for (int i = 0; i < ItemPickerUi.MAIN_INVENTORY_SLOTS; i++) {
-            ItemStack stack = inv.getItem(i);
-            if (ItemStack.isSameItemSameComponents(stack, prototype)) total += stack.getCount();
-        }
-        return total;
-    }
-
     private static boolean takeFromInventory(ServerPlayer player, ItemStack prototype, int amount) {
-        if (countHeld(player, prototype) < amount) return false;
-        Inventory inv = player.getInventory();
-        int remaining = amount;
-        for (int i = 0; i < ItemPickerUi.MAIN_INVENTORY_SLOTS && remaining > 0; i++) {
-            ItemStack stack = inv.getItem(i);
-            if (!ItemStack.isSameItemSameComponents(stack, prototype)) continue;
-            int take = Math.min(stack.getCount(), remaining);
-            stack.shrink(take);
-            if (stack.isEmpty()) inv.setItem(i, ItemStack.EMPTY);
-            remaining -= take;
-        }
-        return remaining == 0;
+        if (SellService.countHeld(player, prototype) < amount) return false;
+        SellService.removeHeld(player, prototype, amount);
+        return true;
     }
 
     private static void sendStoredMessage(ServerPlayer player) {
@@ -605,6 +593,11 @@ public final class AuctionUi {
                 var server = sp.level().getServer();
                 EconomyManager eco = EconomyCraft.getManager(server);
 
+                if (!EconomyConfig.get().auction.enabled) {
+                    fail(sp, "The auction house is disabled.");
+                    sp.closeContainer();
+                    return true;
+                }
                 AuctionTrade.PurchaseResult result = AuctionTrade.purchase(eco, sp, listing.id);
                 switch (result.status()) {
                     case OK -> {
@@ -616,7 +609,7 @@ public final class AuctionUi {
                             sp.sendSystemMessage(
                                     Component.literal("Purchased " + result.item().getCount() + "x "
                                                     + result.item().getHoverName().getString() + " from " + sellerName +
-                                                    " for " + EconomyCraft.formatMoney(result.totalPaid()))
+                                                    " for " + EconomyCraft.formatMoneyChat(result.totalPaid()))
                                             .withStyle(ChatFormatting.GREEN));
                         }
                     }
@@ -625,14 +618,14 @@ public final class AuctionUi {
                     case SELLER_CANT_RECEIVE -> fail(sp, "Seller cannot receive this payment");
                     default -> fail(sp, "Listing no longer available");
                 }
-                player.closeContainer();
+                sp.closeContainer();
                 AuctionUi.open(sp, auctions, 0, query, sort, mineOnly);
                 return true;
             }
 
             if (slot == MenuUiSupport.ROW_CANCEL) {
                 EconomySounds.click((ServerPlayer) player);
-                player.closeContainer();
+                ((ServerPlayer) player).closeContainer();
                 AuctionUi.open((ServerPlayer) player, auctions, 0, query, sort, mineOnly);
                 return true;
             }
@@ -766,7 +759,8 @@ public final class AuctionUi {
 
             if (slot == MenuUiSupport.ROW_CONFIRM) {
                 ServerPlayer sp = (ServerPlayer) player;
-                AuctionTrade.CancelResult result = AuctionTrade.cancel(auctions, sp, listing.id);
+                AuctionTrade.CancelResult result = AuctionTrade.cancel(
+                        EconomyCraft.getManager(sp.level().getServer()).getAuctions(), sp, listing.id);
                 switch (result.status()) {
                     case OK -> {
                         EconomySounds.itemPickedUp(viewer);
@@ -785,13 +779,13 @@ public final class AuctionUi {
                         viewer.sendSystemMessage(Component.literal("Listing no longer available"));
                     }
                 }
-                player.closeContainer();
+                sp.closeContainer();
                 AuctionUi.open(sp, auctions, 0, query, sort, mineOnly);
                 return true;
             }
             if (slot == MenuUiSupport.ROW_CANCEL) {
                 EconomySounds.click((ServerPlayer) player);
-                player.closeContainer();
+                ((ServerPlayer) player).closeContainer();
                 AuctionUi.open((ServerPlayer) player, auctions, 0, query, sort, mineOnly);
                 return true;
             }

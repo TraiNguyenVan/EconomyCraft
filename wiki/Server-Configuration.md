@@ -4,6 +4,12 @@ Configuration files are in `config/economycraft/` on a dedicated server and `sav
 
 The tables below describe the shipped settings and defaults. The bundled [default `config.json`](https://github.com/TraiNguyenVan/EconomyCraft/blob/main/common/src/main/resources/assets/economycraft/config.json) is the source for `config.json` values.
 
+Since 1.11.0, core economy settings are grouped under `economy`, `display`, `commands`, `shop`, `selling`,
+`dynamic_prices`, `auction`, `orders`, and `transaction_log`. On reload, older flat keys such as
+`startingBalance`, `taxRate`, and `dynamic_prices_enabled` are converted into their grouped names. Unknown keys
+are kept; if both an old and new key are present with different values, the migration stops safely and reports the
+ambiguous setting instead of guessing.
+
 ## `config.json`
 
 The keys are case-sensitive. Top-level names use `camelCase` where shown; other keys use `snake_case`.
@@ -15,42 +21,48 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 
 | Key | Default | Description |
 |---|---|---|
-| `auction_enabled` | `true` | Enable the auction house. |
-| `auction_expiration_hours` | `168` | Hours before an unsold auction expires and its item goes to deliveries. `0` disables expiration. |
+| `economy.starting_balance` | `1000` | Money new players start with. |
+| `economy.max_balance` | `1000000000000000000` | Highest balance a player can hold. |
+| `economy.daily_reward` | `100` | Money given by the daily reward. |
+| `economy.tax_rate` | `0.1` | Tax on trades and orders, as a decimal (`0.1` = 10%). |
+| `display.balance_separator` | `"."` | Thousands separator, e.g. `","` gives `$1,000`. |
+| `display.currency_symbol` | `"$"` | Currency symbol used by formatted amounts. |
+| `display.currency_symbol_position` | `"prefix"` | Put the symbol before or after the amount (`prefix` or `suffix`). |
+| `display.currency_name` | `""` | Optional currency name used in chat messages. |
+| `display.scoreboard_enabled` | `true` | Show the balance sidebar. |
+| `commands.standalone` | `true` | Allow `/pay`, `/daily` and other commands without the `/eco` prefix. |
+| `commands.standalone_admin` | `false` | Allow admin commands without the `/eco` prefix. |
+| `shop.enabled` | `true` | Enable the fixed-price shop. |
+| `selling.enabled` | `true` | Enable selling. |
+| `selling.daily_limit` | `10000` | Most a player can earn per day from selling. `0` disables the limit. |
+| `selling.worth_enabled` | `true` | Enable item value lookups (`/worth`). |
+| `dynamic_prices.enabled` | `false` | **Disabled by default.** Scale shop buy prices with the active-player median balance. |
+| `dynamic_prices.min_multiplier` | `0.5` | Lowest allowed dynamic price scale. |
+| `dynamic_prices.max_multiplier` | `5.0` | Highest allowed dynamic price scale. |
+| `dynamic_prices.min_active_days` | `30` | Players must have logged in within this many days to count as active. `0` includes everyone. |
+| `dynamic_prices.update_minutes` | `60` | Minimum minutes between dynamic price recalculations. |
+| `auction.enabled` | `true` | Enable the auction house. |
+| `auction.expiration_hours` | `168` | Hours before an unsold auction expires and its item goes to deliveries. `0` disables expiration. |
+| `auction.max_active_per_player` | `0` | Most active auctions a player can have at once. `0` = unlimited. |
+| `orders.enabled` | `true` | Enable the orders board. Deliveries still work either way. |
+| `orders.expiration_hours` | `168` | Hours before an unfulfilled order expires and its escrow is refunded. `0` disables expiration. |
+| `orders.max_active_per_player` | `0` | Most open orders a player can have at once. `0` = unlimited. |
+| `transaction_log.enabled` | `true` | Record every balance change to a daily log file. |
+| `transaction_log.retention_days` | `7` | How many days of transaction logs to keep. Above `90` logs a console warning on start. |
 | `auction_listing_broadcast` | `true` | Send notices when a listing is posted or its price drops. |
 | `auction_listing_notify_active_days` | `30` | Send listing notices to offline players seen within this many days. `0` limits notices to online players. |
-| `balance_separator` | `"."` | Thousands separator, e.g. `","` gives `$1,000`. |
 | `contract_default_duration_hours` | `168` | Default work time offered for a new contract (7 days). |
 | `contract_max_duration_hours` | `720` | Longest work time a contract may set (30 days). Raised to match the default if lower. |
 | `contract_max_revisions` | `2` | Times the requester can send work back before disputes unlock. `0` disables revisions. |
 | `contract_revision_extension_hours` | `72` | Extra work time granted per revision. `0` keeps the original deadline. |
 | `contract_review_hours` | `72` | Hours the requester has to review a submission before it auto-approves. `0` disables auto-approval. |
 | `contracts_enabled` | `true` | Enable player-to-player contracts. |
-| `dailyAmount` | `100` | Money given by the daily reward. |
-| `dailySellLimit` | `10000` | Most a player can earn per day from selling. `0` disables the limit. |
-| `dynamic_price_max_multiplier` | `5.0` | Highest allowed price scale. |
-| `dynamic_price_min_active_days` | `30` | Players must have logged in within this many days to count as active. `0` includes everyone. |
-| `dynamic_price_min_multiplier` | `0.5` | Lowest allowed price scale. |
-| `dynamic_prices_enabled` | `false` | **Disabled by default.** Scale shop buy prices with the active-player median balance. See [Dynamic shop pricing](Server-Administration.md#dynamic-shop-pricing). |
 | `http_market_enabled` | `false` | Enable the HTTP market and command endpoints. |
 | `http_market_port` | `0` | Listener port. `0` selects an available port and logs the selected port when the server starts. |
 | `http_market_token` | `""` | Shared request token for both endpoints. Set a non-empty value before enabling the listener. |
-| `max_active_auctions_per_player` | `0` | Most active auctions a player can have at once. `0` = unlimited. Overridable per player. |
 | `max_active_contracts_per_player` | `0` | Most live contracts a player can be part of at once. `0` = unlimited. Overridable per player. |
-| `max_active_orders_per_player` | `0` | Most open orders a player can have at once. `0` = unlimited. Overridable per player. |
 | `max_active_tolls_per_player` | `10` | Most tolls a player can have placed at once. `0` = unlimited. |
 | `max_contract_reward` | `1000000` | Highest reward a contract may offer. Clamped to 1–99,999,999. |
-| `order_expiration_hours` | `168` | Hours before an unfulfilled order expires and its escrow is refunded. `0` disables expiration. |
-| `orders_enabled` | `true` | Enable the orders board. Deliveries still work either way. |
-| `scoreboard_enabled` | `true` | Show the balance sidebar. |
-| `sell_enabled` | `true` | Enable selling. |
-| `shop_enabled` | `true` | Enable the fixed-price shop. |
-| `standalone_admin_commands` | `false` | **Disabled by default.** Allow `/addmoney`, `/setmoney` etc. without the `/eco` prefix. |
-| `standalone_commands` | `true` | Allow `/pay`, `/daily` etc. without the `/eco` prefix. |
-| `startingBalance` | `1000` | Money new players start with. |
-| `taxRate` | `0.1` | Tax on trades and orders, as a decimal (`0.1` = 10%). |
-| `transaction_log_enabled` | `true` | Record every balance change to a daily log file. |
-| `transaction_log_retention_days` | `7` | How many days of transaction logs to keep. Above `90` logs a console warning on start. |
 | `wealth_tax_enabled` | `false` | **Disabled by default.** Apply the daily wealth tax. See [Daily wealth tax](Server-Administration.md#daily-wealth-tax). |
 | `wealth_tax_floor` | `1000` | Balances at or below this are never taxed. Also the rebate target. |
 | `wealth_tax_inactive_days` | `7` | Days before an unseen player is charged the idle rate. `0` = one rate for everyone. |
@@ -60,8 +72,7 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 | `wealth_tax_rate` | `0.015` | Daily cut taken from the surplus above the floor, as a decimal. |
 | `wealth_tax_rebate_enabled` | `false` | **Disabled by default.** Pay players below the floor when the median has crashed. Creates money. |
 | `wealth_tax_rebate_max_rate` | `0.01` | Rebate rate applied to the shortfall below the floor. |
-| `wealth_tax_rebate_trigger_factor` | `1.0` | Rebate arms only when the median is below `startingBalance x` this. |
-| `worth_enabled` | `true` | Enable item value lookups (`/worth`). |
+| `wealth_tax_rebate_trigger_factor` | `1.0` | Rebate arms only when the median is below `economy.starting_balance x` this. |
 ### `factions`
 
 Party tuning. The four parties are `communism`, `capitalism`, `monarchy` and `anarchism`.

@@ -18,13 +18,13 @@ Browse categories and click an item to edit it.
 
 ### Dynamic shop pricing
 
-When enabled (`dynamic_prices_enabled`), this scales every buy price by:
+When enabled (`dynamic_prices.enabled`), this scales every buy price by:
 
 ```
-current price = base price × active-player median balance / starting balance
+current price = base price × active-player median balance / economy.starting_balance
 ```
 
-The scale is clamped between `dynamic_price_min_multiplier` and `dynamic_price_max_multiplier`, and recalculated at most once an hour. Sell prices are never affected. Opt out per category or item from the Shop editor above.
+The scale is clamped between `dynamic_prices.min_multiplier` and `dynamic_prices.max_multiplier`, and recalculated at the interval in `dynamic_prices.update_minutes`. Sell prices are never affected. Opt out per category or item from the Shop editor above.
 
 ### Daily wealth tax
 
@@ -47,15 +47,16 @@ Because the floor is a fraction of the median rather than a fixed number, it fol
 
 Players unseen for `wealth_tax_inactive_days` are charged `rate x wealth_tax_inactive_multiplier`, so the policy drains idle stock rather than taxing play.
 
-The optional rebate (`wealth_tax_rebate_enabled`) pays players below the floor only when the active median falls below `startingBalance x wealth_tax_rebate_trigger_factor`.
+The optional rebate (`wealth_tax_rebate_enabled`) pays players below the floor only when the active median falls below `economy.starting_balance x wealth_tax_rebate_trigger_factor`.
 
 Balances at or below the floor are never taxed, and a tax can never push a balance below the floor. These tax and rebate movements do not count as earned or spent money on leaderboards.
 
 ### Settings
 
-Most of the top-level `config.json` keys, editable in-game: starting balance, daily reward, sell limit, tax
-rate, number separator, the feature toggles, both dynamic-pricing bounds and the active-player window, both
-expiration windows, the per-player order/auction caps, and the whole daily wealth tax block.
+Most of the grouped `config.json` keys are editable in-game: starting balance, daily reward, sell limit, tax
+rate, number separator, the feature toggles, both dynamic-pricing bounds and the active-player window, the
+dynamic price update interval, both expiration windows, the per-player order/auction caps, and the whole daily
+wealth tax block.
 
 The `factions`, `professions`, `gemini_gossip`, and `motd` sections are **file-only**. Some `quests` settings
 are available in the Server Quests screen; the remaining quest settings are file-only. Edit file-only keys in
@@ -85,7 +86,7 @@ Select any player, online or not, to give, take or set their balance, clear thei
 
 | Tool                        | Does                                                                                        |
 |-----------------------------|---------------------------------------------------------------------------------------------|
-| **Reset All Balances**      | Sets every player's balance back to `startingBalance`.                                      |
+| **Reset All Balances**      | Sets every player's balance back to `economy.starting_balance`.                            |
 | **Reset Daily Reward Data** | Everyone can claim their daily reward again immediately.                                    |
 | **Reset Daily Sell Limits** | Everyone's daily sell limit resets to full immediately.                                     |
 | **Clear Auctions**          | Cancels every active listing. Items are returned to sellers' deliveries.                    |

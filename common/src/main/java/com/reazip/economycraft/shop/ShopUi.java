@@ -18,6 +18,7 @@ import com.reazip.economycraft.util.EconomySounds;
 import com.reazip.economycraft.util.MenuUiSupport;
 import com.reazip.economycraft.util.SortMode;
 import com.reazip.economycraft.util.TextInputUi;
+import com.reazip.economycraft.util.TransactionItems;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.ClickEvent;
@@ -407,7 +408,7 @@ public final class ShopUi {
 
                 int stackSize = Math.max(1, entry.stack());
                 long unitBuy = eco.getEffectiveBuyPrice(entry);
-                boolean canSell = entry.unitSell() > 0 && EconomyConfig.get().sellEnabled;
+                boolean canSell = entry.unitSell() > 0 && EconomyConfig.get().selling.enabled;
                 boolean hasContents = MenuUiSupport.hasContainerContents(display);
 
                 List<Component> lore = new ArrayList<>();
@@ -495,7 +496,13 @@ public final class ShopUi {
             if (slot >= 0 && slot < navRowStart) {
                 int index = page * itemsPerPage + slot;
                 if (index < entries.size()) {
-                    PriceRegistry.PriceEntry entry = entries.get(index);
+                    PriceRegistry.PriceEntry entry = prices.findByKey(entries.get(index).key());
+                    if (entry == null) {
+                        EconomySounds.failure(viewer);
+                        viewer.sendSystemMessage(Component.literal("This item is no longer in the shop.")
+                                .withStyle(ChatFormatting.RED));
+                        return true;
+                    }
                     int amount = kind == ClickKind.QUICK_MOVE ? Math.max(1, entry.stack()) : 1;
                     if (dragType == 1) {
                         handleSell(entry, amount);
@@ -537,6 +544,11 @@ public final class ShopUi {
         }
 
         private void handlePurchase(PriceRegistry.PriceEntry entry, int amount) {
+            if (!EconomyConfig.get().shop.enabled) {
+                EconomySounds.failure(viewer);
+                viewer.sendSystemMessage(Component.literal("Shop is disabled.").withStyle(ChatFormatting.RED));
+                return;
+            }
             if (entry.unitBuy() <= 0 || !prices.isCategoryEnabled(entry.category())) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal("This item cannot be purchased.")
@@ -570,7 +582,7 @@ public final class ShopUi {
             }
 
             String detail = EconomyCraft.describeItem(amount, base.getHoverName().getString());
-            if (!eco.removeMoney(viewer.getUUID(), total, EconomySources.SHOP_PURCHASE, detail).successful()) {
+            if (!eco.removeMoney(viewer.getUUID(), total, EconomySources.SHOP_PURCHASE, detail, TransactionItems.keyOf(base)).successful()) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal("Not enough balance.")
                         .withStyle(ChatFormatting.RED));
@@ -582,7 +594,7 @@ public final class ShopUi {
             EconomySounds.success(viewer);
             viewer.sendSystemMessage(Component.literal(
                             "Purchased " + amount + "x " + base.getHoverName().getString() +
-                                    " for " + EconomyCraft.formatMoney(total))
+                                    " for " + EconomyCraft.formatMoneyChat(total))
                     .withStyle(ChatFormatting.GREEN));
 
             if (stored) {
@@ -593,7 +605,7 @@ public final class ShopUi {
         }
 
         private void handleSell(PriceRegistry.PriceEntry entry, int amount) {
-            if (!EconomyConfig.get().sellEnabled || entry.unitSell() <= 0) {
+            if (!EconomyConfig.get().selling.enabled || entry.unitSell() <= 0) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal("This item cannot be sold.").withStyle(ChatFormatting.RED));
                 return;
@@ -616,7 +628,7 @@ public final class ShopUi {
             }
 
             long remaining = eco.getDailySellRemaining(viewer.getUUID());
-            if (EconomyConfig.get().dailySellLimit > 0 && total > remaining) {
+            if (EconomyConfig.get().selling.dailyLimit > 0 && total > remaining) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal(remaining <= 0
                         ? "Daily sell limit reached. Try again tomorrow."
@@ -627,21 +639,22 @@ public final class ShopUi {
             ItemStack disp = ShopDisplay.createDisplayStack(entry, viewer);
             String name = disp.isEmpty() ? entry.id().path() : disp.getHoverName().getString();
 
-            var result = eco.addMoney(viewer.getUUID(), total, EconomySources.SHOP_SALE, EconomyCraft.describeItem(toSell, name));
+            var result = eco.addMoney(viewer.getUUID(), total, EconomySources.SHOP_SALE,
+                    EconomyCraft.describeItem(toSell, name), TransactionItems.keyOf(disp));
             if (!result.successful()) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal("Your balance is too high to receive this sale.")
                         .withStyle(ChatFormatting.RED));
                 return;
             }
-            if (EconomyConfig.get().dailySellLimit > 0) {
-                eco.tryRecordDailySell(viewer.getUUID(), total);
+            if (EconomyConfig.get().selling.dailyLimit > 0) {
+                eco.recordDailySell(viewer.getUUID(), total);
             }
 
             SellService.removeMatching(viewer, prices, entry, toSell, excludeEnchanted);
 
             EconomySounds.success(viewer);
-            viewer.sendSystemMessage(Component.literal("Sold " + toSell + "x " + name + " for " + EconomyCraft.formatMoney(total))
+            viewer.sendSystemMessage(Component.literal("Sold " + toSell + "x " + name + " for " + EconomyCraft.formatMoneyChat(total))
                     .withStyle(ChatFormatting.GREEN));
             updatePage();
         }

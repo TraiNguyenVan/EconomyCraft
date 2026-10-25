@@ -1,6 +1,7 @@
 package com.reazip.economycraft.orders;
 
 import com.reazip.economycraft.EconomyCraft;
+import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.HubUi;
 import com.reazip.economycraft.SellService;
@@ -183,6 +184,12 @@ public final class OrdersUi {
     }
 
     private static void createRequest(ServerPlayer player, EconomyManager eco, ItemStack prototype, int amount, long price, @Nullable String description) {
+        if (!EconomyConfig.get().orders.enabled) {
+            EconomySounds.failure(player);
+            player.sendSystemMessage(Component.literal("Orders are disabled.").withStyle(ChatFormatting.RED));
+            player.closeContainer();
+            return;
+        }
         if (eco.getOrders().hasReachedLimit(player.getUUID())) {
             EconomySounds.failure(player);
             player.sendSystemMessage(Component.literal("You have reached your limit of "
@@ -565,6 +572,12 @@ public final class OrdersUi {
 
             if (slot == MenuUiSupport.ROW_CONFIRM) {
                 ServerPlayer serverPlayer = (ServerPlayer) player;
+                if (!EconomyConfig.get().orders.enabled) {
+                    EconomySounds.failure(serverPlayer);
+                    serverPlayer.sendSystemMessage(Component.literal("Orders are disabled.").withStyle(ChatFormatting.RED));
+                    serverPlayer.closeContainer();
+                    return true;
+                }
                 var server = serverPlayer.level().getServer();
 
                 OrderRequest current = parent.orders().getRequest(request.id);
@@ -605,14 +618,14 @@ public final class OrdersUi {
                 }
 
                 parent.updatePage();
-                player.closeContainer();
+                ((ServerPlayer) player).closeContainer();
                 OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return true;
             }
 
             if (slot == MenuUiSupport.ROW_CANCEL) {
                 EconomySounds.click((ServerPlayer) player);
-                player.closeContainer();
+                ((ServerPlayer) player).closeContainer();
                 OrdersUi.open((ServerPlayer) player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return true;
             }
@@ -622,13 +635,13 @@ public final class OrdersUi {
                 OrderRequest current = parent.orders().getRequest(request.id);
                 if (current == null || !NegotiationEvents.canNegotiateOrder(current)) {
                     fail(serverPlayer, "Request no longer available");
-                    player.closeContainer();
+                    ((ServerPlayer) player).closeContainer();
                     OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                     return true;
                 }
                 if (current.requester.equals(serverPlayer.getUUID())) {
                     fail(serverPlayer, "You cannot offer on your own request");
-                    player.closeContainer();
+                    ((ServerPlayer) player).closeContainer();
                     OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                     return true;
                 }
@@ -658,13 +671,13 @@ public final class OrdersUi {
             OrderRequest current = parent.orders().getRequest(requestId);
             if (current == null || !NegotiationEvents.canNegotiateOrder(current)) {
                 fail(player, "Request no longer available");
-                player.closeContainer();
+                ((ServerPlayer) player).closeContainer();
                 OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return;
             }
             if (current.requester.equals(player.getUUID())) {
                 fail(player, "You cannot offer on your own request");
-                player.closeContainer();
+                ((ServerPlayer) player).closeContainer();
                 OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return;
             }
@@ -678,7 +691,7 @@ public final class OrdersUi {
                             + " for " + current.item.getHoverName().getString()
                             + " — the requester was notified.")
                     .withStyle(ChatFormatting.GREEN));
-            player.closeContainer();
+            ((ServerPlayer) player).closeContainer();
             OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
         }
     }
@@ -751,13 +764,13 @@ public final class OrdersUi {
                         serverPlayer.sendSystemMessage(Component.literal("Request no longer available").withStyle(ChatFormatting.RED));
                     }
                 }
-                player.closeContainer();
+                ((ServerPlayer) player).closeContainer();
                 OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return true;
             }
             if (slot == MenuUiSupport.ROW_CANCEL) {
                 EconomySounds.click((ServerPlayer) player);
-                player.closeContainer();
+                ((ServerPlayer) player).closeContainer();
                 OrdersUi.open((ServerPlayer) player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                 return true;
             }
@@ -766,7 +779,7 @@ public final class OrdersUi {
                 OrderRequest current = parent.orders().getRequest(request.id);
                 if (current == null || !current.requester.equals(serverPlayer.getUUID())) {
                     failStatic(serverPlayer, "Request no longer available");
-                    player.closeContainer();
+                    ((ServerPlayer) player).closeContainer();
                     OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                     return true;
                 }
@@ -785,7 +798,7 @@ public final class OrdersUi {
                 OrderRequest current = parent.orders().getRequest(request.id);
                 if (current == null || !current.requester.equals(serverPlayer.getUUID())) {
                     failStatic(serverPlayer, "Request no longer available");
-                    player.closeContainer();
+                    ((ServerPlayer) player).closeContainer();
                     OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
                     return true;
                 }
@@ -832,7 +845,7 @@ public final class OrdersUi {
             }
             default -> failStatic(player, "Request no longer available");
         }
-        player.closeContainer();
+        ((ServerPlayer) player).closeContainer();
         OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
     }
 
@@ -860,7 +873,7 @@ public final class OrdersUi {
                     failStatic(player, "Your balance is too high to receive the refund");
             default -> failStatic(player, "Request no longer available");
         }
-        player.closeContainer();
+        ((ServerPlayer) player).closeContainer();
         OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
     }
 
@@ -1329,7 +1342,7 @@ public final class OrdersUi {
                 if (slot == navRowStart + 5 && (page + 1) * 45 < items.size()) { EconomySounds.page((ServerPlayer) player); page++; updatePage(); return true; }
                 if (slot == navRowStart + 8) {
                     EconomySounds.click((ServerPlayer) player);
-                    player.closeContainer();
+                    ((ServerPlayer) player).closeContainer();
                     HubUi.open((ServerPlayer) player);
                     return true;
                 }

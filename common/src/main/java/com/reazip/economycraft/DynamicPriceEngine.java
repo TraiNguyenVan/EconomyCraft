@@ -21,7 +21,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class DynamicPriceEngine {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final long REFRESH_INTERVAL_MS = TimeUnit.HOURS.toMillis(1);
 
     private final Path file;
     private final EconomyDatabase db;
@@ -75,7 +74,8 @@ public final class DynamicPriceEngine {
 
     public void maybeRefresh(MinecraftServer server, Map<UUID, Long> balances) {
         flush();
-        if (System.currentTimeMillis() - lastRefreshMs < REFRESH_INTERVAL_MS) return;
+        long intervalMs = TimeUnit.MINUTES.toMillis(EconomyConfig.get().dynamicPrices.updateMinutes);
+        if (System.currentTimeMillis() - lastRefreshMs < intervalMs) return;
         refresh(server, balances);
     }
 
@@ -85,15 +85,15 @@ public final class DynamicPriceEngine {
         flush();
 
         EconomyConfig config = EconomyConfig.get();
-        long reference = config.startingBalance;
+        long reference = config.economy.startingBalance;
         if (reference <= 0) {
             multiplier = 1.0;
             medianBalance = 0.0;
-            LOGGER.warn("[EconomyCraft] Dynamic prices: startingBalance is {} (must be positive to compute a reference median); leaving the multiplier at 1x.", reference);
+            LOGGER.warn("[EconomyCraft] Dynamic prices: economy.starting_balance is {} (must be positive to compute a reference median); leaving the multiplier at 1x.", reference);
             return;
         }
 
-        List<Long> activeBalances = collectActiveBalances(balances, config.dynamicPriceMinActiveDays);
+        List<Long> activeBalances = collectActiveBalances(balances, config.dynamicPrices.minActiveDays);
         if (activeBalances.isEmpty()) {
             multiplier = 1.0;
             medianBalance = 0.0;
@@ -103,7 +103,7 @@ public final class DynamicPriceEngine {
         double median = FiscalPolicy.median(activeBalances);
         medianBalance = median;
         double raw = median / (double) reference;
-        multiplier = Math.clamp(raw, config.dynamicPriceMinMultiplier, config.dynamicPriceMaxMultiplier);
+        multiplier = Math.clamp(raw, config.dynamicPrices.minMultiplier, config.dynamicPrices.maxMultiplier);
         LOGGER.info("[EconomyCraft] Dynamic prices: {} active player(s), median balance {}, reference {}, multiplier {}x",
                 activeBalances.size(), median, reference, multiplier);
     }
@@ -111,7 +111,7 @@ public final class DynamicPriceEngine {
     public long applyMultiplier(long baseBuyPrice) {
         if (baseBuyPrice <= 0) return baseBuyPrice;
         long rounded = Math.round(baseBuyPrice * multiplier);
-        return Math.clamp(rounded, 1, EconomyManager.MAX);
+        return Math.clamp(rounded, 1, EconomyManager.ABSOLUTE_MAX_BALANCE);
     }
 
     private static List<UUID> onlinePlayerIds(MinecraftServer server) {

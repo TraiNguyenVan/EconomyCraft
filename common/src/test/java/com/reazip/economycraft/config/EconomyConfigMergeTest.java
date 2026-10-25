@@ -102,9 +102,10 @@ class EconomyConfigMergeTest {
 
         JsonObject merged = loadAndReadBack();
 
-        assertEquals(4321, merged.get("startingBalance").getAsInt(), "a typed value must survive the merge");
-        assertEquals(0.2, merged.get("taxRate").getAsDouble(), 1.0e-9);
-        assertTrue(merged.get("dynamic_prices_enabled").getAsBoolean());
+        assertEquals(4321, merged.getAsJsonObject("economy").get("starting_balance").getAsInt(),
+                "a typed value must survive the merge");
+        assertEquals(0.2, merged.getAsJsonObject("economy").get("tax_rate").getAsDouble(), 1.0e-9);
+        assertTrue(merged.getAsJsonObject("dynamic_prices").get("enabled").getAsBoolean());
         assertEquals(4321, EconomyConfig.get().startingBalance, "the parsed config must keep the user's value");
 
         // The sections Phase 2 adds are absent from this hand-written file, so the merge must add them whole,
@@ -226,7 +227,7 @@ class EconomyConfigMergeTest {
         givenUserConfig("   ");
         JsonObject merged = loadAndReadBack();
 
-        assertTrue(merged.has("startingBalance"));
+        assertTrue(merged.has("economy"));
         assertTrue(merged.has("factions"));
         assertTrue(merged.has("professions"));
     }

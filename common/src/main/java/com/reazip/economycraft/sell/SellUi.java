@@ -14,6 +14,7 @@ import com.reazip.economycraft.util.EconomyPermissions;
 import com.reazip.economycraft.util.EconomyPermissions.Nodes;
 import com.reazip.economycraft.util.EconomySounds;
 import com.reazip.economycraft.util.MenuUiSupport;
+import com.reazip.economycraft.util.TransactionItems;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.component.DataComponents;
@@ -96,8 +97,7 @@ public final class SellUi {
         }
 
         private void previewStack(ItemStack stack, PreviewAccumulator acc) {
-            if (SellService.sellableResolved(prices, stack) == null) return;
-            addPreview(acc, stack, prices.getUnitSell(stack));
+            addPreview(acc, stack, SellService.sellableUnitSell(prices, stack));
         }
 
         private NonNullList<ItemStack> readShulkerContents(ItemStack box) {
@@ -117,7 +117,7 @@ public final class SellUi {
             NonNullList<ItemStack> inner = readShulkerContents(box);
             if (inner == null) return false;
             for (ItemStack innerStack : inner) {
-                if (!innerStack.isEmpty() && SellService.sellableResolved(prices, innerStack) != null) return true;
+                if (!innerStack.isEmpty() && SellService.sellableUnitSell(prices, innerStack) != null) return true;
             }
             return false;
         }
@@ -130,19 +130,20 @@ public final class SellUi {
             long before = acc.total;
             for (ItemStack innerStack : inner) {
                 if (innerStack.isEmpty()) continue;
-                if (SellService.sellableResolved(prices, innerStack) == null) {
+                Long unitSell = SellService.sellableUnitSell(prices, innerStack);
+                if (unitSell == null) {
                     allSellable = false;
                     continue;
                 }
-                addPreview(acc, innerStack, prices.getUnitSell(innerStack));
+                addPreview(acc, innerStack, unitSell);
             }
 
             long contentsValue = acc.total - before;
-            if (allSellable && EconomyConfig.get().dailySellLimit > 0
+            if (allSellable && EconomyConfig.get().selling.dailyLimit > 0
                     && contentsValue > manager.getDailySellRemaining(viewer.getUUID())) {
                 allSellable = false;
             }
-            if (allSellable && contentsValue > EconomyManager.MAX - manager.getBalance(viewer.getUUID(), true)) {
+            if (allSellable && contentsValue > EconomyManager.maxBalance() - manager.getBalance(viewer.getUUID(), true)) {
                 allSellable = false;
             }
             return allSellable;
@@ -157,8 +158,8 @@ public final class SellUi {
                 if (shulkerMode != ShulkerSellMode.DISALLOW && isShulkerCandidate(stack)) {
                     boolean allContentsSellable = previewShulkerContents(stack, acc);
                     if (shulkerMode == ShulkerSellMode.CONTENTS_ONLY) continue;
-                    if (allContentsSellable && SellService.sellableIgnoringContents(prices, stack) != null) {
-                        addPreview(acc, stack, prices.getUnitSell(stack));
+                    if (allContentsSellable) {
+                        addPreview(acc, stack, SellService.sellableUnitSellIgnoringContents(prices, stack));
                     }
                     continue;
                 }
@@ -174,7 +175,6 @@ public final class SellUi {
 
             navContainer.setItem(NAV_HELP, MenuUiSupport.button(Items.BOOK, "How this works", ChatFormatting.YELLOW,
                     MenuUiSupport.hint("Drop items in the slots above."),
-                    MenuUiSupport.hint("Only items with a sell price fit."),
                     MenuUiSupport.hint("Nothing is sold until you confirm."),
                     MenuUiSupport.hint("Closing gives everything back.")));
 
@@ -203,7 +203,7 @@ public final class SellUi {
             if (isShulkerCandidate(stack)) {
                 return shulkerMode != ShulkerSellMode.DISALLOW && hasSellableShulkerContent(stack);
             }
-            return SellService.sellableResolved(prices, stack) != null;
+            return SellService.sellableUnitSell(prices, stack) != null;
         }
 
         private void cycleShulkerMode() {
@@ -218,7 +218,7 @@ public final class SellUi {
         private void fillFromInventory(Player player) {
             Inventory inv = player.getInventory();
             int moved = 0;
-            for (int i = 0; i < SellService.MAIN_INVENTORY_SLOTS; i++) {
+            for (int i = 0; i < Inventory.INVENTORY_SIZE; i++) {
                 ItemStack stack = inv.getItem(i);
                 if (stack.isEmpty()) continue;
                 if (!isDepositAcceptable(stack)) continue;
@@ -251,10 +251,7 @@ public final class SellUi {
             int mailboxHeld;
         }
 
-        private void sellStack(ServerPlayer player, ItemStack stack, SaleTotals totals) {
-            Long unitSell = prices.getUnitSell(stack);
-            if (unitSell == null) return;
-
+        private void sellStack(ServerPlayer player, ItemStack stack, long unitSell, SaleTotals totals) {
             SellService.SaleSplit split = SellService.sellHandWithRouting(manager, player, stack, stack.getCount(), unitSell);
             totals.orderGiven += split.orderGiven();
             totals.orderPayout += split.orderPayout();
@@ -264,21 +261,21 @@ public final class SellUi {
             Long potential = ShopDisplay.safeMultiply(unitSell, split.serverRemaining());
             if (potential == null) return;
 
-            if (EconomyConfig.get().dailySellLimit > 0
+            if (EconomyConfig.get().selling.dailyLimit > 0
                     && potential > manager.getDailySellRemaining(player.getUUID())) {
                 totals.limitBlocked += split.serverRemaining();
                 return;
             }
 
             String detail = EconomyCraft.describeItem(split.serverRemaining(), stack.getHoverName().getString());
-            var result = manager.addMoney(player.getUUID(), potential, EconomySources.SHOP_SALE, detail);
+            var result = manager.addMoney(player.getUUID(), potential, EconomySources.SHOP_SALE, detail, TransactionItems.keyOf(stack));
             if (!result.successful()) {
                 totals.balanceBlocked += split.serverRemaining();
                 return;
             }
 
-            if (EconomyConfig.get().dailySellLimit > 0) {
-                manager.tryRecordDailySell(player.getUUID(), potential);
+            if (EconomyConfig.get().selling.dailyLimit > 0) {
+                manager.recordDailySell(player.getUUID(), potential);
             }
             totals.serverSold += split.serverRemaining();
             totals.serverPayout += potential;
@@ -291,14 +288,20 @@ public final class SellUi {
 
             for (ItemStack innerStack : inner) {
                 if (innerStack.isEmpty()) continue;
-                if (SellService.sellableResolved(prices, innerStack) == null) continue;
-                sellStack(player, innerStack, totals);
+                Long unitSell = SellService.sellableUnitSell(prices, innerStack);
+                if (unitSell == null) continue;
+                sellStack(player, innerStack, unitSell, totals);
             }
 
             box.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(inner));
         }
 
         private void performSale(ServerPlayer player) {
+            if (!EconomyConfig.get().selling.enabled) {
+                EconomySounds.failure(player);
+                player.sendSystemMessage(Component.literal("Selling is disabled.").withStyle(ChatFormatting.RED));
+                return;
+            }
             SaleTotals totals = new SaleTotals();
 
             for (int i = 0; i < DEPOSIT_SLOTS; i++) {
@@ -312,8 +315,9 @@ public final class SellUi {
                 }
                 if (keepBox) continue;
 
-                if (SellService.sellableResolved(prices, stack) != null) {
-                    sellStack(player, stack, totals);
+                Long unitSell = SellService.sellableUnitSell(prices, stack);
+                if (unitSell != null) {
+                    sellStack(player, stack, unitSell, totals);
                 } else if (isShulkerCandidate(stack)) {
                     totals.shulkerBoxesKept++;
                 }
@@ -326,7 +330,7 @@ public final class SellUi {
                 EconomySounds.success(player);
                 long totalPayout = totals.orderPayout + totals.serverPayout;
                 player.sendSystemMessage(Component.literal("Successfully sold " + totalSold + " item" + (totalSold == 1 ? "" : "s") +
-                                " for " + EconomyCraft.formatMoney(totalPayout) +
+                                " for " + EconomyCraft.formatMoneyChat(totalPayout) +
                                 (totals.orderGiven > 0 ? " (" + totals.orderGiven + " to open orders for a better price)" : "") + ".")
                         .withStyle(ChatFormatting.GREEN));
             }
@@ -335,7 +339,7 @@ public final class SellUi {
                 long remaining = manager.getDailySellRemaining(player.getUUID());
                 player.sendSystemMessage(Component.literal(totals.limitBlocked + " item" + (totals.limitBlocked == 1 ? "" : "s") +
                                 " was not sold: daily sell limit reached" +
-                                (remaining > 0 ? " (" + EconomyCraft.formatMoney(remaining) + " left today)." : "."))
+                                (remaining > 0 ? " (" + EconomyCraft.formatMoneyChat(remaining) + " left today)." : "."))
                         .withStyle(ChatFormatting.RED));
             }
 
@@ -380,7 +384,7 @@ public final class SellUi {
                         cycleShulkerMode();
                     } else if (navSlot == NAV_MENU) {
                         EconomySounds.click((ServerPlayer) player);
-                        player.closeContainer();
+                        ((ServerPlayer) player).closeContainer();
                         HubUi.open((ServerPlayer) player);
                     }
                 }
