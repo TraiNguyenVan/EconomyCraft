@@ -91,11 +91,13 @@ Select any player, online or not, to give, take or set their balance, clear thei
 | **Reset Daily Sell Limits** | Everyone's daily sell limit resets to full immediately.                                     |
 | **Clear Auctions**          | Cancels every active listing. Items are returned to sellers' deliveries.                    |
 | **Clear Orders**            | Cancels every open order. Escrowed money is refunded to requesters.                         |
+| **Remove All Items**        | Empties the shop. Removed items can be restored from the shop editor.                       |
+| **Reset Shop Prices**       | Restores prices, categories, and removed items to their defaults. Custom items are deleted; a `prices.json` backup is kept beside the file. |
 | **Run Wealth Tax Now**      | Applies the daily wealth tax immediately and reports what it took, per day.                |
 | **Run Faction Daily Tax**   | Applies the Capitalism and Monarchy daily taxes immediately.                                |
-| **Reset Entire Economy**    | All of the above, plus wipes the Leaderboards stats and deletes the entire transaction log. |
+| **Reset Entire Economy**    | Resets balances, rewards, sell limits, leaderboard stats, auctions, orders, and the transaction log. It does not change shop prices or categories. |
 
-None of these touch shop prices/categories or permission settings. **Run Wealth Tax Now** and **Run Faction
+The two shop tools are the only reset actions that modify shop contents or prices. None of these tools change permission settings. **Run Wealth Tax Now** and **Run Faction
 Daily Tax** are the two tools that move real balances as a side effect; the first does nothing while
 `wealth_tax_enabled` is off, and the second does nothing while `factions.enabled` is off or a player has no
 party.
