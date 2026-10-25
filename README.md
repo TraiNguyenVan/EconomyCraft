@@ -3,6 +3,8 @@
 [![CI][ci-badge]][ci-workflow]
 [![License: GPL-3.0][license-badge]](LICENSE)
 
+**[EconomyCraft homepage][homepage]**
+
 EconomyCraft is a server-side economy mod for Minecraft 26.3 on Fabric and NeoForge.
 It adds balances, player trading, markets, factions, professions, quests, tolls,
 and an API for other server-side mods while keeping the client unmodified.
@@ -108,6 +110,7 @@ This repository is an enhanced fork of [PhilipB06/EconomyCraft][upstream].
   https://github.com/TraiNguyenVan/EconomyCraft/actions/workflows/ci.yml
 [license-badge]:
   https://img.shields.io/badge/License-GPL--3.0-blue.svg
+[homepage]: https://trainguyenvan.github.io/EconomyCraft/
 [release]: https://github.com/TraiNguyenVan/EconomyCraft/releases/latest
 [shopguard]: https://github.com/TraiNguyenVan/shopguard
 [gameplay]: https://trainguyenvan.github.io/EconomyCraft/docs/Gameplay
