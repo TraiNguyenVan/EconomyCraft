@@ -47,7 +47,7 @@ Choose a profession with `/job` or `/eco job`, or open `/eco` and select **Tags*
   - Trade with villagers 50 times. Stick trades do not count, and each villager can contribute at most 20 trades.
   - Complete 5 purchases on the `/ah` auction house.
 - **Skills:**
-  - **Silver Tongue:** Reduces the item cost of trades with employed villagers. It also reduces the transaction tax calculated for `/pay`, tolls, `/ah` purchases, and order fulfillment. It changes the tax or villager trade cost, not the listed auction/order price or the principal being transferred. Its configured rate is 5% at Apprentice or 15% at Master; Rust halves the profession effect.
+  - **Silver Tongue:** Reduces the item cost of trades with employed villagers. For `/pay` and `/ah` purchases, it reduces the payer's total by applying the profession rate to the base before tax; the receiver still gets the full payment or listing price. For tolls and order fulfillment, the full toll or order amount remains the base and only the transaction tax is reduced. Its configured rate is 5% at Apprentice or 15% at Master; Rust halves the profession effect.
 
 ---
 
