@@ -41,8 +41,8 @@ import java.util.UUID;
   *       {@code removeMoney(player, debit, source, …)} debits one balance and credits nobody. A transfer
   *       always has a receiver — its engine and result both reject {@code null} — so a burn is a removal,
   *       never a transfer with a {@code null} recipient.</li>
- *   <li><strong>The two parties are not the same function</strong> (D19). Capitalism's rate multiplies the
- *       server-wide player-activity inflation; Monarchy uses its base rate and concentration only.</li>
+ *   <li><strong>The two parties have different base rates</strong> (D19). Both use the party's concentration
+ *       multiplier; neither daily faction rate uses the separate market inflation signal.</li>
  * </ul>
  *
  * <p>A debit that fails is counted as a failure, never as money collected (R9). The balance is clamped so the

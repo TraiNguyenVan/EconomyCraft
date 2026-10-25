@@ -30,10 +30,7 @@ public final class FactionFiscalPolicy {
         return Math.clamp(raw, minMult, maxMult);
     }
 
-    /**
-     * Capitalism's inflation- and concentration-responsive rate (D14):
-     * {@code baseRate * concentrationMult}.
-     */
+    /** Capitalism's concentration-responsive rate: {@code baseRate * concentrationMult}. */
     public static double capitalismRate(double baseRate, double concentrationMult) {
         if (baseRate <= 0.0) return 0.0;
         double rate = baseRate * concentrationMult;

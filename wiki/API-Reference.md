@@ -323,8 +323,7 @@ reference value rather than using it raw — and never let it decide a price at 
 refresh.
 
 It is independent of `dynamic_prices_enabled`: that flag gates whether item buy prices are scaled, not whether
-this signal is maintained. It is also the signal the daily fiscal pass reads, so your pricing and the mod's
-taxation can never disagree about who is active.
+this signal is maintained. Daily faction taxes do not use this signal; it is a market-pricing signal only.
 
 ---
 

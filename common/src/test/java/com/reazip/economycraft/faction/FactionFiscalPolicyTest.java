@@ -113,7 +113,7 @@ class FactionFiscalPolicyTest {
 
     @Test
     void theTwoPartiesReallyAreDifferentFormulas() {
-        // The parties keep different base rates and only Capitalism uses the global inflation signal.
+        // The parties keep different base rates while sharing the concentration factor.
         double concentration = 1.5;
 
         double capitalism = FactionFiscalPolicy.capitalismRate(0.05, concentration);
