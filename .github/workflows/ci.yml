@@ -20,10 +20,46 @@ name: CI
 
 on:
   pull_request:
+    paths:
+      - 'api/src/**'
+      - 'common/src/**'
+      - 'fabric/src/**'
+      - 'neoforge/src/**'
+      - 'api/build.gradle'
+      - 'common/build.gradle'
+      - 'fabric/build.gradle'
+      - 'neoforge/build.gradle'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'neoforge/gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '.github/workflows/ci.yml'
+      - 'wiki/**'
   push:
     branches: [main]
     tags:
       - "v*"
+    paths:
+      - 'api/src/**'
+      - 'common/src/**'
+      - 'fabric/src/**'
+      - 'neoforge/src/**'
+      - 'api/build.gradle'
+      - 'common/build.gradle'
+      - 'fabric/build.gradle'
+      - 'neoforge/build.gradle'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle.properties'
+      - 'neoforge/gradle.properties'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
+      - '.github/workflows/ci.yml'
+      - 'wiki/**'
   workflow_dispatch:
     inputs:
       dry_run:
