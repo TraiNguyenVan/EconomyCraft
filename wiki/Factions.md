@@ -47,7 +47,7 @@ EconomyCraft offers four factions, each with distinct benefits and drawbacks. Ch
 ## 4. Anarchism
 - **Icon:** `Ⓐ` | **Color:** White / Gray (default when no faction is chosen)
 - **Benefits:**
-  - **Freedom:** You pay no taxes of any kind (transaction, daily, or toll taxes are all zero; the original purchase and toll fees still apply).
+  - **Freedom:** You pay no faction or transaction taxes (shop, auction, order, and toll taxes are zero; the original purchase and toll fees still apply). The separate global wealth tax still applies when enabled.
   - **Ease:** Gain 15% movement speed on foot and 15% movement speed on horseback while in wilderness that has not been claimed.
 - **Drawbacks:**
   - **Anarchy:** You cannot own or claim new land, receive a land transfer from another player, or be added to another player's trust list with `/claim trust`.
