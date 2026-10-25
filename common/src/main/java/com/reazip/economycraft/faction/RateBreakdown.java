@@ -12,8 +12,8 @@ import java.util.Locale;
  * are one value here and {@link #describe()} is the only place they are formatted — which also means the
  * explanation is unit-testable instead of trusted.
  *
- * <p>The two parties' breakdowns differ in more than their numbers: Capitalism reads server-wide
- * player-activity inflation, while Monarchy uses a fixed inflation factor.
+ * <p>Both faction rates now use a fixed inflation factor of {@code 1.00}; the shared field remains so existing
+ * rate messages and persisted reports retain their shape.
  *
  * @param baseRate                 the configured rate before any factor
  * @param inflation                the party's own inflation factor, already clamped to its floor

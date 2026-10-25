@@ -116,10 +116,7 @@ public class FactionsSection {
         @SerializedName("daily_tax_rate")
         public double dailyTaxRate = 0.025;
 
-        /**
-         * D14: the global half of the rate. Read from the existing read-only inflation signal rather than a
-         * fourth independent measure, so "who counts as active" stays shared with dynamic pricing.
-         */
+        /** Legacy setting retained for compatibility; Capitalism's daily tax no longer uses inflation. */
         @SerializedName("use_global_inflation")
         public boolean useGlobalInflation = true;
 

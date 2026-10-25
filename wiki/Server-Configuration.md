@@ -81,7 +81,7 @@ Party tuning. The four parties are `communism`, `capitalism`, `monarchy` and `an
 | `factions.capitalism.icon` | `"$"` | Capitalism tag icon, one glyph. |
 | `factions.capitalism.max_rate_change_per_day` | `0.25` | How fast the daily rate may move, as a fraction per day. Caps griefing the rate up and down. |
 | `factions.capitalism.toll_tax_multiplier` | `1.25` | Toll tax amount multiplier (`1.25` = +25%). |
-| `factions.capitalism.use_global_inflation` | `true` | Read the server-wide inflation signal instead of a fourth independent measure. |
+| `factions.capitalism.use_global_inflation` | `true` | Legacy setting retained for existing config files; Capitalism's daily tax no longer uses inflation. |
 | `factions.communism.color` | `16733525` | Communism tag colour, as a 24-bit RGB integer. |
 | `factions.communism.icon` | `"☭"` | Communism tag icon, one glyph. |
 | `factions.communism.income_tax_tier1_rate` | `0.0025` | Tier 1 rate (`0.0025` = 0.25% of the balance). |

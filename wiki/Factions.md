@@ -29,7 +29,7 @@ EconomyCraft offers four factions, each with distinct benefits and drawbacks. Ch
 - **Benefits:**
   - **Competitive Market:** When you list an item on the `/ah` auction house, its buyer is exempt from the transaction tax, making your listing more competitive.
 - **Drawbacks:**
-  - **Capitalist State:** Daily wealth tax has a base rate of 2.5%, multiplied by the inflation factor and the faction's share of wealth. The rate cannot increase or decrease by more than 25% per day. Toll transaction tax is increased by 25%.
+  - **Capitalist State:** A daily faction tax starts at 2.5% and scales with the faction's share of wealth. The rate cannot increase or decrease by more than 25% per day. Toll transaction tax is increased by 25%.
 
 ---
 

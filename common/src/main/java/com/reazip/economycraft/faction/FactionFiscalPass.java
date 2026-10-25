@@ -7,7 +7,6 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
-import com.reazip.economycraft.api.v1.EconomyCraftApi;
 import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.config.FactionsSection;
 import com.reazip.economycraft.db.Documents;
@@ -237,13 +236,14 @@ public final class FactionFiscalPass {
             }
         }
 
-        // 2. Capitalism: base x global player-activity inflation x concentration (D14).
+        // 2. Capitalism: base x concentration. Inflation already affects dynamic prices and is not applied
+        // again to the daily faction tax.
         double capShare = FactionFiscalPolicy.shareOf(capitalismMoney, totalMoney);
-        double capInflation = capConfig.useGlobalInflation ? globalInflation() : 1.0;
+        double capInflation = 1.0;
         double capConcentration = FactionFiscalPolicy.concentrationMultiplier(
                 capShare, capConfig.concentrationReferenceShare, capConfig.concentrationElasticity,
                 capConfig.concentrationMinMultiplier, capConfig.concentrationMaxMultiplier);
-        double capRawRate = FactionFiscalPolicy.capitalismRate(capConfig.dailyTaxRate, capInflation, capConcentration);
+        double capRawRate = FactionFiscalPolicy.capitalismRate(capConfig.dailyTaxRate, capConcentration);
         double capAppliedRate = FactionFiscalPolicy.clampRateChange(
                 capRawRate, lastCapitalismRate, capConfig.maxRateChangePerDay);
 
@@ -328,17 +328,6 @@ public final class FactionFiscalPass {
                 + EconomyCraft.formatMoney(amount) + " could not be collected.")
                 .withStyle(ChatFormatting.RED));
         online.sendSystemMessage(Component.literal("§7" + breakdown.describe()).withStyle(ChatFormatting.GRAY));
-    }
-
-    /** The shared, read-only player-activity signal (D14). Never written through. */
-    private double globalInflation() {
-        try {
-            return EconomyCraftApi.get(eco.getServer()).inflationMultiplier();
-        } catch (Exception ex) {
-            // The API is optional: with no provider installed the signal is simply its neutral value, which
-            // leaves the configured base rate in force instead of failing the whole pass.
-            return 1.0;
-        }
     }
 
     private static long saturatingAdd(long running, long value) {
