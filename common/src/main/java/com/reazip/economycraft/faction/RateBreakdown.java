@@ -6,13 +6,14 @@ import java.util.Locale;
  * Every factor that produced one faction daily rate, kept together so a charge can explain itself (D14).
  *
  * <p>D14 requires the message to state the base rate, the inflation factor, the party's share, the reference
- * share, the concentration multiplier, and whether the per-day clamp bound the result. Six numbers that
+ * share, the concentration multiplier, and whether the per-day clamp bound the result. Monarchy reports a
+ * fixed inflation factor of {@code 1.00} for compatibility with the shared display format. Six numbers that
  * arrive from four different places is exactly the kind of thing that gets quietly half-implemented, so they
  * are one value here and {@link #describe()} is the only place they are formatted — which also means the
  * explanation is unit-testable instead of trusted.
  *
- * <p>The two parties' breakdowns differ in more than their numbers, which is the point D19 makes: Capitalism
- * reads server-wide player-activity inflation, Monarchy reads money supply per player.
+ * <p>The two parties' breakdowns differ in more than their numbers: Capitalism reads server-wide
+ * player-activity inflation, while Monarchy uses a fixed inflation factor.
  *
  * @param baseRate                 the configured rate before any factor
  * @param inflation                the party's own inflation factor, already clamped to its floor

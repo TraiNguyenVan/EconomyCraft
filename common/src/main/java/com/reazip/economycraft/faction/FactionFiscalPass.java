@@ -43,8 +43,7 @@ import java.util.UUID;
   *       always has a receiver — its engine and result both reject {@code null} — so a burn is a removal,
   *       never a transfer with a {@code null} recipient.</li>
  *   <li><strong>The two parties are not the same function</strong> (D19). Capitalism's rate multiplies the
- *       server-wide player-activity inflation; Monarchy's multiplies money supply per player. Sharing one
- *       helper between them would erase the only difference D19 actually decided.</li>
+ *       server-wide player-activity inflation; Monarchy uses its base rate and concentration only.</li>
  * </ul>
  *
  * <p>A debit that fails is counted as a failure, never as money collected (R9). The balance is clamped so the
@@ -248,15 +247,13 @@ public final class FactionFiscalPass {
         double capAppliedRate = FactionFiscalPolicy.clampRateChange(
                 capRawRate, lastCapitalismRate, capConfig.maxRateChangePerDay);
 
-        // 3. Monarchy: base x money-supply-per-player x the same concentration multiplier (D19).
+        // 3. Monarchy: base x concentration. Money-supply inflation was removed so the tribute is predictable.
         double monShare = FactionFiscalPolicy.shareOf(monarchyMoney, totalMoney);
-        int activePlayers = Math.max(1, eco.getServer().getPlayerList().getPlayerCount());
-        double monInflation = FactionFiscalPolicy.monarchyMoneySupplyInflation(
-                totalMoney, activePlayers, monConfig.moneySupplyReferencePerPlayer, monConfig.moneySupplyInflationMax);
+        double monInflation = 1.0;
         double monConcentration = FactionFiscalPolicy.concentrationMultiplier(
                 monShare, capConfig.concentrationReferenceShare, capConfig.concentrationElasticity,
                 capConfig.concentrationMinMultiplier, capConfig.concentrationMaxMultiplier);
-        double monRawRate = FactionFiscalPolicy.monarchyRate(monConfig.dailyTaxRate, monInflation, monConcentration);
+        double monRawRate = FactionFiscalPolicy.monarchyRate(monConfig.dailyTaxRate, monConcentration);
         double monAppliedRate = FactionFiscalPolicy.clampRateChange(
                 monRawRate, lastMonarchyRate, capConfig.maxRateChangePerDay);
 

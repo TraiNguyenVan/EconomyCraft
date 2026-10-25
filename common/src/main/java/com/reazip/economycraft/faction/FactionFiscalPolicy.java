@@ -54,28 +54,12 @@ public final class FactionFiscalPolicy {
     }
 
     /**
-     * Monarchy's money supply inflation factor (D19):
-     * {@code totalMoneyInCirculation / (activePlayers * referencePerPlayer)}, clamped to [1.0, maxInflation].
+     * Monarchy's corruption tax rate:
+     * {@code baseRate * concentrationMult}.
      */
-    public static double monarchyMoneySupplyInflation(long totalMoneyInCirculation, int activePlayers,
-                                                      double referencePerPlayer, double maxInflation) {
-        if (activePlayers <= 0 || referencePerPlayer <= 0.0 || totalMoneyInCirculation <= 0) {
-            return 1.0;
-        }
-        double denominator = activePlayers * referencePerPlayer;
-        if (denominator <= 0.0) return 1.0;
-        double factor = totalMoneyInCirculation / denominator;
-        return Math.clamp(factor, 1.0, Math.max(1.0, maxInflation));
-    }
-
-    /**
-     * Monarchy's corruption tax rate (D19):
-     * {@code baseRate * moneySupplyInflation * concentrationMult}.
-     */
-    public static double monarchyRate(double baseRate, double moneySupplyInflation, double concentrationMult) {
+    public static double monarchyRate(double baseRate, double concentrationMult) {
         if (baseRate <= 0.0) return 0.0;
-        double effectiveInflation = Math.max(1.0, moneySupplyInflation);
-        double rate = baseRate * effectiveInflation * concentrationMult;
+        double rate = baseRate * concentrationMult;
         return Math.clamp(rate, 0.0, 1.0);
     }
 

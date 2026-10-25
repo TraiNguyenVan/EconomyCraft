@@ -55,25 +55,10 @@ class FactionFiscalPolicyTest {
     }
 
     @Test
-    void monarchyMoneySupplyInflationFormula() {
-        // total 50_000, 10 active players, ref 1000 -> 50_000 / 10_000 = 5.0, clamped to max 3.0
-        double factor = FactionFiscalPolicy.monarchyMoneySupplyInflation(50_000, 10, 1000.0, 3.0);
-        assertEquals(3.0, factor, 1e-9);
-
-        // total 10_000, 10 players, ref 1000 -> 10_000 / 10_000 = 1.0
-        double factorNormal = FactionFiscalPolicy.monarchyMoneySupplyInflation(10_000, 10, 1000.0, 3.0);
-        assertEquals(1.0, factorNormal, 1e-9);
-
-        // total 5_000, 10 players, ref 1000 -> 5_000 / 10_000 = 0.5 -> clamped to min 1.0
-        double factorSub = FactionFiscalPolicy.monarchyMoneySupplyInflation(5_000, 10, 1000.0, 3.0);
-        assertEquals(1.0, factorSub, 1e-9);
-    }
-
-    @Test
     void monarchyRateCalculatesCorrectly() {
-        // base 0.017, inflation 2.0, concentration 1.0 -> 0.034
-        double rate = FactionFiscalPolicy.monarchyRate(0.017, 2.0, 1.0);
-        assertEquals(0.034, rate, 1e-9);
+        // base 0.017 x concentration 1.0 -> 0.017
+        double rate = FactionFiscalPolicy.monarchyRate(0.017, 1.0);
+        assertEquals(0.017, rate, 1e-9);
     }
 
     @Test
@@ -132,17 +117,15 @@ class FactionFiscalPolicyTest {
 
     @Test
     void theTwoPartiesReallyAreDifferentFormulas() {
-        // D19: same concentration half, different inflation signal. At the same inputs they must not agree,
-        // which is the whole reason they were not merged into one function.
+        // The parties keep different base rates and only Capitalism uses the global inflation signal.
         double globalInflation = 1.4;
-        double moneySupply = 2.6;
         double concentration = 1.5;
 
         double capitalism = FactionFiscalPolicy.capitalismRate(0.05, globalInflation, concentration);
-        double monarchy = FactionFiscalPolicy.monarchyRate(0.017, moneySupply, concentration);
+        double monarchy = FactionFiscalPolicy.monarchyRate(0.017, concentration);
 
         assertEquals(0.105, capitalism, 1e-9);
-        assertEquals(0.0663, monarchy, 1e-9);
+        assertEquals(0.0255, monarchy, 1e-9);
         assertNotEquals(capitalism, monarchy, 1e-9);
     }
 

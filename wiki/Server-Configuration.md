@@ -102,8 +102,8 @@ Party tuning. The four parties are `communism`, `capitalism`, `monarchy` and `an
 | `factions.monarchy.icon` | `"♔"` | Monarchy tag icon, one glyph. |
 | `factions.monarchy.import_tax_chance` | `0.5` | Chance that the import tax applies. |
 | `factions.monarchy.import_tax_factor` | `0.5` | Import surcharge when the tax applies (`0.5` = +50%). |
-| `factions.monarchy.money_supply_inflation_max` | `3.0` | Ceiling on that factor, so one rich player cannot push the whole server's tax up without limit. |
-| `factions.monarchy.money_supply_reference_per_player` | `1000.0` | Money per active player at which Monarchy's inflation factor is exactly `1.0`. |
+| `factions.monarchy.money_supply_inflation_max` | `3.0` | Legacy setting retained for existing config files; Monarchy's daily tax no longer uses money-supply inflation. |
+| `factions.monarchy.money_supply_reference_per_player` | `1000.0` | Legacy setting retained for existing config files; Monarchy's daily tax no longer uses money-supply inflation. |
 | `factions.monarchy.own_claim_damage_multiplier` | `1.15` | Damage dealt and damage resistance inside your own claim. Requires [ShopGuard](https://github.com/TraiNguyenVan/shopguard). |
 | `factions.selection_lockout_hours` | `30` | How long a party choice holds. Independent of the profession lockout. `0` = off. |
 

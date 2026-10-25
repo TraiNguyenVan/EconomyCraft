@@ -39,7 +39,7 @@ EconomyCraft offers four factions, each with distinct benefits and drawbacks. Ch
   - **Autonomy:** The cost of creating and expanding protected land claims through [ShopGuard](https://github.com/TraiNguyenVan/shopguard) is reduced by half (-50%).
   - **The Crown's Protection:** Deal 15% more damage and gain 15% damage resistance (take 15% less damage) while standing in your own claimed land.
 - **Drawbacks:**
-  - **Tribute:** An additional tribute tax is charged and destroyed, equal to Monarchy's daily tax. Monarchy's daily tax is much lower than Capitalism's and is adjusted based on the total money in circulation on the server.
+  - **Tribute:** An additional tribute tax is charged and destroyed, equal to Monarchy's daily tax. Monarchy's daily tax is much lower than Capitalism's and scales with the party's share of server wealth.
   - **Imports:** Each purchase from the `/ah` auction house or fulfillment of an order has a 50% chance of incurring an additional import tax equal to 50% of that transaction's tax.
 
 ---
