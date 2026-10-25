@@ -18,8 +18,10 @@ import java.util.UUID;
 /**
  * Merchant profession effects: Lưỡi không xương discounts and stick trade validation (spec lines 57–59).
  *
- * <p>Discounts apply exclusively when trading with villagers with a job (just like Hero of the Village effect).
- * Discounts do NOT apply to player-to-player trades (/pay, /ah, orders).
+ * <p>Direct item-cost discounts apply exclusively when trading with villagers with a job (just like Hero of
+ * the Village). The same profession rate is passed to {@code TaxPolicy}: {@code /pay} and {@code /ah}
+ * purchases discount the payer's total, while tolls and order fulfilment keep the full base and reduce only
+ * the tax amount.
  */
 public final class MerchantEffects {
     private MerchantEffects() {}

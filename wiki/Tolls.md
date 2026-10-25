@@ -11,15 +11,17 @@ Creating and changing fees use the same block-editing and game-mode checks as th
 
 Transfers and removals both require confirmation. Selecting **Cancel** returns without making a change. Administrative actions notify the previous owner if they are online. Administrator access does not allow fee changes or bypass creation checks, and toll commands still enforce owner checks.
 
-Changes are saved to the existing `tolls.json` store. Payment, tax, cooldown, right-click, and gravity-drop behavior is unchanged. No client mod or data migration is required.
+Toll data is stored in `data/economycraft.db` inside the EconomyCraft folder. On the first boot after an upgrade, a legacy `tolls.json` is imported into the database and archived under `data/_migrated-json/`. No client mod is required.
+
+Right-click toll payments, pressure-plate payments, and hopper-blocking hooks are Fabric integrations. These payment paths and block hooks are unavailable on NeoForge. On Fabric, right-clicking a registered toll or stepping on a registered pressure plate attempts payment; the fee, transaction tax, cooldown, and gravity-drop behavior apply to both payment paths.
 
 > [!NOTE]
 > Land-claim features require [**ShopGuard**](https://github.com/TraiNguyenVan/shopguard), which runs on Fabric only. On NeoForge servers, or Fabric servers without ShopGuard, these features are unavailable: the 50% claim-cost discount and increased damage on Monarchy land, and increased speed in Anarchism wilderness.
 
 ## Chest behavior
 
-- A toll is attached to one block position. A double chest has two blocks, but EconomyCraft resolves both halves to the same toll. Interacting with either half uses the same fee, and the chest counts as one active toll.
-- A hopper directly below a chest with a toll cannot extract items. This prevents automation from bypassing the toll; normal player interaction still requires payment.
+- A toll is attached to one block position. A double chest has two blocks, but EconomyCraft resolves both halves to the same toll. On Fabric, interacting with either half uses the same fee, and the chest counts as one active toll.
+- On Fabric, a hopper directly below a chest with a toll cannot extract items. This prevents automation from bypassing the toll; normal player interaction still requires payment.
 
 ## Fee display
 

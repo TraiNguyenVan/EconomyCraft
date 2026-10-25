@@ -298,7 +298,7 @@ before enabling it. Player names are anonymized according to the configured opti
 | `gemini_gossip.anonymize_players` | `true` | Replace real player names with archetypes before anything is sent to the provider. |
 | `gemini_gossip.api_key` | `""` | API key for the provider. **Empty by default; villagers stay silent until this is set.** |
 | `gemini_gossip.base_url` | `"https://generativelanguage.googleapis.com"` | Provider base URL. |
-| `gemini_gossip.cooldown_minutes` | `3` | Minimum gap between two generations. Clamped to 1-60. |
+| `gemini_gossip.cooldown_minutes` | `3` | Minimum gap between generations for the same player-villager pair. Clamped to 1-60. |
 | `gemini_gossip.dialogue_system_instruction` | See the shipped prompt below. | Instructions used to guide villager dialogue. |
 | `gemini_gossip.enabled` | `true` | Master switch for AI-generated villager dialogue. Has no effect without `api_key`. |
 | `gemini_gossip.model` | `"gemini-3.8-flash"` | Model identifier. Shipped as `gemini-3.8-flash`. |
