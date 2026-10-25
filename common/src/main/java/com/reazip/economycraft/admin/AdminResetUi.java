@@ -317,6 +317,7 @@ public final class AdminResetUi {
                 List.of(MenuUiSupport.line("Resets balances, daily reward data, daily sell limits", ChatFormatting.RED),
                         MenuUiSupport.line("and leaderboard stats.", ChatFormatting.RED),
                         MenuUiSupport.line("Cancels every auction and order.", ChatFormatting.RED),
+                        MenuUiSupport.line("Escrow above the balance cap is cleared with the reset.", ChatFormatting.RED),
                         MenuUiSupport.hint("This cannot be undone.")),
                 p -> {
                     int changed = eco.resetAllBalances();
@@ -324,7 +325,7 @@ public final class AdminResetUi {
                     eco.resetDailySellLimits();
                     eco.resetStats();
                     int auctionsCleared = AuctionExpiration.clearAll(eco);
-                    int ordersCleared = OrderFulfillment.clearAll(eco);
+                    int ordersCleared = OrderFulfillment.clearAllForReset(eco);
                     eco.resetTransactionLog();
                     announce(p, "Reset the entire economy: " + changed + " balance" + (changed == 1 ? "" : "s")
                             + ", " + auctionsCleared + " auction" + (auctionsCleared == 1 ? "" : "s")

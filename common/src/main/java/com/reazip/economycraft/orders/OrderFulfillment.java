@@ -550,12 +550,17 @@ public final class OrderFulfillment {
     }
 
     private static BalanceMutationResult refundEscrow(EconomyManager eco, OrderManager orders, OrderRequest order) {
+        return refundEscrow(eco, orders, order, true);
+    }
+
+    private static BalanceMutationResult refundEscrow(EconomyManager eco, OrderManager orders, OrderRequest order,
+                                                      boolean restoreOnFailure) {
         if (order.escrow <= 0) return null;
         String detail = EconomyCraft.describeItem(order.amount, order.item.getHoverName().getString());
         var refund = eco.addMoney(order.requester, order.escrow, EconomySources.ORDER_ESCROW_REFUND, detail);
         if (refund.successful()) {
             order.escrow = 0;
-        } else {
+        } else if (restoreOnFailure) {
             orders.restoreRequest(order);
         }
         return refund;
@@ -595,10 +600,54 @@ public final class OrderFulfillment {
         return cleared;
     }
 
+    /**
+     * Clears orders during a complete economy reset. A reset is allowed to discard an escrow when
+     * the configured balance cap makes a refund impossible; leaving the request in place would
+     * violate the reset's promise to cancel every order and strand a liability that the reset has
+     * already removed from the balance ledger.
+     */
+    public static int clearAllForReset(EconomyManager eco) {
+        OrderManager orders = eco.getOrders();
+        int cleared = 0;
+        for (OrderRequest snapshot : orders.getRequests()) {
+            OrderRequest order = orders.removeRequest(snapshot.id, false);
+            if (order == null) continue;
+
+            long refund = order.escrow;
+            BalanceMutationResult result;
+            try {
+                result = refundEscrow(eco, orders, order, false);
+            } catch (RuntimeException e) {
+                // Restore the request if persistence itself failed. The reset can be retried
+                // safely once the database is healthy again.
+                orders.restoreRequest(order);
+                throw e;
+            }
+            if (result != null && !result.successful()) {
+                LOGGER.warn("[EconomyCraft] Discarding order {} escrow of {} during complete reset; refund failed with {}",
+                        order.id, refund, result.status());
+            }
+
+            cleared++;
+            NegotiationEvents.invalidateTarget(eco, NegotiationStore.Kind.ORDER, order.id,
+                    EconomyCraft.describeItem(order.amount, order.item.getHoverName().getString()),
+                    "was cleared by an admin reset");
+            notifyCleared(eco, order, refund, result == null || result.successful());
+        }
+        if (cleared > 0) orders.save();
+        eco.getNotifications().flush();
+        return cleared;
+    }
+
     private static void notifyCleared(EconomyManager eco, OrderRequest order, long refund) {
+        notifyCleared(eco, order, refund, true);
+    }
+
+    private static void notifyCleared(EconomyManager eco, OrderRequest order, long refund, boolean refunded) {
         String itemName = order.item.getHoverName().getString();
         String message = "Your order for " + order.amount + "x " + itemName + " was cleared by an admin"
-                + (refund > 0 ? " and " + EconomyCraft.formatMoney(refund) + " was refunded." : ".");
+                + (refund > 0 && refunded ? " and " + EconomyCraft.formatMoney(refund) + " was refunded."
+                : refund > 0 ? "; its escrow was cleared with the economy reset." : ".");
         eco.getNotifications().notify(order.requester, message);
     }
 

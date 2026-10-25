@@ -876,4 +876,20 @@ class OrderEscrowConsistencyTest {
         assertNull(orders.getRequest(order.id), "a cleared order must not come back");
         assertEquals(100_000L, balances.get(REQUESTER));
     }
+
+    @Test
+    @DisplayName("a complete reset removes escrow it cannot refund past the balance cap")
+    void completeResetDiscardsOverCapEscrow() throws SQLException {
+        OrderRequest order = funded(1_280L);
+        balances.put(REQUESTER, EconomyManager.MAX);
+        persistBaselineLedger();
+
+        int cleared = OrderFulfillment.clearAllForReset(eco);
+
+        assertEquals(1, cleared);
+        assertNull(orders.getRequest(order.id), "a complete reset must not leave a funded order behind");
+        restart();
+        assertNull(orders.getRequest(order.id), "the cancelled order must stay removed after restart");
+        assertEquals(EconomyManager.MAX, balances.get(REQUESTER), "a rejected refund must not change the balance");
+    }
 }
