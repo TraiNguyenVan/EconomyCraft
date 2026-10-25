@@ -82,8 +82,9 @@ type, so its UI works with an unmodified vanilla client.
 
 ## Development
 
-The project uses Gradle and Java 25. Run the same checks used by the repository
-guidance locally:
+The project uses Gradle and Java 25. CI is the build authority for routine checks.
+Invoke Gradle locally only for an exceptional rollback when the CI artifact has
+expired and no release exists. For that exception, use these commands:
 
 ```sh
 ./gradlew :common:test
