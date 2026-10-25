@@ -5,6 +5,9 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 
 ## Unreleased
 
+## [1.10.2] - 2026-10-25
+
+
 ### Make faction taxes predictable
 
 Monarchy and Capitalism daily faction taxes no longer apply the global inflation multiplier on top of their configured tax rates. Inflation continues to affect dynamic shop pricing separately. The faction tax documentation and API descriptions now match the implemented formulas.
