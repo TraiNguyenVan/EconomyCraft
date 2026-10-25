@@ -271,7 +271,7 @@ public final class EconomyCraft {
      * everyone who has ever connected. Deliberately does not save anything: the stores already own the persisted
      * state, and a tag is derived from it.
      */
-    private static void onPlayerQuit(ServerPlayer player) {
+    public static void onPlayerQuit(ServerPlayer player) {
         com.reazip.economycraft.motd.MotdService.onPlayerQuit(player);
         // Restore the stashed item of an unfinished book input before the inventory is saved.
         BookInputUi.forget(player);
@@ -448,8 +448,27 @@ public final class EconomyCraft {
                 return Math.round(scaled);
             }
         }
+        Long grouped = parseGroupedWhole(s);
+        if (grouped != null) return grouped;
         try {
             return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Accepts the exact grouped-number form shown by {@link #formatMoney(long)}. */
+    private static @Nullable Long parseGroupedWhole(String input) {
+        String separator = EconomyConfig.get().display.balanceSeparator;
+        if (separator == null || separator.length() != 1 || input.indexOf(separator) < 0) return null;
+        String[] groups = input.split(Pattern.quote(separator), -1);
+        if (groups.length < 2 || groups[0].isEmpty() || groups[0].length() > 3
+                || !groups[0].chars().allMatch(Character::isDigit)) return null;
+        for (int i = 1; i < groups.length; i++) {
+            if (groups[i].length() != 3 || !groups[i].chars().allMatch(Character::isDigit)) return null;
+        }
+        try {
+            return Long.parseLong(String.join("", groups));
         } catch (NumberFormatException e) {
             return null;
         }

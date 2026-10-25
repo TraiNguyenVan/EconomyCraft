@@ -319,12 +319,12 @@ public final class AdminResetUi {
                         MenuUiSupport.line("Cancels every auction and order.", ChatFormatting.RED),
                         MenuUiSupport.hint("This cannot be undone.")),
                 p -> {
-                    int auctionsCleared = AuctionExpiration.clearAll(eco);
-                    int ordersCleared = OrderFulfillment.clearAll(eco);
                     int changed = eco.resetAllBalances();
                     eco.resetDailyRewards();
                     eco.resetDailySellLimits();
                     eco.resetStats();
+                    int auctionsCleared = AuctionExpiration.clearAll(eco);
+                    int ordersCleared = OrderFulfillment.clearAll(eco);
                     eco.resetTransactionLog();
                     announce(p, "Reset the entire economy: " + changed + " balance" + (changed == 1 ? "" : "s")
                             + ", " + auctionsCleared + " auction" + (auctionsCleared == 1 ? "" : "s")

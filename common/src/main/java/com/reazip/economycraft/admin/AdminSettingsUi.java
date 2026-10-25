@@ -448,13 +448,19 @@ public final class AdminSettingsUi {
 
         private void editMultiplier(Setting setting, double current, Item icon,
                                     java.util.function.DoubleConsumer apply) {
-            editMultiplier(setting, current, icon, EconomyConfig.MAX_DYNAMIC_PRICE_MULTIPLIER, apply);
+            editMultiplier(setting, current, icon, EconomyConfig.MIN_DYNAMIC_PRICE_MULTIPLIER,
+                    EconomyConfig.MAX_DYNAMIC_PRICE_MULTIPLIER, apply);
         }
 
         private void editMultiplier(Setting setting, double current, Item icon, double max,
                                     java.util.function.DoubleConsumer apply) {
+            editMultiplier(setting, current, icon, EconomyConfig.MIN_DYNAMIC_PRICE_MULTIPLIER, max, apply);
+        }
+
+        private void editMultiplier(Setting setting, double current, Item icon, double min, double max,
+                                    java.util.function.DoubleConsumer apply) {
             NumberInputUi.openDecimal(viewer, setting.label, new ItemStack(icon), setting.label,
-                    Math.round(current * 100), Math.round(EconomyConfig.MIN_DYNAMIC_PRICE_MULTIPLIER * 100),
+                    Math.round(current * 100), Math.round(min * 100),
                     Math.round(max * 100), "x",
                     (p, hundredths) -> {
                         apply.accept(hundredths / 100.0);
@@ -683,12 +689,12 @@ public final class AdminSettingsUi {
                 case WEALTH_TAX_FLOOR -> editMoney(setting, config.wealthTaxFloor, 0, Items.GOLD_INGOT,
                         v -> EconomyConfig.get().wealthTaxFloor = v);
                 case WEALTH_TAX_MEDIAN_FACTOR -> editMultiplier(setting, config.wealthTaxMedianFloorFactor, Items.PAPER,
-                        EconomyConfig.MAX_MEDIAN_FLOOR_FACTOR,
+                        0.0, EconomyConfig.MAX_MEDIAN_FLOOR_FACTOR,
                         v -> EconomyConfig.get().wealthTaxMedianFloorFactor = v);
                 case WEALTH_TAX_INACTIVE_DAYS -> editActiveDays(setting, config.wealthTaxInactiveDays, Items.CLOCK,
                         v -> EconomyConfig.get().wealthTaxInactiveDays = (int) v);
                 case WEALTH_TAX_INACTIVE_MULT -> editMultiplier(setting, config.wealthTaxInactiveMultiplier, Items.PAPER,
-                        EconomyConfig.MAX_INACTIVE_MULTIPLIER,
+                        0.0, EconomyConfig.MAX_INACTIVE_MULTIPLIER,
                         v -> EconomyConfig.get().wealthTaxInactiveMultiplier = v);
                 case WEALTH_TAX_REBATE -> {
                     config.wealthTaxRebateEnabled = !config.wealthTaxRebateEnabled;

@@ -1,7 +1,8 @@
 package com.reazip.economycraft;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.api.v1.BalanceChangeEvent;
@@ -54,6 +55,8 @@ import org.slf4j.Logger;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -560,15 +563,40 @@ public class EconomyManager {
         String json = Documents.read(database, file, "balances.json");
         if (json == null) return;
         try {
-            Map<UUID, Double> map = GSON.fromJson(json, new TypeToken<Map<UUID, Double>>(){}.getType());
-            if (map != null) {
-                for (Map.Entry<UUID, Double> e : map.entrySet()) {
-                    if (e.getValue() == null) continue;
-                    balances.put(e.getKey(), Math.clamp(e.getValue().longValue(), 0, ABSOLUTE_MAX_BALANCE));
+            JsonElement root = JsonParser.parseString(json);
+            if (!root.isJsonObject()) throw new IllegalStateException("balances.json root is not an object");
+            for (Map.Entry<String, JsonElement> e : root.getAsJsonObject().entrySet()) {
+                UUID player;
+                try {
+                    player = UUID.fromString(e.getKey());
+                } catch (IllegalArgumentException ex) {
+                    LOGGER.warn("[EconomyCraft] Ignoring balance with invalid player id '{}'", e.getKey());
+                    continue;
                 }
+                Long balance = parseStoredBalance(e.getValue());
+                if (balance == null) {
+                    LOGGER.warn("[EconomyCraft] Ignoring invalid balance for player {}", player);
+                    continue;
+                }
+                balances.put(player, balance);
             }
         } catch (Exception ex) {
             LOGGER.error("[EconomyCraft] Failed to load {}", file, ex);
+        }
+    }
+
+    /** Reads persisted balances without the precision loss caused by an intermediate {@code double}. */
+    private static @Nullable Long parseStoredBalance(JsonElement value) {
+        if (value == null || !value.isJsonPrimitive()) return null;
+        String raw = value.getAsString();
+        try {
+            BigDecimal number = new BigDecimal(raw);
+            if (number.signum() <= 0) return 0L;
+            BigDecimal max = BigDecimal.valueOf(ABSOLUTE_MAX_BALANCE);
+            if (number.compareTo(max) >= 0) return ABSOLUTE_MAX_BALANCE;
+            return number.setScale(0, RoundingMode.DOWN).longValueExact();
+        } catch (NumberFormatException | ArithmeticException ex) {
+            return null;
         }
     }
 

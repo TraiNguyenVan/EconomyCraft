@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.TollManager;
@@ -34,6 +35,7 @@ public final class EconomyCraftFabric implements ModInitializer {
         ServerLifecycleEvents.SERVER_STARTED.register(EconomyCraft::onServerStarted);
         ServerLifecycleEvents.SERVER_STOPPING.register(EconomyCraft::onServerStopping);
         ServerPlayerEvents.JOIN.register(EconomyCraft::onPlayerJoin);
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> EconomyCraft.onPlayerQuit(handler.player));
         ServerTickEvents.END_SERVER_TICK.register(EconomyCraft::onServerTick);
         UseEntityCallback.EVENT.register(com.reazip.economycraft.gossip.VillagerGossipListener::onUseEntity);
         ServerTickEvents.END_SERVER_TICK.register(server -> TollManager.of(server).tickPressurePlateDepartures(server));

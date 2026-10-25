@@ -30,6 +30,11 @@ final class EconomyCraftNeoForgeEvents {
                 EconomyCraft.onPlayerJoin(player);
             }
         });
+        NeoForge.EVENT_BUS.addListener(EventPriority.HIGH, PlayerEvent.PlayerLoggedOutEvent.class, event -> {
+            if (event.getEntity() instanceof ServerPlayer player) {
+                EconomyCraft.onPlayerQuit(player);
+            }
+        });
         NeoForge.EVENT_BUS.addListener(EventPriority.HIGH, ServerTickEvent.Post.class,
                 event -> EconomyCraft.onServerTick(event.getServer()));
         NeoForge.EVENT_BUS.addListener(EventPriority.NORMAL, PlayerInteractEvent.EntityInteract.class, event ->

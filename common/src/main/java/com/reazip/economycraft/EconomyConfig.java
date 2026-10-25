@@ -409,15 +409,26 @@ public class EconomyConfig {
     }
 
     private static long clampMaxBalance(long value) {
-        if (value < 1) return 1;
-        return Math.min(value, EconomyManager.ABSOLUTE_MAX_BALANCE);
+        long clamped = Math.min(Math.max(value, 1), EconomyManager.ABSOLUTE_MAX_BALANCE);
+        if (clamped != value) {
+            LOGGER.warn("[EconomyCraft] economy.max_balance ({}) is outside the valid 1-{} range; clamping to {}.",
+                    value, EconomyManager.ABSOLUTE_MAX_BALANCE, clamped);
+        }
+        return clamped;
     }
 
     private static int clampPort(int port) { return Math.min(clampNonNegative("http_market_port", port), 65535); }
 
     private static long clampContractReward(long value) { return Math.clamp(value, 1, EconomyManager.MAX); }
 
-    private static int clampDynamicPriceUpdateMinutes(int minutes) { return Math.max(minutes, MIN_DYNAMIC_PRICE_UPDATE_MINUTES); }
+    private static int clampDynamicPriceUpdateMinutes(int minutes) {
+        int clamped = Math.max(minutes, MIN_DYNAMIC_PRICE_UPDATE_MINUTES);
+        if (clamped != minutes) {
+            LOGGER.warn("[EconomyCraft] dynamic_prices.update_minutes ({}) is below the minimum {}; clamping to {}.",
+                    minutes, MIN_DYNAMIC_PRICE_UPDATE_MINUTES, clamped);
+        }
+        return clamped;
+    }
 
     public static void normalizeDynamicPriceBounds() {
         EconomyConfig c = INSTANCE;

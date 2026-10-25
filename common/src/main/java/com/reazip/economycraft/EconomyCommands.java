@@ -1003,13 +1003,13 @@ public final class EconomyCommands {
                                         .then(argument("price", LongArgumentType.longArg(1))
                                                 .executes(ctx -> requestItem(ctx.getSource().getPlayerOrException(),
                                                         ItemArgument.getItem(ctx, "item"),
-                                                        (int) Math.min(LongArgumentType.getLong(ctx, "amount"), EconomyManager.MAX),
+                                                        IntegerArgumentType.getInteger(ctx, "amount"),
                                                         LongArgumentType.getLong(ctx, "price"), null,
                                                         ctx.getSource()))
                                                 .then(argument("description", StringArgumentType.greedyString())
                                                         .executes(ctx -> requestItem(ctx.getSource().getPlayerOrException(),
                                                                 ItemArgument.getItem(ctx, "item"),
-                                                                (int) Math.min(LongArgumentType.getLong(ctx, "amount"), EconomyManager.MAX),
+                                                                IntegerArgumentType.getInteger(ctx, "amount"),
                                                                 LongArgumentType.getLong(ctx, "price"),
                                                                 StringArgumentType.getString(ctx, "description"),
                                                                 ctx.getSource())))))))
