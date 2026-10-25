@@ -29,7 +29,7 @@ EconomyCraft offers four factions, each with distinct benefits and drawbacks. Ch
 - **Benefits:**
   - **Competitive Market:** When you list an item on the `/ah` auction house, its buyer is exempt from the transaction tax, making your listing more competitive.
 - **Drawbacks:**
-  - **Capitalist State:** Daily wealth tax has a base rate of 2.5%, multiplied by the inflation factor and the faction's share of wealth. The rate cannot increase or decrease by more than 25% per day. Toll transaction tax is increased by 25%.
+  - **Capitalist State:** A daily faction tax starts at 2.5% and scales with the faction's share of wealth. The rate cannot increase or decrease by more than 25% per day. Toll transaction tax is increased by 25%.
 
 ---
 
@@ -39,7 +39,7 @@ EconomyCraft offers four factions, each with distinct benefits and drawbacks. Ch
   - **Autonomy:** The cost of creating and expanding protected land claims through [ShopGuard](https://github.com/TraiNguyenVan/shopguard) is reduced by half (-50%).
   - **The Crown's Protection:** Deal 15% more damage and gain 15% damage resistance (take 15% less damage) while standing in your own claimed land.
 - **Drawbacks:**
-  - **Tribute:** An additional tribute tax is charged and destroyed, equal to Monarchy's daily tax. Monarchy's daily tax is much lower than Capitalism's and is adjusted based on the total money in circulation on the server.
+  - **Tribute:** An additional tribute tax is charged and destroyed, equal to Monarchy's daily tax. Monarchy's daily tax is much lower than Capitalism's and scales with the party's share of server wealth.
   - **Imports:** Each purchase from the `/ah` auction house or fulfillment of an order has a 50% chance of incurring an additional import tax equal to 50% of that transaction's tax.
 
 ---
@@ -47,7 +47,7 @@ EconomyCraft offers four factions, each with distinct benefits and drawbacks. Ch
 ## 4. Anarchism
 - **Icon:** `Ⓐ` | **Color:** White / Gray (default when no faction is chosen)
 - **Benefits:**
-  - **Freedom:** You pay no taxes of any kind (transaction, daily, or toll taxes are all zero; the original purchase and toll fees still apply).
+  - **Freedom:** You pay no faction or transaction taxes (shop, auction, order, and toll taxes are zero; the original purchase and toll fees still apply). The separate global wealth tax still applies when enabled.
   - **Ease:** Gain 15% movement speed on foot and 15% movement speed on horseback while in wilderness that has not been claimed.
 - **Drawbacks:**
   - **Anarchy:** You cannot own or claim new land, receive a land transfer from another player, or be added to another player's trust list with `/claim trust`.

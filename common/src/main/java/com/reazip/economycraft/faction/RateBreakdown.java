@@ -6,20 +6,21 @@ import java.util.Locale;
  * Every factor that produced one faction daily rate, kept together so a charge can explain itself (D14).
  *
  * <p>D14 requires the message to state the base rate, the inflation factor, the party's share, the reference
- * share, the concentration multiplier, and whether the per-day clamp bound the result. Six numbers that
+ * share, the concentration multiplier, and whether the per-day clamp bound the result. Monarchy reports a
+ * fixed inflation factor of {@code 1.00} for compatibility with the shared display format. Six numbers that
  * arrive from four different places is exactly the kind of thing that gets quietly half-implemented, so they
  * are one value here and {@link #describe()} is the only place they are formatted — which also means the
  * explanation is unit-testable instead of trusted.
  *
- * <p>The two parties' breakdowns differ in more than their numbers, which is the point D19 makes: Capitalism
- * reads server-wide player-activity inflation, Monarchy reads money supply per player.
+ * <p>Both faction rates now use a fixed inflation factor of {@code 1.00}; the shared field remains so existing
+ * rate messages and persisted reports retain their shape.
  *
  * @param baseRate                 the configured rate before any factor
  * @param inflation                the party's own inflation factor, already clamped to its floor
  * @param share                    the party's share of all money on the server
  * @param referenceShare           the share at which the concentration multiplier is exactly 1.0
  * @param concentrationMultiplier  the resolved multiplier
- * @param rawRate                  base x inflation x concentration, before the per-day clamp
+ * @param rawRate                  base x concentration, before the per-day clamp
  * @param appliedRate              the rate actually charged, after the per-day clamp
  */
 public record RateBreakdown(String party, double baseRate, double inflation, double share, double referenceShare,
@@ -34,7 +35,7 @@ public record RateBreakdown(String party, double baseRate, double inflation, dou
 
     /**
      * One line naming every factor, e.g.
-     * {@code Capitalism: base 5.00% x inflation 1.20 x concentration 1.50 (wealth share 22.5% of 15.0% reference) = 9.00%}.
+     * {@code Capitalism: base 5.00% x inflation 1.00 x concentration 1.50 (wealth share 22.5% of 15.0% reference) = 7.50%}.
      *
      * <p>When the clamp bound the rate the raw figure is kept in the sentence rather than dropped, because
      * "the rate did not change as much as the formula says" is exactly what an admin needs to be able to see.

@@ -116,10 +116,7 @@ public class FactionsSection {
         @SerializedName("daily_tax_rate")
         public double dailyTaxRate = 0.025;
 
-        /**
-         * D14: the global half of the rate. Read from the existing read-only inflation signal rather than a
-         * fourth independent measure, so "who counts as active" stays shared with dynamic pricing.
-         */
+        /** Legacy setting retained for compatibility; Capitalism's daily tax no longer uses inflation. */
         @SerializedName("use_global_inflation")
         public boolean useGlobalInflation = true;
 
@@ -179,20 +176,11 @@ public class FactionsSection {
         @SerializedName("daily_tax_rate")
         public double dailyTaxRate = 0.01;
 
-        /**
-         * D19: Monarchy reads its inflation off the <em>server's</em> money supply, where Capitalism reads the
-         * existing player-activity signal. The factor is {@code totalMoneyInCirculation / (activePlayers ×
-         * this)}, so it reads as "how many times the reference fortune the average player holds" and is exactly
-         * {@code 1.0} on a fresh economy.
-         *
-         * <p>Per player rather than one absolute total on purpose: a fixed total means a tax that is punitive
-         * on a 200-player server and negligible on a 5-player one, and it would silently change meaning every
-         * time the player count moved.
-         */
+        /** Legacy setting retained for compatibility; Monarchy's daily tax no longer uses money-supply inflation. */
         @SerializedName("money_supply_reference_per_player")
         public double moneySupplyReferencePerPlayer = 1000.0;
 
-        /** Ceiling on that factor, so one rich player cannot hand the whole server an unbounded tax. */
+        /** Legacy setting retained for compatibility; Monarchy's daily tax no longer uses money-supply inflation. */
         @SerializedName("money_supply_inflation_max")
         public double moneySupplyInflationMax = 3.0;
 

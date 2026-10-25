@@ -93,8 +93,9 @@ silently never applies because it compared against `"Monarchy"`.
 The ids are lowercase and match the `/eco party` subcommand literals exactly, so one string works as a command
 argument, a config value and an API comparison.
 
-`DEFAULT` is `anarchism` — the party that charges no tax. It is a separate constant rather than an implicit
-string, so a consumer that needs to know the fallback need not re-derive it.
+`DEFAULT` is `anarchism` — the party with no faction or transaction tax. The separate global wealth tax can still
+apply when enabled. It is a separate constant rather than an implicit string, so a consumer that needs to know the
+fallback need not re-derive it.
 
 ---
 
@@ -322,8 +323,7 @@ reference value rather than using it raw — and never let it decide a price at 
 refresh.
 
 It is independent of `dynamic_prices_enabled`: that flag gates whether item buy prices are scaled, not whether
-this signal is maintained. It is also the signal the daily fiscal pass reads, so your pricing and the mod's
-taxation can never disagree about who is active.
+this signal is maintained. Daily faction taxes do not use this signal; it is a market-pricing signal only.
 
 ---
 

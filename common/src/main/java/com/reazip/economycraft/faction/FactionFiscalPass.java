@@ -7,7 +7,6 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
-import com.reazip.economycraft.api.v1.EconomyCraftApi;
 import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.config.FactionsSection;
 import com.reazip.economycraft.db.Documents;
@@ -42,9 +41,8 @@ import java.util.UUID;
   *       {@code removeMoney(player, debit, source, …)} debits one balance and credits nobody. A transfer
   *       always has a receiver — its engine and result both reject {@code null} — so a burn is a removal,
   *       never a transfer with a {@code null} recipient.</li>
- *   <li><strong>The two parties are not the same function</strong> (D19). Capitalism's rate multiplies the
- *       server-wide player-activity inflation; Monarchy's multiplies money supply per player. Sharing one
- *       helper between them would erase the only difference D19 actually decided.</li>
+ *   <li><strong>The two parties have different base rates</strong> (D19). Both use the party's concentration
+ *       multiplier; neither daily faction rate uses the separate market inflation signal.</li>
  * </ul>
  *
  * <p>A debit that fails is counted as a failure, never as money collected (R9). The balance is clamped so the
@@ -238,25 +236,24 @@ public final class FactionFiscalPass {
             }
         }
 
-        // 2. Capitalism: base x global player-activity inflation x concentration (D14).
+        // 2. Capitalism: base x concentration. Inflation already affects dynamic prices and is not applied
+        // again to the daily faction tax.
         double capShare = FactionFiscalPolicy.shareOf(capitalismMoney, totalMoney);
-        double capInflation = capConfig.useGlobalInflation ? globalInflation() : 1.0;
+        double capInflation = 1.0;
         double capConcentration = FactionFiscalPolicy.concentrationMultiplier(
                 capShare, capConfig.concentrationReferenceShare, capConfig.concentrationElasticity,
                 capConfig.concentrationMinMultiplier, capConfig.concentrationMaxMultiplier);
-        double capRawRate = FactionFiscalPolicy.capitalismRate(capConfig.dailyTaxRate, capInflation, capConcentration);
+        double capRawRate = FactionFiscalPolicy.capitalismRate(capConfig.dailyTaxRate, capConcentration);
         double capAppliedRate = FactionFiscalPolicy.clampRateChange(
                 capRawRate, lastCapitalismRate, capConfig.maxRateChangePerDay);
 
-        // 3. Monarchy: base x money-supply-per-player x the same concentration multiplier (D19).
+        // 3. Monarchy: base x concentration. Money-supply inflation was removed so the tribute is predictable.
         double monShare = FactionFiscalPolicy.shareOf(monarchyMoney, totalMoney);
-        int activePlayers = Math.max(1, eco.getServer().getPlayerList().getPlayerCount());
-        double monInflation = FactionFiscalPolicy.monarchyMoneySupplyInflation(
-                totalMoney, activePlayers, monConfig.moneySupplyReferencePerPlayer, monConfig.moneySupplyInflationMax);
+        double monInflation = 1.0;
         double monConcentration = FactionFiscalPolicy.concentrationMultiplier(
                 monShare, capConfig.concentrationReferenceShare, capConfig.concentrationElasticity,
                 capConfig.concentrationMinMultiplier, capConfig.concentrationMaxMultiplier);
-        double monRawRate = FactionFiscalPolicy.monarchyRate(monConfig.dailyTaxRate, monInflation, monConcentration);
+        double monRawRate = FactionFiscalPolicy.monarchyRate(monConfig.dailyTaxRate, monConcentration);
         double monAppliedRate = FactionFiscalPolicy.clampRateChange(
                 monRawRate, lastMonarchyRate, capConfig.maxRateChangePerDay);
 
@@ -331,17 +328,6 @@ public final class FactionFiscalPass {
                 + EconomyCraft.formatMoney(amount) + " could not be collected.")
                 .withStyle(ChatFormatting.RED));
         online.sendSystemMessage(Component.literal("§7" + breakdown.describe()).withStyle(ChatFormatting.GRAY));
-    }
-
-    /** The shared, read-only player-activity signal (D14). Never written through. */
-    private double globalInflation() {
-        try {
-            return EconomyCraftApi.get(eco.getServer()).inflationMultiplier();
-        } catch (Exception ex) {
-            // The API is optional: with no provider installed the signal is simply its neutral value, which
-            // leaves the configured base rate in force instead of failing the whole pass.
-            return 1.0;
-        }
     }
 
     private static long saturatingAdd(long running, long value) {
