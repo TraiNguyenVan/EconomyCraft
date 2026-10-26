@@ -225,6 +225,23 @@ public final class EconomyCommands {
                 .executes(ctx -> tollCommand(ctx.getSource(), "set", LongArgumentType.getLong(ctx,"fee")))));
         root.then(literal("transfer").then(argument("player", GameProfileArgument.gameProfile())
                 .executes(ctx -> transferToll(ctx.getSource(), IdentityCompat.getArgAsPlayerRefs(ctx, "player")))));
+        root.then(literal("share")
+                .then(literal("add").then(argument("player", GameProfileArgument.gameProfile())
+                        .then(argument("percent", IntegerArgumentType.integer(0, 100))
+                                .executes(ctx -> tollShareCommand(ctx.getSource(), "add",
+                                        IdentityCompat.getArgAsPlayerRefs(ctx, "player"),
+                                        IntegerArgumentType.getInteger(ctx, "percent"))))))
+                .then(literal("set").then(argument("player", GameProfileArgument.gameProfile())
+                        .then(argument("percent", IntegerArgumentType.integer(0, 100))
+                                .executes(ctx -> tollShareCommand(ctx.getSource(), "set",
+                                        IdentityCompat.getArgAsPlayerRefs(ctx, "player"),
+                                        IntegerArgumentType.getInteger(ctx, "percent"))))))
+                .then(literal("remove").then(argument("player", GameProfileArgument.gameProfile())
+                        .executes(ctx -> tollShareCommand(ctx.getSource(), "remove",
+                                IdentityCompat.getArgAsPlayerRefs(ctx, "player"), 0))))
+                .then(literal("promote").then(argument("player", GameProfileArgument.gameProfile())
+                        .executes(ctx -> tollShareCommand(ctx.getSource(), "promote",
+                                IdentityCompat.getArgAsPlayerRefs(ctx, "player"), 0)))));
         root.then(literal("info").executes(ctx -> tollCommand(ctx.getSource(), "info", 0)));
         root.then(literal("remove").executes(ctx -> tollCommand(ctx.getSource(), "remove", 0)));
         return root;
@@ -308,6 +325,64 @@ public final class EconomyCommands {
         }
         String targetName = target.name() == null || target.name().isBlank() ? target.id().toString() : target.name();
         source.sendSuccess(() -> Component.literal("Toll ownership transferred to " + targetName + "."), false);
+        return 1;
+    }
+
+    private static int tollShareCommand(CommandSourceStack source, String action,
+                                        Collection<IdentityCompat.PlayerRef> targets, int percent) {
+        ServerPlayer player = tryGetPlayer(source);
+        if (player == null) { source.sendFailure(Component.literal("Only players can manage toll shares.")); return 0; }
+        if (targets.size() != 1) { source.sendFailure(Component.literal("Choose exactly one player.")); return 0; }
+        IdentityCompat.PlayerRef target = targets.iterator().next();
+        var hit = player.pick(5.0, 1.0f, false);
+        if (!(hit instanceof net.minecraft.world.phys.BlockHitResult blockHit) || hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+            source.sendFailure(Component.literal("Look at a block within five blocks.")); return 0;
+        }
+        String dimension = player.level().dimension().identifier().toString();
+        TollManager tolls = TollManager.of(source.getServer());
+        TollManager.Toll toll = tolls.get(dimension, blockHit.getBlockPos());
+        if (toll == null) { source.sendFailure(Component.literal("There is no toll at that block.")); return 0; }
+        boolean admin = EconomyPermissions.hasAnyAdmin(player);
+        if (!admin && !toll.owner.equals(player.getUUID().toString())) {
+            source.sendFailure(Component.literal("You do not own a toll at that block.")); return 0;
+        }
+        if (!knownTollRecipient(source.getServer(), EconomyCraft.getManager(source.getServer()), target)) {
+            source.sendFailure(Component.literal("That player account is not known to EconomyCraft.")); return 0;
+        }
+        UUID targetId = target.id();
+        Map<UUID, Integer> shares = new LinkedHashMap<>(toll.recipientShares());
+        switch (action) {
+            case "add" -> {
+                if (shares.containsKey(targetId)) { source.sendFailure(Component.literal("That player already receives a share.")); return 0; }
+                int cap = EconomyConfig.get().maxTollRecipients;
+                if (cap > 0 && shares.size() >= cap) { source.sendFailure(Component.literal("This toll has reached the recipient limit.")); return 0; }
+                int ownerShare = shares.getOrDefault(UUID.fromString(toll.owner), 0);
+                if (percent > ownerShare) { source.sendFailure(Component.literal("The primary owner has only " + ownerShare + "% available.")); return 0; }
+                shares.put(UUID.fromString(toll.owner), ownerShare - percent);
+                shares.put(targetId, percent);
+            }
+            case "set" -> {
+                if (!shares.containsKey(targetId)) { source.sendFailure(Component.literal("That player is not a toll recipient.")); return 0; }
+                shares.put(targetId, percent);
+            }
+            case "remove" -> {
+                if (!tolls.removeRecipient(dimension, blockHit.getBlockPos(), UUID.fromString(toll.owner), targetId)) {
+                    source.sendFailure(Component.literal("That player cannot be removed from this toll.")); return 0;
+                }
+                source.sendSuccess(() -> Component.literal("Toll recipient removed."), false); return 1;
+            }
+            case "promote" -> {
+                if (!tolls.promote(dimension, blockHit.getBlockPos(), UUID.fromString(toll.owner), targetId)) {
+                    source.sendFailure(Component.literal("That player cannot become the primary owner.")); return 0;
+                }
+                source.sendSuccess(() -> Component.literal("Toll primary owner promoted."), false); return 1;
+            }
+        }
+        if (!tolls.updateShares(dimension, blockHit.getBlockPos(), UUID.fromString(toll.owner), shares)) {
+            int total = shares.values().stream().mapToInt(Integer::intValue).sum();
+            source.sendFailure(Component.literal("Shares must total 100%; current total is " + total + "%.")); return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Toll share saved."), false);
         return 1;
     }
 

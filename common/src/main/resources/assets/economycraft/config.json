@@ -48,6 +48,7 @@
   "auction_listing_broadcast": true,
   "auction_listing_notify_active_days": 30,
   "max_active_tolls_per_player": 10,
+  "max_toll_recipients": 8,
   "contracts_enabled": true,
   "max_active_contracts_per_player": 0,
   "max_contract_reward": 1000000,

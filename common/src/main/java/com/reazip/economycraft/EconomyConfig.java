@@ -130,6 +130,8 @@ public class EconomyConfig {
     public int auctionListingNotifyActiveDays = 30;
     @SerializedName("max_active_tolls_per_player")
     public int maxActiveTollsPerPlayer = 10;
+    @SerializedName("max_toll_recipients")
+    public int maxTollRecipients = 8;
     @SerializedName("contracts_enabled")
     public boolean contractsEnabled = true;
     @SerializedName("max_active_contracts_per_player")
@@ -258,6 +260,7 @@ public class EconomyConfig {
 
             parsed.auctionListingNotifyActiveDays = clampNonNegative("auction_listing_notify_active_days", parsed.auctionListingNotifyActiveDays);
             parsed.maxActiveTollsPerPlayer = clampNonNegative("max_active_tolls_per_player", parsed.maxActiveTollsPerPlayer);
+            parsed.maxTollRecipients = clampNonNegative("max_toll_recipients", parsed.maxTollRecipients);
             parsed.maxActiveContractsPerPlayer = clampNonNegative("max_active_contracts_per_player", parsed.maxActiveContractsPerPlayer);
             parsed.maxContractReward = clampContractReward(parsed.maxContractReward);
             parsed.contractDefaultDurationHours = clampNonNegative("contract_default_duration_hours", parsed.contractDefaultDurationHours);
