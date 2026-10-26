@@ -247,8 +247,12 @@ public final class TollManager {
             distributed += share;
         }
         credits.merge(owner, toll.fee - distributed, Long::sum);
-        var result=EconomyCraft.getManager(server).transferMoneyMany(visitor.getUUID(), credits, toll.fee+tax,
-                EconomySources.TOLL_PAYMENT, "Toll at "+dimension+" "+pos.getX()+","+pos.getY()+","+pos.getZ());
+        String detail = "Toll at "+dimension+" "+pos.getX()+","+pos.getY()+","+pos.getZ();
+        var result = toll.shares.size() == 1 && toll.shares.getOrDefault(owner.toString(), 0) == 100
+                ? EconomyCraft.getManager(server).transferMoney(visitor.getUUID(), owner, toll.fee + tax, toll.fee,
+                EconomySources.TOLL_PAYMENT, detail)
+                : EconomyCraft.getManager(server).transferMoneyMany(visitor.getUUID(), credits, toll.fee + tax,
+                EconomySources.TOLL_PAYMENT, detail);
         if(!result.successful()) { visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("You don't have enough money to use this toll.")); return InteractionResult.DENIED; }
         cooldowns.put(cooldown,now+100);
         visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("Paid $"+toll.fee+" toll (tax "+EconomyCraft.formatMoney(tax)+")."));
