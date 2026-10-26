@@ -213,8 +213,12 @@ public final class TollUi {
     }
 
     private static void shares(ServerPlayer player, Target target, String owner, boolean admin) {
+        shares(player, target, owner, admin, 0);
+    }
+
+    private static void shares(ServerPlayer player, Target target, String owner, boolean admin, int page) {
         if (managedToll(player, target, owner, admin) == null) return;
-        MenuUiSupport.openMenu(player, "Toll shares", (id, inv) -> new ShareMenu(id, inv, player, target, owner, admin));
+        MenuUiSupport.openMenu(player, "Toll shares", (id, inv) -> new ShareMenu(id, inv, player, target, owner, admin, page));
     }
 
     private static boolean updateShares(ServerPlayer player, Target target, String owner, boolean admin,
@@ -241,6 +245,13 @@ public final class TollUi {
                 "Share (remaining " + (100 - fixed) + "%)", current,
                 (p, value) -> {
                     Map<UUID, Integer> next = toUuidShares(manager(p).get(target.dimension(), target.pos()));
+                    if (!recipient.toString().equals(owner)) {
+                        UUID primary = UUID.fromString(owner);
+                        int primaryShare = next.getOrDefault(primary, 0);
+                        int nextPrimary = primaryShare + next.getOrDefault(recipient, 0) - Math.toIntExact(value);
+                        if (nextPrimary < 0) { fail(p, "The primary owner has only " + (primaryShare + next.getOrDefault(recipient, 0)) + "% available."); return; }
+                        next.put(primary, nextPrimary);
+                    }
                     next.put(recipient, Math.toIntExact(value));
                     updateShares(p, target, owner, admin, next);
                 }, p -> shares(p, target, owner, admin));
@@ -349,14 +360,15 @@ public final class TollUi {
 
     private static final class ShareMenu extends CompatMenu {
         private final ServerPlayer viewer; private final Target target; private final String owner; private final boolean admin;
+        private final int page;
         private final SimpleContainer container = new SimpleContainer(27);
-        ShareMenu(int id, Inventory inv, ServerPlayer viewer, Target target, String owner, boolean admin) {
-            super(MenuType.GENERIC_9x3, id); this.viewer = viewer; this.target = target; this.owner = owner; this.admin = admin;
+        ShareMenu(int id, Inventory inv, ServerPlayer viewer, Target target, String owner, boolean admin, int page) {
+            super(MenuType.GENERIC_9x3, id); this.viewer = viewer; this.target = target; this.owner = owner; this.admin = admin; this.page = Math.max(0, page);
             TollManager.Toll toll = manager(viewer).get(target.dimension(), target.pos());
             container.setItem(4, subject(viewer, target, toll));
             if (toll != null) {
                 int slot = 9;
-                for (Map.Entry<String, Integer> entry : toll.shares.entrySet()) {
+                for (Map.Entry<String, Integer> entry : toll.shares.entrySet().stream().skip(this.page * 9L).limit(9).toList()) {
                     if (slot >= 18) break;
                     String name = ownerName(viewer, entry.getKey());
                     container.setItem(slot++, MenuUiSupport.button(Items.PLAYER_HEAD, name + " " + entry.getValue() + "%",
@@ -364,6 +376,10 @@ public final class TollUi {
                             MenuUiSupport.hint("Click to edit; shift-click to remove")));
                 }
             }
+            int totalPages = toll == null ? 1 : MenuUiSupport.totalPages(toll.shares.size(), 9);
+            if (this.page > 0) container.setItem(21, MenuUiSupport.prevPageButton());
+            container.setItem(23, MenuUiSupport.pageIndicator(this.page, totalPages));
+            if (this.page + 1 < totalPages) container.setItem(24, MenuUiSupport.nextPageButton());
             container.setItem(22, MenuUiSupport.button(Items.EMERALD, "Add recipient", ChatFormatting.GREEN));
             container.setItem(26, MenuUiSupport.backButton());
             MenuUiSupport.fillBackground(container);
@@ -373,12 +389,16 @@ public final class TollUi {
         @Override protected boolean onClick(int slot, int dragType, ClickKind kind, Player player) {
             if (slot < 0 || slot >= 27) return false;
             if (kind != ClickKind.PICKUP && kind != ClickKind.QUICK_MOVE) return true;
-            if (slot == 26) { shares(viewer, target, owner, admin); return true; }
+            if (slot == 26) { open(viewer, target); return true; }
+            if (slot == 21 && page > 0) { shares(viewer, target, owner, admin, page - 1); return true; }
+            TollManager.Toll current = manager(viewer).get(target.dimension(), target.pos());
+            int totalPages = current == null ? 1 : MenuUiSupport.totalPages(current.shares.size(), 9);
+            if (slot == 24 && page + 1 < totalPages) { shares(viewer, target, owner, admin, page + 1); return true; }
             if (slot == 22) { addShare(viewer, target, owner, admin); return true; }
             if (slot >= 9 && slot < 18) {
                 TollManager.Toll toll = manager(viewer).get(target.dimension(), target.pos());
                 if (toll == null) return true;
-                int index = slot - 9;
+                int index = page * 9 + slot - 9;
                 if (index >= toll.shares.size()) return true;
                 UUID id = UUID.fromString(toll.shares.keySet().stream().toList().get(index));
                 if (kind == ClickKind.QUICK_MOVE) {
@@ -418,7 +438,7 @@ public final class TollUi {
             if (slot == 11) editShare(viewer, target, owner, admin, recipient);
             if (slot == 13) {
                 ConfirmUi.open(viewer, "Promote primary", subject(viewer, target, manager(viewer).get(target.dimension(), target.pos())), "Confirm promotion",
-                        List.of(MenuUiSupport.hint("The current primary will become a recipient.")),
+                        List.of(MenuUiSupport.hint("The current primary loses their share and free access.")),
                         p -> { if (managedToll(p, target, owner, admin) != null && manager(p).promote(target.dimension(), target.pos(), UUID.fromString(owner), recipient)) open(p, target); },
                         p -> shareActions(p, target, owner, admin, recipient));
             }

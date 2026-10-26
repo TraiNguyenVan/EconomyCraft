@@ -212,7 +212,7 @@ final class BalanceMutationEngine {
             long newBalance = staged.get(entry.getKey());
             events.emit(new BalanceChangeEvent(entry.getKey(), receiver.balance(), newBalance,
                     BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), null);
-            onTransfer.accept(new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, entry.getKey(), debitAmount,
+            onTransfer.accept(new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, entry.getKey(), entry.getValue(),
                     sender.balance(), staged.get(senderId), receiver.balance(), newBalance, optionalSource));
         }
         return new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, firstReceiver, debitAmount,

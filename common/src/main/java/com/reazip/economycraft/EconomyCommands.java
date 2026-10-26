@@ -363,6 +363,13 @@ public final class EconomyCommands {
             }
             case "set" -> {
                 if (!shares.containsKey(targetId)) { source.sendFailure(Component.literal("That player is not a toll recipient.")); return 0; }
+                if (!targetId.equals(UUID.fromString(toll.owner))) {
+                    UUID primary = UUID.fromString(toll.owner);
+                    int ownerShare = shares.getOrDefault(primary, 0);
+                    int nextOwnerShare = ownerShare + shares.get(targetId) - percent;
+                    if (nextOwnerShare < 0) { source.sendFailure(Component.literal("The primary owner has only " + (ownerShare + shares.get(targetId)) + "% available.")); return 0; }
+                    shares.put(primary, nextOwnerShare);
+                }
                 shares.put(targetId, percent);
             }
             case "remove" -> {

@@ -142,6 +142,8 @@ public final class TollManager {
         Toll toll = get(dimension, pos);
         if (toll == null || !toll.owner.equals(currentOwner.toString()) || currentOwner.equals(newOwner)
                 || !toll.shares.containsKey(newOwner.toString())) return false;
+        int cap = EconomyConfig.get().maxActiveTollsPerPlayer;
+        if (cap > 0 && count(newOwner) >= cap) return false;
         int oldShare = toll.shares.getOrDefault(currentOwner.toString(), 0);
         toll.shares.remove(currentOwner.toString());
         redistribute(toll.shares, oldShare);
