@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.function.LongSupplier;
 
 final class BalanceMutationEngine {
@@ -21,7 +22,7 @@ final class BalanceMutationEngine {
     private final Runnable onInitialized;
     private final Runnable onMutationCommitted;
     private final BalanceEventDispatcher events;
-    private final Consumer<PaymentResult> onTransfer;
+    private final BiConsumer<PaymentResult, Long> onTransfer;
 
     BalanceMutationEngine(
             Map<UUID, Long> balances,
@@ -29,7 +30,7 @@ final class BalanceMutationEngine {
             Runnable onInitialized,
             Runnable onMutationCommitted,
             BalanceEventDispatcher events,
-            Consumer<PaymentResult> onTransfer
+            BiConsumer<PaymentResult, Long> onTransfer
     ) {
         this.balances = balances;
         this.startingBalance = startingBalance;
@@ -149,7 +150,7 @@ final class BalanceMutationEngine {
             events.emit(new BalanceChangeEvent(receiverId, receiver.balance(), receiverNew,
                     BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), item);
         }
-        onTransfer.accept(result);
+        onTransfer.accept(result, debitAmount);
         return result;
     }
 
@@ -213,7 +214,7 @@ final class BalanceMutationEngine {
             events.emit(new BalanceChangeEvent(entry.getKey(), receiver.balance(), newBalance,
                     BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), null);
             onTransfer.accept(new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, entry.getKey(), entry.getValue(),
-                    sender.balance(), staged.get(senderId), receiver.balance(), newBalance, optionalSource));
+                    sender.balance(), staged.get(senderId), receiver.balance(), newBalance, optionalSource), debitAmount);
         }
         return new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, firstReceiver, debitAmount,
                 sender.balance(), staged.get(senderId), states.get(firstReceiver).balance(), staged.get(firstReceiver), optionalSource);

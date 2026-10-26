@@ -245,6 +245,10 @@ public final class TollUi {
                 "Share (remaining " + (100 - fixed) + "%)", current,
                 (p, value) -> {
                     Map<UUID, Integer> next = toUuidShares(manager(p).get(target.dimension(), target.pos()));
+                    if (!next.containsKey(recipient)) {
+                        fail(p, "That recipient was removed. Reopen the share editor.");
+                        return;
+                    }
                     if (!recipient.toString().equals(owner)) {
                         UUID primary = UUID.fromString(owner);
                         int primaryShare = next.getOrDefault(primary, 0);
