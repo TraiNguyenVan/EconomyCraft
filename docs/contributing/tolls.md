@@ -21,3 +21,8 @@ Behavioral details to preserve:
 - Admin access grants transfer and removal only, not fee editing or toll creation override. Toll commands
   retain owner checks.
 - The vanilla action bar shows the fee while the crosshair points at a toll block within five blocks.
+- Legacy toll JSON without share data loads as an owner-only toll with a 100% share.
+- Shared toll payouts calculate one tax and settle all recipient credits in one balance mutation. A
+  failed recipient credit must leave the visitor and every recipient unchanged.
+- Share percentages are integer values totaling 100%; `max_toll_recipients` is clamped like other numeric
+  config keys, and zero means unlimited.

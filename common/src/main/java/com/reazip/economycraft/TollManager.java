@@ -61,7 +61,10 @@ public final class TollManager {
             String json = Documents.read(db, file, "tolls.json");
             if (json != null) {
                 Map<String, Toll> read = GSON.fromJson(json, TYPE);
-                if (read != null) tolls.putAll(read);
+                if (read != null) {
+                    read.values().forEach(Toll::normalizeShares);
+                    tolls.putAll(read);
+                }
             }
         } catch (Exception e) { throw new IllegalStateException("Failed to load tolls at " + file, e); }
     }
@@ -74,10 +77,17 @@ public final class TollManager {
         return null;
     }
     public int count(UUID owner) { return (int)tolls.values().stream().filter(t -> t.owner.equals(owner.toString())).count(); }
+    public int recipientCount(String dimension, BlockPos pos) {
+        Toll toll = get(dimension, pos);
+        return toll == null ? 0 : toll.shares.size();
+    }
     public void put(String dimension, BlockPos pos, UUID owner, long fee) {
         BlockPos canonical = canonicalPos(dimension, pos);
+        Toll previous = get(dimension, pos);
+        Map<String, Integer> shares = previous != null && previous.owner.equals(owner.toString())
+                ? new LinkedHashMap<>(previous.shares) : singleShare(owner);
         for (String candidate : storageKeys(dimension, pos)) tolls.remove(candidate);
-        tolls.put(key(dimension, canonical), new Toll(dimension,canonical.getX(),canonical.getY(),canonical.getZ(),owner.toString(),fee));
+        tolls.put(key(dimension, canonical), new Toll(dimension,canonical.getX(),canonical.getY(),canonical.getZ(),owner.toString(),fee,shares));
         save();
     }
     public boolean remove(String dimension, BlockPos pos, UUID owner) {
@@ -95,11 +105,73 @@ public final class TollManager {
         if (toll == null || !toll.owner.equals(currentOwner.toString()) || currentOwner.equals(newOwner)) return false;
         BlockPos canonical = canonicalPos(dimension, pos);
         for (String candidate : storageKeys(dimension, pos)) tolls.remove(candidate);
+        int oldShare = toll.shares.getOrDefault(currentOwner.toString(), 0);
+        if (toll.shares.containsKey(newOwner.toString())) {
+            toll.shares.put(newOwner.toString(), toll.shares.get(newOwner.toString()) + oldShare);
+            toll.shares.remove(currentOwner.toString());
+        } else {
+            toll.shares.remove(currentOwner.toString());
+            toll.shares.put(newOwner.toString(), oldShare);
+        }
         toll.owner = newOwner.toString();
         toll.x = canonical.getX(); toll.y = canonical.getY(); toll.z = canonical.getZ();
+        toll.normalizeShares();
         tolls.put(key(dimension, canonical), toll);
         save();
         return true;
+    }
+
+    public synchronized boolean updateShares(String dimension, BlockPos pos, UUID owner,
+                                              Map<UUID, Integer> requested) {
+        Toll toll = get(dimension, pos);
+        if (toll == null || !toll.owner.equals(owner.toString())) return false;
+        Map<String, Integer> next = new LinkedHashMap<>();
+        for (Map.Entry<UUID, Integer> entry : requested.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null || entry.getValue() < 0 || entry.getValue() > 100)
+                return false;
+            next.put(entry.getKey().toString(), entry.getValue());
+        }
+        if (!next.containsKey(owner.toString()) || next.values().stream().mapToInt(Integer::intValue).sum() != 100)
+            return false;
+        toll.shares = next;
+        save();
+        return true;
+    }
+
+    public synchronized boolean promote(String dimension, BlockPos pos, UUID currentOwner, UUID newOwner) {
+        Toll toll = get(dimension, pos);
+        if (toll == null || !toll.owner.equals(currentOwner.toString()) || currentOwner.equals(newOwner)
+                || !toll.shares.containsKey(newOwner.toString())) return false;
+        int cap = EconomyConfig.get().maxActiveTollsPerPlayer;
+        if (cap > 0 && count(newOwner) >= cap) return false;
+        int oldShare = toll.shares.getOrDefault(currentOwner.toString(), 0);
+        toll.shares.remove(currentOwner.toString());
+        redistribute(toll.shares, oldShare);
+        toll.owner = newOwner.toString();
+        toll.normalizeShares();
+        save();
+        return true;
+    }
+
+    public synchronized boolean removeRecipient(String dimension, BlockPos pos, UUID owner, UUID recipient) {
+        Toll toll = get(dimension, pos);
+        if (toll == null || !toll.owner.equals(owner.toString()) || recipient.equals(owner)
+                || !toll.shares.containsKey(recipient.toString())) return false;
+        int removed = toll.shares.remove(recipient.toString());
+        redistribute(toll.shares, removed);
+        toll.normalizeShares();
+        save();
+        return true;
+    }
+
+    public Map<UUID, Integer> shares(String dimension, BlockPos pos) {
+        Toll toll = get(dimension, pos);
+        if (toll == null) return Map.of();
+        LinkedHashMap<UUID, Integer> result = new LinkedHashMap<>();
+        toll.shares.forEach((id, share) -> {
+            try { result.put(UUID.fromString(id), share); } catch (IllegalArgumentException ignored) { }
+        });
+        return Map.copyOf(result);
     }
     public void broken(String dimension, BlockPos pos) {
         boolean changed = false;
@@ -163,13 +235,26 @@ public final class TollManager {
     }
     private InteractionResult charge(MinecraftServer server, ServerPlayer visitor, String dimension, BlockPos pos, Toll toll) {
         UUID owner=UUID.fromString(toll.owner);
-        if(owner.equals(visitor.getUUID())) return InteractionResult.GRANTED;
+        if(toll.shares.containsKey(visitor.getUUID().toString())) return InteractionResult.GRANTED;
         String cooldown=visitor.getUUID()+"|"+key(dimension,pos); long now=server.getTickCount();
         if(cooldowns.getOrDefault(cooldown,Long.MIN_VALUE)>now) { visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("This toll is on cooldown for you.")); return InteractionResult.DENIED; }
         long tax = TaxPolicy.tax(TaxScope.TOLL, toll.fee, visitor.getUUID(), EconomyCraft.getManager(server));
         if(toll.fee<=0 || toll.fee>EconomyManager.MAX-tax) { visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("This toll has an invalid fee.")); return InteractionResult.DENIED; }
-        var result=EconomyCraft.getManager(server).transferMoney(visitor.getUUID(), owner, toll.fee+tax, toll.fee, EconomySources.TOLL_PAYMENT,
-                "Toll at "+dimension+" "+pos.getX()+","+pos.getY()+","+pos.getZ());
+        Map<UUID, Long> credits = new LinkedHashMap<>();
+        long distributed = 0;
+        for (Map.Entry<UUID, Integer> entry : toll.recipientShares().entrySet()) {
+            long share = (toll.fee / 100) * entry.getValue()
+                    + ((toll.fee % 100) * entry.getValue()) / 100;
+            if (share > 0) credits.put(entry.getKey(), share);
+            distributed += share;
+        }
+        credits.merge(owner, toll.fee - distributed, Long::sum);
+        String detail = "Toll at "+dimension+" "+pos.getX()+","+pos.getY()+","+pos.getZ();
+        var result = toll.shares.size() == 1 && toll.shares.getOrDefault(owner.toString(), 0) == 100
+                ? EconomyCraft.getManager(server).transferMoney(visitor.getUUID(), owner, toll.fee + tax, toll.fee,
+                EconomySources.TOLL_PAYMENT, detail)
+                : EconomyCraft.getManager(server).transferMoneyMany(visitor.getUUID(), credits, toll.fee + tax,
+                EconomySources.TOLL_PAYMENT, detail);
         if(!result.successful()) { visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("You don't have enough money to use this toll.")); return InteractionResult.DENIED; }
         cooldowns.put(cooldown,now+100);
         visitor.sendSystemMessage(net.minecraft.network.chat.Component.literal("Paid $"+toll.fee+" toll (tax "+EconomyCraft.formatMoney(tax)+")."));
@@ -261,7 +346,51 @@ public final class TollManager {
     }
     public static final class Toll {
         public String dimension, owner; public int x,y,z; public long fee;
-        public Toll(String dimension,int x,int y,int z,String owner,long fee){this.dimension=dimension;this.x=x;this.y=y;this.z=z;this.owner=owner;this.fee=fee;}
+        public Map<String, Integer> shares = new LinkedHashMap<>();
+        public Toll(String dimension,int x,int y,int z,String owner,long fee){this(dimension,x,y,z,owner,fee,singleShare(UUID.fromString(owner)));}
+        public Toll(String dimension,int x,int y,int z,String owner,long fee,Map<String,Integer> shares){this.dimension=dimension;this.x=x;this.y=y;this.z=z;this.owner=owner;this.fee=fee;this.shares=new LinkedHashMap<>(shares);normalizeShares();}
+        public void normalizeShares() {
+            if (shares == null) shares = new LinkedHashMap<>();
+            shares.entrySet().removeIf(entry -> entry.getKey() == null || entry.getValue() == null || entry.getValue() < 0 || entry.getValue() > 100);
+            if (shares.isEmpty()) shares.put(owner, 100);
+            int total = shares.values().stream().mapToInt(Integer::intValue).sum();
+            if (!shares.containsKey(owner) || total != 100) {
+                shares.clear();
+                shares.put(owner, 100);
+            }
+        }
+        public Map<UUID, Integer> recipientShares() {
+            LinkedHashMap<UUID, Integer> result = new LinkedHashMap<>();
+            shares.forEach((id, share) -> {
+                try { result.put(UUID.fromString(id), share); } catch (IllegalArgumentException ignored) { }
+            });
+            return result;
+        }
+    }
+
+    private static Map<String, Integer> singleShare(UUID owner) {
+        LinkedHashMap<String, Integer> shares = new LinkedHashMap<>();
+        shares.put(owner.toString(), 100);
+        return shares;
+    }
+
+    private static void redistribute(Map<String, Integer> shares, int amount) {
+        if (amount <= 0 || shares.isEmpty()) return;
+        int base = shares.values().stream().mapToInt(Integer::intValue).sum();
+        if (base <= 0) {
+            String first = shares.keySet().iterator().next();
+            shares.put(first, shares.get(first) + amount);
+            return;
+        }
+        int allocated = 0;
+        String largest = shares.keySet().iterator().next();
+        for (Map.Entry<String, Integer> entry : shares.entrySet()) {
+            int extra = (int) ((long) amount * entry.getValue() / base);
+            entry.setValue(entry.getValue() + extra);
+            allocated += extra;
+            if (entry.getValue() > shares.get(largest)) largest = entry.getKey();
+        }
+        shares.put(largest, shares.get(largest) + amount - allocated);
     }
 
     public enum InteractionResult { NOT_TOLL, GRANTED, DENIED }

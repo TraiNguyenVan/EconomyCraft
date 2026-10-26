@@ -555,6 +555,12 @@ public class EconomyManager {
         return balanceMutations.transfer(from, to, debitAmount, creditAmount, source, detail, item);
     }
 
+    PaymentResult transferMoneyMany(UUID from, Map<UUID, Long> credits, long debitAmount,
+                                    MutationSource source, @Nullable String detail) {
+        requireServerThread();
+        return balanceMutations.transferMany(from, credits, debitAmount, source, detail);
+    }
+
     public BalanceEvents getBalanceEvents() {
         return balanceEvents;
     }

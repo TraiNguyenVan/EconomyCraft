@@ -48,9 +48,9 @@ final class TransactionLogger {
         }
     }
 
-    void onTransfer(PaymentResult result) {
+    void onTransfer(PaymentResult result, long alertAmount) {
         WebhookConfig webhook = WebhookConfig.get();
-        if (!webhook.webhookEnabled || webhook.webhookUrl.isBlank() || result.amount() < webhook.webhookMinAmount) {
+        if (!webhook.webhookEnabled || webhook.webhookUrl.isBlank() || alertAmount < webhook.webhookMinAmount) {
             return;
         }
 

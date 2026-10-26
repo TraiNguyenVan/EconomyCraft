@@ -8,10 +8,12 @@ import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.function.LongSupplier;
 
 final class BalanceMutationEngine {
@@ -20,7 +22,7 @@ final class BalanceMutationEngine {
     private final Runnable onInitialized;
     private final Runnable onMutationCommitted;
     private final BalanceEventDispatcher events;
-    private final Consumer<PaymentResult> onTransfer;
+    private final BiConsumer<PaymentResult, Long> onTransfer;
 
     BalanceMutationEngine(
             Map<UUID, Long> balances,
@@ -28,7 +30,7 @@ final class BalanceMutationEngine {
             Runnable onInitialized,
             Runnable onMutationCommitted,
             BalanceEventDispatcher events,
-            Consumer<PaymentResult> onTransfer
+            BiConsumer<PaymentResult, Long> onTransfer
     ) {
         this.balances = balances;
         this.startingBalance = startingBalance;
@@ -148,8 +150,74 @@ final class BalanceMutationEngine {
             events.emit(new BalanceChangeEvent(receiverId, receiver.balance(), receiverNew,
                     BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), item);
         }
-        onTransfer.accept(result);
+        onTransfer.accept(result, debitAmount);
         return result;
+    }
+
+    /** Settles one debit against several recipients in one balance/database commit. */
+    PaymentResult transferMany(UUID senderId, Map<UUID, Long> credits, long debitAmount,
+                               MutationSource source, String detail) {
+        Objects.requireNonNull(senderId, "senderId");
+        Objects.requireNonNull(credits, "credits");
+        BalanceState sender = state(senderId);
+        UUID firstReceiver = credits.keySet().stream().findFirst().orElse(senderId);
+        if (senderId.equals(firstReceiver)) {
+            return paymentResult(BalanceMutationStatus.SAME_PLAYER, senderId, firstReceiver, debitAmount,
+                    sender.balance(), sender.balance(), sender.balance(), sender.balance(), source);
+        }
+        if (debitAmount <= 0 || credits.isEmpty() || credits.values().stream().anyMatch(amount -> amount == null || amount < 0)) {
+            return paymentResult(BalanceMutationStatus.INVALID_AMOUNT, senderId, firstReceiver, debitAmount,
+                    sender.balance(), sender.balance(), state(firstReceiver).balance(), state(firstReceiver).balance(), source);
+        }
+        if (sender.balance() < debitAmount) {
+            return paymentResult(BalanceMutationStatus.INSUFFICIENT_FUNDS, senderId, firstReceiver, debitAmount,
+                    sender.balance(), sender.balance(), state(firstReceiver).balance(), state(firstReceiver).balance(), source);
+        }
+
+        Map<UUID, BalanceState> states = new LinkedHashMap<>();
+        for (Map.Entry<UUID, Long> entry : credits.entrySet()) {
+            UUID receiverId = Objects.requireNonNull(entry.getKey(), "receiver id");
+            if (senderId.equals(receiverId)) {
+                return paymentResult(BalanceMutationStatus.SAME_PLAYER, senderId, receiverId, debitAmount,
+                        sender.balance(), sender.balance(), sender.balance(), sender.balance(), source);
+            }
+            BalanceState receiver = state(receiverId);
+            if (entry.getValue() > EconomyManager.maxBalance() - receiver.balance()) {
+                return paymentResult(BalanceMutationStatus.MAX_BALANCE_EXCEEDED, senderId, receiverId, debitAmount,
+                        sender.balance(), sender.balance(), receiver.balance(), receiver.balance(), source);
+            }
+            states.put(receiverId, receiver);
+        }
+
+        Map<UUID, Long> staged = new LinkedHashMap<>();
+        staged.put(senderId, sender.balance() - debitAmount);
+        for (Map.Entry<UUID, Long> entry : credits.entrySet()) {
+            BalanceState receiver = states.get(entry.getKey());
+            staged.put(entry.getKey(), receiver.balance() + entry.getValue());
+        }
+        balances.putAll(staged);
+        try {
+            onMutationCommitted.run();
+        } catch (RuntimeException e) {
+            restore(sender);
+            states.values().forEach(this::restore);
+            throw e;
+        }
+
+        Optional<MutationSource> optionalSource = Optional.ofNullable(source);
+        Optional<String> optionalDetail = Optional.ofNullable(detail);
+        events.emit(new BalanceChangeEvent(senderId, sender.balance(), staged.get(senderId),
+                BalanceMutationType.PAYMENT_SENT, Optional.of(firstReceiver), optionalSource, optionalDetail), null);
+        for (Map.Entry<UUID, Long> entry : credits.entrySet()) {
+            BalanceState receiver = states.get(entry.getKey());
+            long newBalance = staged.get(entry.getKey());
+            events.emit(new BalanceChangeEvent(entry.getKey(), receiver.balance(), newBalance,
+                    BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), null);
+            onTransfer.accept(new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, entry.getKey(), entry.getValue(),
+                    sender.balance(), staged.get(senderId), receiver.balance(), newBalance, optionalSource), debitAmount);
+        }
+        return new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, firstReceiver, debitAmount,
+                sender.balance(), staged.get(senderId), states.get(firstReceiver).balance(), staged.get(firstReceiver), optionalSource);
     }
 
     void delete(UUID playerId) {
