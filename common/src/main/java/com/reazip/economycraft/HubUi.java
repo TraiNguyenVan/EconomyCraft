@@ -51,7 +51,7 @@ public final class HubUi {
     private static final int TRANSACTIONS = 28;
     private static final int DELIVERIES = 30;
     private static final int OFFERS = 31;
-    private static final int CONTRACTS = 20;
+    private static final int CONTRACTS = 29;
     private static final int HELP = 32;
     private static final int TAGS_SLOT = 33;
     private static final int TOLLS = 34;
