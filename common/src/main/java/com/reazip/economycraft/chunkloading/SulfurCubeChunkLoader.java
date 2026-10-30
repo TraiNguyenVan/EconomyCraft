@@ -52,7 +52,14 @@ public final class SulfurCubeChunkLoader {
      * distance-2 neighbors are BLOCK_TICKING (<= 32), and distance-3 neighbors are FULL (<= 33).
      */
     public static final int DEFAULT_RADIUS = 3;
-    public static final int MIN_RADIUS = 1;
+
+    /**
+     * Smallest radius that keeps the cube itself ticking: a ticket of radius {@code r} gives the center
+     * chunk level {@code 33 - r}, and entities only tick at level 31 or lower, so radius 1 (level 32) is
+     * block-ticking only. A cube in such a chunk would stop ticking, stop refreshing its ticket, and the
+     * chunk would unload after the ticket expires.
+     */
+    public static final int MIN_RADIUS = 2;
     public static final int MAX_RADIUS = 6;
 
     public static final int DEFAULT_LOOKAHEAD_TICKS = 25;
@@ -330,15 +337,17 @@ public final class SulfurCubeChunkLoader {
 
         if (tracker == null || resuming) {
             int maxLoaders = configuredMaxLoaders();
-            if (maxLoaders > 0 && loadingTrackerCount() >= maxLoaders) {
+            // TRACKERS.size() is a cheap pre-check: the loading count can only reach the cap when there are
+            // at least that many trackers, so the scan below is skipped in the common uncapped case.
+            if (maxLoaders > 0 && TRACKERS.size() >= maxLoaders && loadingTrackerCount() >= maxLoaders) {
                 warnCapReached(serverLevel, maxLoaders);
                 if (tracker == null) {
                     return;
                 }
-                // Idle cube that cannot resume yet: keep it tracked, keep it idle.
+                // Idle cube that cannot resume yet: keep it tracked and keep it idle, but leave
+                // lastPosition alone so the cube keeps asking for a slot on every later tick. Recording the
+                // position here would make the cube look stationary again and it would never retry.
                 tracker.lastTickCount = gameTime;
-                tracker.lastMoveTick = gameTime;
-                tracker.lastPosition = position;
                 return;
             }
             if (tracker == null) {

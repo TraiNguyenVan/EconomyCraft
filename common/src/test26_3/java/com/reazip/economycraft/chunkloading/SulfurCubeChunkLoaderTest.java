@@ -107,6 +107,20 @@ class SulfurCubeChunkLoaderTest {
         gameTime.addAndGet(ticks);
     }
 
+    /** Builds a second body-carrying cube standing at the given position. */
+    private SulfurCube newCube(double x, double y, double z) {
+        SulfurCube other = mock(SulfurCube.class);
+        when(other.getUUID()).thenReturn(UUID.randomUUID());
+        when(other.level()).thenReturn(level);
+        when(other.isAlive()).thenReturn(true);
+        when(other.isRemoved()).thenReturn(false);
+        when(other.hasBodyItem()).thenReturn(true);
+        when(other.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
+        when(other.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        place(other, x, y, z);
+        return other;
+    }
+
     @Test
     @DisplayName("Natural sulfur cube without body block does not load chunks")
     void naturalSulfurCubeDoesNotLoadChunks() {
@@ -483,19 +497,57 @@ class SulfurCubeChunkLoaderTest {
         advanceTicks((long) SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS * 20L);
         SulfurCubeChunkLoader.onSulfurCubeTick(cube);
 
-        SulfurCube second = mock(SulfurCube.class);
-        when(second.getUUID()).thenReturn(UUID.randomUUID());
-        when(second.level()).thenReturn(level);
-        when(second.isAlive()).thenReturn(true);
-        when(second.hasBodyItem()).thenReturn(true);
-        when(second.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
-        when(second.getDeltaMovement()).thenReturn(Vec3.ZERO);
-        place(second, 800.0, 64.0, 800.0);
+        SulfurCube second = newCube(800.0, 64.0, 800.0);
 
         SulfurCubeChunkLoader.onSulfurCubeTick(second);
 
         assertEquals(2, SulfurCubeChunkLoader.activeTrackerCount());
         assertTrue(SulfurCubeChunkLoader.getHeldChunks(second.getUUID()).contains(new ChunkPos(50, 50)),
                 "a cube that stopped loading frees its cap slot");
+    }
+
+    @Test
+    @DisplayName("sulfur_cube_chunk_radius below 2 is raised, because a radius-1 ticket does not tick entities")
+    void radiusBelowEntityTickingIsRaised() {
+        config.sulfurCubeChunkRadius = 1;
+        place(40.0, 64.0, 40.0);
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        verify(chunkSource).addTicketAndLoadWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(2, 2)),
+                eq(SulfurCubeChunkLoader.MIN_RADIUS));
+        assertEquals(2, SulfurCubeChunkLoader.MIN_RADIUS);
+    }
+
+    @Test
+    @DisplayName("An idle cube denied a loader slot retries and resumes once a slot frees up")
+    void cappedIdleCubeRetriesResume() {
+        config.sulfurCubeChunkMaxLoaders = 1;
+        long idleTicks = (long) SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS * 20L;
+
+        place(40.0, 64.0, 40.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        advanceTicks(idleTicks);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).isEmpty(), "the first cube went idle");
+
+        SulfurCube other = newCube(800.0, 64.0, 800.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(other);
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(other.getUUID()).contains(new ChunkPos(50, 50)));
+
+        // Pushed while the only slot is taken: the resume is denied for now.
+        place(41.0, 64.0, 40.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).isEmpty(), "no slot was free");
+
+        // The other cube goes idle and frees the slot. The pushed cube must still remember it wants to load,
+        // even though it has not moved again since.
+        advanceTicks(idleTicks);
+        SulfurCubeChunkLoader.onSulfurCubeTick(other);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).contains(new ChunkPos(2, 2)),
+                "the pending resume went through after the slot freed up");
     }
 }

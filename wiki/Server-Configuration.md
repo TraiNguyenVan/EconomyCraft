@@ -61,7 +61,7 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 | `http_market_port` | `0` | Listener port. `0` selects an available port and logs the selected port when the server starts. |
 | `http_market_token` | `""` | Shared request token for both endpoints. Set a non-empty value before enabling the listener. |
 | `sulfur_cube_chunk_loading` | `true` | Let a sulfur cube that swallowed a block keep its surroundings loaded as it moves. Natural cubes without a block never load chunks. |
-| `sulfur_cube_chunk_radius` | `3` | Chunk radius ticketed around each loaded sulfur cube, clamped to 1–6. Radius 3 keeps a 3×3 square of chunks entity-ticking and loads out to 7×7. |
+| `sulfur_cube_chunk_radius` | `3` | Chunk radius ticketed around each loaded sulfur cube, clamped to 2–6. Radius 3 keeps a 3×3 square of chunks entity-ticking and loads out to 7×7. Radius 2 is the smallest that still keeps the cube's own chunk entity-ticking, so lower values are raised to 2. |
 | `sulfur_cube_chunk_lookahead_ticks` | `25` | How far ahead, in ticks of travel, an upcoming chunk is preloaded. Clamped to 0–100; `0` disables preloading. Only chunks outside the radius above are preloaded, never further than twice the radius. |
 | `sulfur_cube_lookahead_min_speed` | `4.0` | Horizontal speed in blocks per second above which preloading runs. |
 | `sulfur_cube_chunk_max_loaders` | `0` | Most sulfur cubes that may load chunks at once across the server. `0` = unlimited. Cubes past the cap load nothing until a slot frees up. |
