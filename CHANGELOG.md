@@ -3,7 +3,7 @@
 All notable changes to EconomyCraft are documented here. This file is the `changelog-file` consumed by
 `.github/workflows/ci.yml`, so a release published without updating it ships an empty changelog body.
 
-## Unreleased
+## [1.12.0] - 2026-10-30
 
 ### Sulfur cubes that swallowed a block can keep their area loaded
 
@@ -17,6 +17,22 @@ loading its chunk and starts again as soon as it moves, so parked cubes cannot h
 Loader tickets use their own ticket type, so they never collide with nether portal tickets,
 are not written to the on-disk ticket store, and are shared correctly when several cubes stand in the
 same chunk.
+
+### Tolls can split revenue with named recipients
+
+- A toll owner can add known player accounts as revenue recipients with explicit integer percentages
+  that must total 100%, from `/eco` -> Tolls -> **Manage shares** or `/eco toll share add|set|remove|promote`.
+  Recipients can be promoted to primary owner, which redistributes the shares.
+- The untaxed fee is credited to every recipient in one atomic payout; whole-unit rounding remainders go to
+  the primary owner, and a payment is rejected outright if any recipient cannot receive their share. All
+  recipients use their own toll without paying.
+- `max_toll_recipients` (default 8, `0` = unlimited) bounds recipients per toll. Existing toll records load
+  as single-owner 100% tolls.
+
+### Contracts hub entry moved down one row
+
+- The **Contracts** entry in the `/eco` hub menu moved one row lower, together with its click target, so the
+  visible item matches the intended layout.
 
 ## [1.11.0] - 2026-10-25
 
