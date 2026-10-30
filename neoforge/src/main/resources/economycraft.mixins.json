@@ -13,7 +13,8 @@
     "ProfessionSmeltMixin",
     "ProfessionTradeMixin",
     "ProfessionVillagerPricesMixin",
-    "ProfessionCombatMixin"
+    "ProfessionCombatMixin",
+    "SulfurCubeMixin"
   ],
   "injectors": {
     "defaultRequire": 1

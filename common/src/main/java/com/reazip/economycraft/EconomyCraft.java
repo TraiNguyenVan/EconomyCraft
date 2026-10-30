@@ -86,6 +86,7 @@ public final class EconomyCraft {
     }
 
     public static void onServerStopping(MinecraftServer server) {
+        com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.onServerStopping(server);
         com.reazip.economycraft.market.MarketSnapshotServer.stop(server);
         VillagerGossipListener.setMemoryService(null);
         if (villagerDatabase != null) {
@@ -169,6 +170,7 @@ public final class EconomyCraft {
 
     public static void onServerTick(MinecraftServer server) {
         TollHud.tick(server);
+        com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.onServerTick(server);
         com.reazip.economycraft.motd.MotdService.tick(server);
         BookInputUi.tick(server);
         // D20's removal half: the break hook only fires on ticks where a mining packet arrived, so without this

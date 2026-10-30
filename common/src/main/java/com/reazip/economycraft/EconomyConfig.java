@@ -185,6 +185,8 @@ public class EconomyConfig {
     public int httpMarketPort = 0;
     @SerializedName("http_market_token")
     public String httpMarketToken = "";
+    @SerializedName("sulfur_cube_chunk_loading")
+    public boolean sulfurCubeChunkLoading = true;
 
     /* Temporary aliases for fork code that is migrated to the sectioned accessors incrementally. */
     public transient long startingBalance;
