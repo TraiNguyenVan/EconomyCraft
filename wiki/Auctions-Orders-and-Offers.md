@@ -22,7 +22,7 @@ Browse or search requests with `/orders` or `/orders search <query>`. To request
 
 The total price is reserved when the request is created. Other players can fulfill the request for the listed items and receive the offered payment after any applicable tax. A request can expire; when it does, its remaining reserved money is returned to its owner. Items that cannot be delivered immediately go to `/deliveries`.
 
-The order board shows remaining items over the original requested amount after partial fulfillment (for example, `30/64` means 30 of 64 items remain).
+The order board shows delivered items over the original requested amount after partial fulfillment (for example, `30/64` means 30 items have been delivered and 34 remain).
 
 ## Price offers
 

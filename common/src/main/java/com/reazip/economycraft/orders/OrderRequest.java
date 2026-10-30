@@ -22,6 +22,10 @@ public class OrderRequest {
     @org.jetbrains.annotations.Nullable
     public String description;
 
+    public int deliveredAmount() {
+        return Math.max(0, Math.max(amount, originalAmount) - amount);
+    }
+
     public JsonObject save(HolderLookup.Provider provider) {
         JsonObject obj = new JsonObject();
         obj.addProperty("id", id);

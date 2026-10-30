@@ -20,6 +20,16 @@ class OrderRequestTest {
     }
 
     @Test
+    @DisplayName("Delivered amount is measured against the original request quantity")
+    void deliveredAmountUsesOriginalQuantity() {
+        OrderRequest request = new OrderRequest();
+        request.amount = 34;
+        request.originalAmount = 64;
+
+        assertEquals(30, request.deliveredAmount());
+    }
+
+    @Test
     @DisplayName("Description sanitization strips newlines and clamps to 100 chars")
     void sanitizeDescription() {
         String raw = "  Need for build\nUrgent\r\n" + "B".repeat(120);
