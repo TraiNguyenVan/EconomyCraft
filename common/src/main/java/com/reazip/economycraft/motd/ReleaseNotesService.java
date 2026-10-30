@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.util.EconomyPaths;
+import com.reazip.economycraft.util.ChatCompat;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -77,13 +78,15 @@ public final class ReleaseNotesService {
 
         List<Component> messages = new ArrayList<>();
         messages.add(Component.literal("EconomyCraft v" + release.version)
-                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
+                .withStyle(style -> style.withColor(ChatFormatting.GOLD)
+                        .withBold(true)
+                        .withUnderlined(true)
+                        .withClickEvent(ChatCompat.openUrlEvent(release.releaseUrl))));
         int count = Math.min(Math.clamp(maxChanges, 0, MAX_CACHED_TITLES), release.pullRequestTitles.size());
         int firstTitle = release.pullRequestTitles.size() - count;
         for (int i = firstTitle; i < release.pullRequestTitles.size(); i++) {
             messages.add(Component.literal("• " + release.pullRequestTitles.get(i)).withStyle(ChatFormatting.GRAY));
         }
-        messages.add(MotdFormatter.formatLine("Full release notes: " + release.releaseUrl));
         return List.copyOf(messages);
     }
 
