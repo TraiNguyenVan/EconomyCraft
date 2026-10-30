@@ -34,6 +34,7 @@ public final class MotdService {
         if (cfg == null || !cfg.enabled || cfg.blocks.isEmpty()) return;
         if (cfg.delayTicks <= 0) {
             sendBlock(player, cfg.blocks.get(0));
+            if (cfg.blocks.size() == 1) sendReleaseNotes(player);
             scheduleNext(uuid, cfg, 0);
         } else {
             PENDING.put(uuid, new PendingMotd(0, cfg.delayTicks));
@@ -72,6 +73,7 @@ public final class MotdService {
             int sentIndex = pending.blockIndex;
             sendBlock(player, cfg.blocks.get(sentIndex));
             if (sentIndex + 1 >= cfg.blocks.size()) {
+                sendReleaseNotes(player);
                 iterator.remove();
             } else {
                 pending.blockIndex++;
@@ -89,6 +91,7 @@ public final class MotdService {
                     .withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
             sendBlock(player, cfg.blocks.get(i));
         }
+        sendReleaseNotes(player);
     }
 
     private static void scheduleNext(UUID uuid, MotdSection cfg, int sentIndex) {
@@ -109,5 +112,9 @@ public final class MotdService {
             String resolved = MotdFormatter.resolvePlaceholders(rawLine, player);
             player.sendSystemMessage(MotdFormatter.formatLine(resolved));
         }
+    }
+
+    private static void sendReleaseNotes(ServerPlayer player) {
+        ReleaseNotesService.sendTo(player);
     }
 }

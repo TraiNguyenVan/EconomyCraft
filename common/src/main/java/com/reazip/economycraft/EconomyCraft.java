@@ -72,7 +72,7 @@ public final class EconomyCraft {
     public static void onServerStarting(MinecraftServer server) {
         EconomyConfig.load(server);
         WebhookConfig.load(server);
-        com.reazip.economycraft.motd.ServerListReleaseNotes.start(server);
+        com.reazip.economycraft.motd.ReleaseNotesService.start(server);
     }
 
     public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher,

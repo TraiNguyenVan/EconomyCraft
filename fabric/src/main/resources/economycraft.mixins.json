@@ -16,7 +16,6 @@
     "ProfessionTradeMixin",
     "ProfessionVillagerPricesMixin",
     "ProfessionCombatMixin",
-    "ServerListMotdMixin",
     "SignBlockEntityMixin",
     "AnvilMenuMixin",
     "BookEditMixin",

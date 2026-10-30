@@ -14,7 +14,6 @@
     "ProfessionTradeMixin",
     "ProfessionVillagerPricesMixin",
     "ProfessionCombatMixin",
-    "ServerListMotdMixin",
     "SulfurCubeMixin"
   ],
   "injectors": {

@@ -4,12 +4,11 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.logging.LogUtils;
-import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.EconomyPaths;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -32,8 +31,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Adds a compact preview of the latest published GitHub release to the server-list MOTD. */
-public final class ServerListReleaseNotes {
+/** Loads and displays a compact preview of the latest published GitHub release. */
+public final class ReleaseNotesService {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new Gson();
     private static final URI LATEST_RELEASE_URI = URI.create(
@@ -60,7 +59,7 @@ public final class ServerListReleaseNotes {
 
     private static volatile ReleaseInfo currentRelease;
 
-    private ServerListReleaseNotes() {}
+    private ReleaseNotesService() {}
 
     /** Loads the last good response immediately, then fetches the latest release off-thread. */
     public static void start(MinecraftServer server) {
@@ -70,28 +69,17 @@ public final class ServerListReleaseNotes {
         FETCH_EXECUTOR.execute(() -> fetchLatest(cachePath, serverRun));
     }
 
-    /** Returns a copy of the vanilla status with the cached release preview appended. */
-    public static net.minecraft.network.protocol.status.ServerStatus decorate(
-            net.minecraft.network.protocol.status.ServerStatus status) {
+    /** Appends the cached release preview to the in-game EconomyCraft MOTD. */
+    public static void sendTo(ServerPlayer player) {
         ReleaseInfo release = currentRelease;
-        if (status == null || release == null) return status;
+        if (player == null || release == null) return;
 
-        MutableComponent description = status.description().copy();
-        if (!description.getString().isBlank()) description.append(Component.literal("\n"));
-        description.append(Component.literal("EconomyCraft " + release.version)
+        player.sendSystemMessage(Component.literal("EconomyCraft v" + release.version)
                 .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
         for (String title : release.pullRequestTitles) {
-            description.append(Component.literal("\n• " + title).withStyle(ChatFormatting.GRAY));
+            player.sendSystemMessage(Component.literal("• " + title).withStyle(ChatFormatting.GRAY));
         }
-        description.append(Component.literal("\n"));
-        description.append(MotdFormatter.formatLine("Full notes: " + release.releaseUrl));
-
-        return new net.minecraft.network.protocol.status.ServerStatus(
-                description,
-                status.players(),
-                status.version(),
-                status.favicon(),
-                status.enforcesSecureChat());
+        player.sendSystemMessage(MotdFormatter.formatLine("Full release notes: " + release.releaseUrl));
     }
 
     private static void fetchLatest(Path cachePath, long serverRun) {
@@ -123,7 +111,7 @@ public final class ServerListReleaseNotes {
             if (SERVER_RUN.get() != serverRun) return;
             currentRelease = fetched;
             saveCache(cachePath, fetched);
-            LOGGER.info("[EconomyCraft] Loaded server-list notes for release {}", fetched.version);
+            LOGGER.info("[EconomyCraft] Loaded login MOTD notes for release {}", fetched.version);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOGGER.debug("[EconomyCraft] GitHub release lookup was interrupted");
@@ -217,7 +205,7 @@ public final class ServerListReleaseNotes {
                     .toList();
             return new ReleaseInfo(cached.version, cached.releaseUrl, titles);
         } catch (Exception e) {
-            LOGGER.warn("[EconomyCraft] Could not read the saved server-list release notes cache: {}", e.getMessage());
+            LOGGER.warn("[EconomyCraft] Could not read the saved release notes cache: {}", e.getMessage());
             return null;
         }
     }
