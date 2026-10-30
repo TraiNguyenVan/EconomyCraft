@@ -91,8 +91,7 @@ public final class ServerListReleaseNotes {
                 status.players(),
                 status.version(),
                 status.favicon(),
-                status.enforcesSecureChat(),
-                status.isModded());
+                status.enforcesSecureChat());
     }
 
     private static void fetchLatest(Path cachePath, long serverRun) {
