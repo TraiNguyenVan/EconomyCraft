@@ -291,6 +291,11 @@
   "motd": {
     "enabled": true,
     "delay_ticks": 40,
+    "release_notes": {
+      "enabled": true,
+      "after_block": -1,
+      "max_changes": 3
+    },
     "blocks": [
       {
         "lines": [
