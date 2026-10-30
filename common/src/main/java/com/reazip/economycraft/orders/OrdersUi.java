@@ -121,7 +121,7 @@ public final class OrdersUi {
     }
 
     private static String amountProgress(OrderRequest request) {
-        return request.deliveredAmount() + "/" + Math.max(request.amount, request.originalAmount);
+        return request.deliveredAmount() + "/" + Math.max(request.amount, request.originalAmount) + " Delivered";
     }
 
     public static void startRequest(ServerPlayer player, EconomyManager eco) {
