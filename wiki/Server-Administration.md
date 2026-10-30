@@ -138,7 +138,7 @@ Configure login messages in the `motd` section of `config/economycraft/config.js
 
 ### Login MOTD release notes
 
-The in-game login MOTD can include the latest release summary: version, a configurable number of newest merged pull-request titles, and a clickable link to the full GitHub release notes. Configure whether it appears, its position among MOTD blocks, and its title limit under `motd.release_notes`; see the [configuration reference](Server-Configuration.md#motd). The notes are fetched once when the server starts on Fabric or NeoForge and cached with up to 20 titles. If GitHub is unavailable, the saved release is used. `/eco motd` previews the configured placement and limit immediately. Restart the server to pick up a newer release.
+The in-game login MOTD can include the latest release summary: a clickable version title that opens the full GitHub release notes, followed by a configurable number of newest merged pull-request titles. Configure whether it appears, its position among MOTD blocks, and its title limit under `motd.release_notes`; see the [configuration reference](Server-Configuration.md#motd). The notes are fetched once when the server starts on Fabric or NeoForge and cached with up to 20 titles. If GitHub is unavailable, the saved release is used. `/eco motd` previews the configured placement and limit immediately. Restart the server to pick up a newer release.
 
 ## Permissions and optional integrations
 
