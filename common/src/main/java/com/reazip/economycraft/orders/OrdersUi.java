@@ -120,6 +120,10 @@ public final class OrdersUi {
         }
     }
 
+    private static String amountProgress(OrderRequest request) {
+        return request.amount + "/" + Math.max(request.amount, request.originalAmount);
+    }
+
     public static void startRequest(ServerPlayer player, EconomyManager eco) {
         if (eco.getOrders().hasReachedLimit(player.getUUID())) {
             EconomySounds.failure(player);
@@ -329,7 +333,8 @@ public final class OrdersUi {
                 addRewardLore(lore, r.price, tax, r.amount);
                 addBountyLore(lore, r);
                 addNoteLore(lore, r);
-                lore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(r.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
+                lore.add(MenuUiSupport.labeledValue("Amount", amountProgress(r),
+                        MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.labeledValue("Requester", mine ? "you" : reqName, MenuUiSupport.LABEL_PRIMARY_COLOR));
                 lore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(r.expiresAt)));
                 lore.add(MenuUiSupport.labeledValue("Click", mine ? "Cancel request" : "Fulfill it",
@@ -531,7 +536,7 @@ public final class OrdersUi {
             addRewardLore(itemLore, req.price, tax, req.amount);
             addBountyLore(itemLore, req);
             addNoteLore(itemLore, req);
-            itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
+            itemLore.add(MenuUiSupport.labeledValue("Amount", amountProgress(req), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.labeledValue("Requester", requesterName, MenuUiSupport.LABEL_PRIMARY_COLOR));
             int heldByViewer = OrderFulfillment.countHeld(parent.viewer(), req.item);
             itemLore.add(MenuUiSupport.labeledValue("You hold",
@@ -713,7 +718,7 @@ public final class OrdersUi {
             List<Component> itemLore = new ArrayList<>();
             addRewardLore(itemLore, req.price, tax, req.amount);
             addNoteLore(itemLore, req);
-            itemLore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(req.amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
+            itemLore.add(MenuUiSupport.labeledValue("Amount", amountProgress(req), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(req.expiresAt)));
             itemLore.add(MenuUiSupport.line("This will remove the request", ChatFormatting.RED));
             item.set(DataComponents.LORE, new ItemLore(itemLore));

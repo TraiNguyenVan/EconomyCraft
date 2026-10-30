@@ -112,6 +112,7 @@ class StorePersistenceTest {
         request.requester = SELLER;
         request.item = new ItemStack(Items.EMERALD, 16);
         request.amount = 64;
+        request.originalAmount = 64;
         request.price = 1_280L;
         request.escrow = 1_280L;
         request.createdAt = 1_000L;
@@ -140,6 +141,7 @@ class StorePersistenceTest {
     @Test
     void orderEscrowSurvivesRestart() throws Exception {
         OrderRequest saved = request();
+        saved.amount = 30;
         orders.addRequest(saved);
         int id = saved.id;
 
@@ -148,7 +150,8 @@ class StorePersistenceTest {
         OrderRequest loaded = orders.getRequest(id);
         assertNotNull(loaded, "order must survive a restart");
         assertEquals(SELLER, loaded.requester);
-        assertEquals(64, loaded.amount);
+        assertEquals(30, loaded.amount);
+        assertEquals(64, loaded.originalAmount, "the original quantity must survive partial fulfillment and restart");
         assertEquals(1_280L, loaded.price);
         assertEquals(1_280L, loaded.escrow, "escrowed money must not be lost on restart");
         assertEquals(Items.EMERALD, loaded.item.getItem());

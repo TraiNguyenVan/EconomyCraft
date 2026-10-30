@@ -22,6 +22,8 @@ Browse or search requests with `/orders` or `/orders search <query>`. To request
 
 The total price is reserved when the request is created. Other players can fulfill the request for the listed items and receive the offered payment after any applicable tax. A request can expire; when it does, its remaining reserved money is returned to its owner. Items that cannot be delivered immediately go to `/deliveries`.
 
+The order board shows remaining items over the original requested amount after partial fulfillment (for example, `30/64` means 30 of 64 items remain).
+
 ## Price offers
 
 An offer is a non-binding price suggestion on another player's auction listing or order. It does not reserve money or items, and the owner can accept or decline it. The listing or request may still be bought or fulfilled at its posted terms first. Offers on server quest orders and quest buyback listings are not accepted.

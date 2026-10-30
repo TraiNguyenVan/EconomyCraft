@@ -181,6 +181,7 @@ public final class OrderFulfillment {
         request.price = price;
         request.item = item.copy();
         request.amount = amount;
+        request.originalAmount = amount;
         // Escrow is recorded before the debit so the debit's transactional save persists both.
         request.escrow = price;
         request.createdAt = System.currentTimeMillis();
