@@ -185,6 +185,18 @@ public class EconomyConfig {
     public int httpMarketPort = 0;
     @SerializedName("http_market_token")
     public String httpMarketToken = "";
+    @SerializedName("sulfur_cube_chunk_loading")
+    public boolean sulfurCubeChunkLoading = true;
+    @SerializedName("sulfur_cube_chunk_radius")
+    public int sulfurCubeChunkRadius = com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.DEFAULT_RADIUS;
+    @SerializedName("sulfur_cube_chunk_lookahead_ticks")
+    public int sulfurCubeChunkLookAheadTicks = com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.DEFAULT_LOOKAHEAD_TICKS;
+    @SerializedName("sulfur_cube_lookahead_min_speed")
+    public double sulfurCubeLookAheadMinSpeed = com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.DEFAULT_LOOKAHEAD_MIN_SPEED;
+    @SerializedName("sulfur_cube_chunk_max_loaders")
+    public int sulfurCubeChunkMaxLoaders = 0;
+    @SerializedName("sulfur_cube_chunk_idle_seconds")
+    public int sulfurCubeChunkIdleSeconds = com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS;
 
     /* Temporary aliases for fork code that is migrated to the sectioned accessors incrementally. */
     public transient long startingBalance;
@@ -279,6 +291,19 @@ public class EconomyConfig {
             parsed.wealthTaxRebateTriggerFactor = clampRange("wealth_tax_rebate_trigger_factor", parsed.wealthTaxRebateTriggerFactor, 0.0, MAX_REBATE_TRIGGER_FACTOR, "");
             parsed.httpMarketPort = clampPort(parsed.httpMarketPort);
             if (parsed.httpMarketToken == null) parsed.httpMarketToken = "";
+            parsed.sulfurCubeChunkRadius = clampRange("sulfur_cube_chunk_radius", parsed.sulfurCubeChunkRadius,
+                    com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.MIN_RADIUS,
+                    com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.MAX_RADIUS);
+            parsed.sulfurCubeChunkLookAheadTicks = clampRange("sulfur_cube_chunk_lookahead_ticks",
+                    parsed.sulfurCubeChunkLookAheadTicks, 0,
+                    com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.MAX_LOOKAHEAD_TICKS);
+            parsed.sulfurCubeLookAheadMinSpeed = clampRange("sulfur_cube_lookahead_min_speed",
+                    parsed.sulfurCubeLookAheadMinSpeed, 0.0,
+                    com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.MAX_LOOKAHEAD_MIN_SPEED, "");
+            parsed.sulfurCubeChunkMaxLoaders = clampNonNegative("sulfur_cube_chunk_max_loaders", parsed.sulfurCubeChunkMaxLoaders);
+            parsed.sulfurCubeChunkIdleSeconds = clampRange("sulfur_cube_chunk_idle_seconds",
+                    parsed.sulfurCubeChunkIdleSeconds, 0,
+                    com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.MAX_IDLE_SECONDS);
             parsed.factions = requireSection("factions", parsed.factions, FactionsSection::new);
             parsed.professions = requireSection("professions", parsed.professions, ProfessionsSection::new);
             parsed.quests = requireSection("quests", parsed.quests, QuestsSection::new);
@@ -384,6 +409,12 @@ public class EconomyConfig {
     private static double clampRange(String fieldName, double value, double min, double max, String reason) {
         double clamped = Double.isNaN(value) ? min : Math.clamp(value, min, max);
         if (clamped != value) LOGGER.warn("[EconomyCraft] {} ({}) is outside the valid {}-{} range{}; clamping to {}.", fieldName, value, min, max, reason, clamped);
+        return clamped;
+    }
+
+    private static int clampRange(String fieldName, int value, int min, int max) {
+        int clamped = Math.clamp(value, min, max);
+        if (clamped != value) LOGGER.warn("[EconomyCraft] {} ({}) is outside the valid {}-{} range; clamping to {}.", fieldName, value, min, max, clamped);
         return clamped;
     }
 

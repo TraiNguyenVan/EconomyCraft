@@ -18,7 +18,8 @@
     "ProfessionCombatMixin",
     "SignBlockEntityMixin",
     "AnvilMenuMixin",
-    "BookEditMixin"
+    "BookEditMixin",
+    "SulfurCubeMixin"
   ],
   "injectors": {
     "defaultRequire": 1

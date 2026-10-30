@@ -70,6 +70,12 @@
   "http_market_enabled": false,
   "http_market_port": 0,
   "http_market_token": "",
+  "sulfur_cube_chunk_loading": true,
+  "sulfur_cube_chunk_radius": 3,
+  "sulfur_cube_chunk_lookahead_ticks": 25,
+  "sulfur_cube_lookahead_min_speed": 4.0,
+  "sulfur_cube_chunk_max_loaders": 0,
+  "sulfur_cube_chunk_idle_seconds": 120,
   "factions": {
     "enabled": true,
     "selection_lockout_hours": 30,
