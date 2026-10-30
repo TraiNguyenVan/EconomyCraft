@@ -41,6 +41,7 @@ public final class ReleaseNotesService {
     private static final Path CACHE_RELATIVE_PATH = Path.of("release-motd-cache.json");
     private static final int MAX_RESPONSE_CHARS = 512_000;
     private static final int MAX_TITLE_CHARS = 100;
+    private static final int MAX_CACHED_TITLES = 20;
     private static final Pattern PULL_REQUEST_URL = Pattern.compile(
             "https://github\\.com/TraiNguyenVan/EconomyCraft/pull/[0-9]+(?:\\b|$)");
     private static final Pattern AUTHOR_SUFFIX = Pattern.compile("\\s+by\\s+@[^\\s]+.*$");
@@ -69,17 +70,27 @@ public final class ReleaseNotesService {
         FETCH_EXECUTOR.execute(() -> fetchLatest(cachePath, serverRun));
     }
 
-    /** Appends the cached release preview to the in-game EconomyCraft MOTD. */
-    public static void sendTo(ServerPlayer player) {
+    /** Builds the cached release preview, applying the configured maximum to the newest titles. */
+    public static List<Component> createMessages(int maxChanges) {
         ReleaseInfo release = currentRelease;
-        if (player == null || release == null) return;
+        if (release == null) return List.of();
 
-        player.sendSystemMessage(Component.literal("EconomyCraft v" + release.version)
+        List<Component> messages = new ArrayList<>();
+        messages.add(Component.literal("EconomyCraft v" + release.version)
                 .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD));
-        for (String title : release.pullRequestTitles) {
-            player.sendSystemMessage(Component.literal("• " + title).withStyle(ChatFormatting.GRAY));
+        int count = Math.min(Math.clamp(maxChanges, 0, MAX_CACHED_TITLES), release.pullRequestTitles.size());
+        int firstTitle = release.pullRequestTitles.size() - count;
+        for (int i = firstTitle; i < release.pullRequestTitles.size(); i++) {
+            messages.add(Component.literal("• " + release.pullRequestTitles.get(i)).withStyle(ChatFormatting.GRAY));
         }
-        player.sendSystemMessage(MotdFormatter.formatLine("Full release notes: " + release.releaseUrl));
+        messages.add(MotdFormatter.formatLine("Full release notes: " + release.releaseUrl));
+        return List.copyOf(messages);
+    }
+
+    /** Sends the cached release preview to a player using the configured title limit. */
+    public static void sendTo(ServerPlayer player, int maxChanges) {
+        if (player == null) return;
+        createMessages(maxChanges).forEach(player::sendSystemMessage);
     }
 
     private static void fetchLatest(Path cachePath, long serverRun) {
@@ -163,7 +174,7 @@ public final class ReleaseNotesService {
 
     private static List<String> extractPullRequestTitles(String body) {
         if (body == null || body.isBlank()) return List.of();
-        List<String> titles = new ArrayList<>(2);
+        List<String> titles = new ArrayList<>(MAX_CACHED_TITLES);
         boolean hasSections = body.lines().anyMatch(line -> line.startsWith("## "));
         boolean inChanges = !hasSections;
         for (String rawLine : body.split("\\R")) {
@@ -188,7 +199,7 @@ public final class ReleaseNotesService {
             if (title.length() > MAX_TITLE_CHARS) title = title.substring(0, MAX_TITLE_CHARS - 1).stripTrailing() + "…";
             titles.add(title);
         }
-        int firstVisibleTitle = Math.max(0, titles.size() - 2);
+        int firstVisibleTitle = Math.max(0, titles.size() - MAX_CACHED_TITLES);
         return List.copyOf(titles.subList(firstVisibleTitle, titles.size()));
     }
 
@@ -200,9 +211,12 @@ public final class ReleaseNotesService {
                     || safeReleaseUrl(cached.releaseUrl) == null) return null;
             List<String> titles = cached.pullRequestTitles == null ? List.of()
                     : cached.pullRequestTitles.stream().filter(title -> title != null && !title.isBlank())
-                    .limit(2).map(title -> title.length() > MAX_TITLE_CHARS
+                    .map(title -> title.length() > MAX_TITLE_CHARS
                             ? title.substring(0, MAX_TITLE_CHARS - 1).stripTrailing() + "…" : title.strip())
                     .toList();
+            if (titles.size() > MAX_CACHED_TITLES) {
+                titles = List.copyOf(titles.subList(titles.size() - MAX_CACHED_TITLES, titles.size()));
+            }
             return new ReleaseInfo(cached.version, cached.releaseUrl, titles);
         } catch (Exception e) {
             LOGGER.warn("[EconomyCraft] Could not read the saved release notes cache: {}", e.getMessage());

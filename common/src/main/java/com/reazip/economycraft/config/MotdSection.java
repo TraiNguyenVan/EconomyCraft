@@ -14,6 +14,8 @@ public class MotdSection {
     public static final int DEFAULT_DELAY_TICKS = 40;
     public static final int MIN_DELAY_TICKS = 0;
     public static final int MAX_DELAY_TICKS = 1200;
+    public static final int MIN_RELEASE_NOTE_CHANGES = 0;
+    public static final int MAX_RELEASE_NOTE_CHANGES = 20;
 
     @SerializedName("enabled")
     public boolean enabled = true;
@@ -23,6 +25,21 @@ public class MotdSection {
 
     @SerializedName("blocks")
     public List<MotdBlock> blocks = defaultBlocks();
+
+    @SerializedName("release_notes")
+    public ReleaseNotes releaseNotes = new ReleaseNotes();
+
+    public static class ReleaseNotes {
+        @SerializedName("enabled")
+        public boolean enabled = true;
+
+        /** -1 means after the last block; 0 means before the first block. */
+        @SerializedName("after_block")
+        public int afterBlock = -1;
+
+        @SerializedName("max_changes")
+        public int maxChanges = 3;
+    }
 
     public static List<String> defaultLines() {
         List<String> list = new ArrayList<>();
@@ -44,10 +61,15 @@ public class MotdSection {
             LOGGER.warn("[EconomyCraft] motd.delay_ticks ({}) outside {}-{} range; clamping to {}.",
                     old, MIN_DELAY_TICKS, MAX_DELAY_TICKS, delayTicks);
         }
-        if (blocks == null) {
-            blocks = defaultBlocks();
-            return;
+        if (releaseNotes == null) releaseNotes = new ReleaseNotes();
+        if (releaseNotes.maxChanges < MIN_RELEASE_NOTE_CHANGES
+                || releaseNotes.maxChanges > MAX_RELEASE_NOTE_CHANGES) {
+            int old = releaseNotes.maxChanges;
+            releaseNotes.maxChanges = Math.clamp(old, MIN_RELEASE_NOTE_CHANGES, MAX_RELEASE_NOTE_CHANGES);
+            LOGGER.warn("[EconomyCraft] motd.release_notes.max_changes ({}) outside {}-{} range; clamping to {}.",
+                    old, MIN_RELEASE_NOTE_CHANGES, MAX_RELEASE_NOTE_CHANGES, releaseNotes.maxChanges);
         }
+        if (blocks == null) blocks = defaultBlocks();
         for (int i = 0; i < blocks.size(); i++) {
             MotdBlock block = blocks.get(i);
             if (block == null) {
@@ -65,6 +87,12 @@ public class MotdSection {
                         i, old, MotdBlock.MIN_NEXT_DELAY_SECONDS, MotdBlock.MAX_NEXT_DELAY_SECONDS,
                         block.nextDelaySeconds);
             }
+        }
+        if (releaseNotes.afterBlock < -1 || releaseNotes.afterBlock > blocks.size()) {
+            int old = releaseNotes.afterBlock;
+            releaseNotes.afterBlock = -1;
+            LOGGER.warn("[EconomyCraft] motd.release_notes.after_block ({}) does not match the configured MOTD blocks; "
+                            + "placing release notes after the last block.", old);
         }
     }
 }

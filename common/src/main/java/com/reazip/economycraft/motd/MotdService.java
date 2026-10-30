@@ -3,27 +3,37 @@ package com.reazip.economycraft.motd;
 import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.config.MotdBlock;
 import com.reazip.economycraft.config.MotdSection;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 /** Manages ordered, finite login MOTD sequences. */
 public final class MotdService {
     private static final Map<UUID, PendingMotd> PENDING = new HashMap<>();
+    private static final int RELEASE_NOTES_STEP = -1;
 
     private MotdService() {}
 
     private static final class PendingMotd {
-        private int blockIndex;
+        private int stepIndex;
         private int remainingTicks;
 
-        private PendingMotd(int blockIndex, int remainingTicks) {
-            this.blockIndex = blockIndex;
+        private PendingMotd(int stepIndex, int remainingTicks) {
+            this.stepIndex = stepIndex;
             this.remainingTicks = remainingTicks;
+        }
+    }
+
+    private record MotdStep(int blockIndex) {
+        private boolean isReleaseNotes() {
+            return blockIndex == RELEASE_NOTES_STEP;
         }
     }
 
@@ -31,11 +41,12 @@ public final class MotdService {
         UUID uuid = player.getUUID();
         PENDING.remove(uuid);
         MotdSection cfg = currentConfig();
-        if (cfg == null || !cfg.enabled || cfg.blocks.isEmpty()) return;
+        if (cfg == null || !cfg.enabled) return;
+        List<MotdStep> steps = buildSequence(cfg);
+        if (steps.isEmpty()) return;
         if (cfg.delayTicks <= 0) {
-            sendBlock(player, cfg.blocks.get(0));
-            if (cfg.blocks.size() == 1) sendReleaseNotes(player);
-            scheduleNext(uuid, cfg, 0);
+            sendStep(player, cfg, steps.get(0));
+            scheduleNext(uuid, cfg, steps, 0);
         } else {
             PENDING.put(uuid, new PendingMotd(0, cfg.delayTicks));
         }
@@ -61,7 +72,12 @@ public final class MotdService {
 
             UUID uuid = entry.getKey();
             MotdSection cfg = currentConfig();
-            if (cfg == null || !cfg.enabled || pending.blockIndex >= cfg.blocks.size()) {
+            if (cfg == null || !cfg.enabled) {
+                iterator.remove();
+                continue;
+            }
+            List<MotdStep> steps = buildSequence(cfg);
+            if (pending.stepIndex >= steps.size()) {
                 iterator.remove();
                 continue;
             }
@@ -70,14 +86,14 @@ public final class MotdService {
                 iterator.remove();
                 continue;
             }
-            int sentIndex = pending.blockIndex;
-            sendBlock(player, cfg.blocks.get(sentIndex));
-            if (sentIndex + 1 >= cfg.blocks.size()) {
-                sendReleaseNotes(player);
+            int sentIndex = pending.stepIndex;
+            MotdStep step = steps.get(sentIndex);
+            sendStep(player, cfg, step);
+            if (sentIndex + 1 >= steps.size()) {
                 iterator.remove();
             } else {
-                pending.blockIndex++;
-                pending.remainingTicks = cfg.blocks.get(sentIndex).nextDelaySeconds * 20;
+                pending.stepIndex++;
+                pending.remainingTicks = delayAfter(cfg, step);
             }
         }
     }
@@ -86,19 +102,78 @@ public final class MotdService {
     public static void sendMotd(ServerPlayer player) {
         MotdSection cfg = currentConfig();
         if (cfg == null) return;
-        for (int i = 0; i < cfg.blocks.size(); i++) {
-            if (i > 0) player.sendSystemMessage(Component.literal("──── MOTD block " + (i + 1) + " ────")
-                    .withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
-            sendBlock(player, cfg.blocks.get(i));
+        int blockNumber = 0;
+        for (MotdStep step : buildSequence(cfg)) {
+            if (step.isReleaseNotes()) {
+                ReleaseNotesService.sendTo(player, cfg.releaseNotes.maxChanges);
+                continue;
+            }
+            if (blockNumber > 0) {
+                player.sendSystemMessage(Component.literal("──── MOTD block " + (blockNumber + 1) + " ────")
+                        .withStyle(net.minecraft.ChatFormatting.DARK_GRAY));
+            }
+            sendBlock(player, cfg.blocks.get(step.blockIndex));
+            blockNumber++;
         }
-        sendReleaseNotes(player);
     }
 
-    private static void scheduleNext(UUID uuid, MotdSection cfg, int sentIndex) {
-        if (sentIndex + 1 < cfg.blocks.size()) {
-            PENDING.put(uuid, new PendingMotd(sentIndex + 1,
-                    cfg.blocks.get(sentIndex).nextDelaySeconds * 20));
+    /** Previews configured MOTD and release-note ordering in the console without join delays. */
+    public static void preview(CommandSourceStack source) {
+        MotdSection cfg = currentConfig();
+        if (cfg == null) return;
+        int blockNumber = 0;
+        for (MotdStep step : buildSequence(cfg)) {
+            if (step.isReleaseNotes()) {
+                for (Component message : ReleaseNotesService.createMessages(cfg.releaseNotes.maxChanges)) {
+                    source.sendSuccess(() -> message, false);
+                }
+                continue;
+            }
+            if (blockNumber > 0) {
+                int nextBlock = blockNumber + 1;
+                source.sendSuccess(() -> Component.literal("──── MOTD block " + nextBlock + " ────")
+                        .withStyle(net.minecraft.ChatFormatting.DARK_GRAY), false);
+            }
+            MotdBlock block = cfg.blocks.get(step.blockIndex);
+            if (block.lines != null) {
+                for (String rawLine : block.lines) {
+                    source.sendSuccess(() -> MotdFormatter.formatLine(rawLine), false);
+                }
+            }
+            blockNumber++;
         }
+    }
+
+    private static void scheduleNext(UUID uuid, MotdSection cfg, List<MotdStep> steps, int sentIndex) {
+        if (sentIndex + 1 < steps.size()) {
+            PENDING.put(uuid, new PendingMotd(sentIndex + 1, delayAfter(cfg, steps.get(sentIndex))));
+        }
+    }
+
+    private static int delayAfter(MotdSection cfg, MotdStep step) {
+        if (step.isReleaseNotes()) return 0;
+        return cfg.blocks.get(step.blockIndex).nextDelaySeconds * 20;
+    }
+
+    private static void sendStep(ServerPlayer player, MotdSection cfg, MotdStep step) {
+        if (step.isReleaseNotes()) {
+            ReleaseNotesService.sendTo(player, cfg.releaseNotes.maxChanges);
+        } else {
+            sendBlock(player, cfg.blocks.get(step.blockIndex));
+        }
+    }
+
+    private static List<MotdStep> buildSequence(MotdSection cfg) {
+        int blockCount = cfg.blocks.size();
+        int releasePosition = cfg.releaseNotes.enabled
+                ? (cfg.releaseNotes.afterBlock == -1 ? blockCount : cfg.releaseNotes.afterBlock)
+                : -1;
+        List<MotdStep> steps = new ArrayList<>(blockCount + (releasePosition >= 0 ? 1 : 0));
+        for (int blockIndex = 0; blockIndex <= blockCount; blockIndex++) {
+            if (blockIndex == releasePosition) steps.add(new MotdStep(RELEASE_NOTES_STEP));
+            if (blockIndex < blockCount) steps.add(new MotdStep(blockIndex));
+        }
+        return List.copyOf(steps);
     }
 
     private static MotdSection currentConfig() {
@@ -112,9 +187,5 @@ public final class MotdService {
             String resolved = MotdFormatter.resolvePlaceholders(rawLine, player);
             player.sendSystemMessage(MotdFormatter.formatLine(resolved));
         }
-    }
-
-    private static void sendReleaseNotes(ServerPlayer player) {
-        ReleaseNotesService.sendTo(player);
     }
 }
