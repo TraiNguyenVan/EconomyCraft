@@ -34,6 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Preloads upcoming chunks along the movement vector, but only for chunks the current ticket
  *       radius does not already cover, and never further than twice the radius. Predicting inside the
  *       covered area would re-ticket the same chunk every tick for no benefit.</li>
+ *   <li>Stops loading when the cube has not moved for {@code sulfur_cube_chunk_idle_seconds} (default
+ *       120), so a parked cube does not hold chunks forever. The cube keeps being tracked and starts
+ *       loading again the moment it moves; nearby players keep the area loaded as usual.</li>
  *   <li>Cleans up tickets when the cube is sheared, dies, leaves the level, changes dimension, or is
  *       picked up in a bucket.</li>
  * </ul>
@@ -54,6 +57,16 @@ public final class SulfurCubeChunkLoader {
 
     public static final int DEFAULT_LOOKAHEAD_TICKS = 25;
     public static final int MAX_LOOKAHEAD_TICKS = 100;
+
+    /**
+     * Default idle window: a cube that has not moved for this long stops loading chunks and starts
+     * again as soon as it moves. {@code 0} keeps loading as long as the cube is alive.
+     */
+    public static final int DEFAULT_IDLE_SECONDS = 120;
+    public static final int MAX_IDLE_SECONDS = 86_400;
+
+    /** Distance that counts as movement, so a cube resting on the ground is not "moving" by tiny nudges. */
+    private static final double MOVE_EPSILON_SQR = 0.0625 * 0.0625;
 
     /** Default look-ahead trigger: 4 blocks/second. */
     public static final double DEFAULT_LOOKAHEAD_MIN_SPEED = 4.0;
@@ -106,6 +119,11 @@ public final class SulfurCubeChunkLoader {
 
     private record TicketKey(ServerLevel level, long chunkPos, int radius) {}
 
+    /** Keeps an existing ticket alive without changing the reference count. */
+    private static void refreshTicket(ServerChunkCache chunkCache, ChunkPos pos, int radius) {
+        chunkCache.addTicketWithRadius(TICKET_TYPE, pos, radius);
+    }
+
     /** Registers one more cube for this ticket, loading the chunk when it is the first one. */
     private static void acquireTicket(ServerChunkCache chunkCache, ServerLevel level, ChunkPos pos, int radius) {
         TicketKey key = new TicketKey(level, pos.pack(), radius);
@@ -149,10 +167,17 @@ public final class SulfurCubeChunkLoader {
         /** Held chunk -> radius (ticket level) used for it, so removals always match the added ticket. */
         final Map<ChunkPos, Integer> heldChunks = new HashMap<>();
         long lastTickCount;
+        /** Position the cube was last seen at, used to decide whether it still moves. */
+        Vec3 lastPosition;
+        long lastMoveTick;
+        /** False while an idle cube has released its tickets and waits to move again. */
+        boolean loading = true;
 
-        CubeTracker(UUID entityUuid, ServerLevel level) {
+        CubeTracker(UUID entityUuid, ServerLevel level, Vec3 position, long gameTime) {
             this.entityUuid = entityUuid;
             this.level = level;
+            this.lastPosition = position;
+            this.lastMoveTick = gameTime;
         }
 
         void hold(ServerChunkCache chunkCache, ChunkPos pos, int radius) {
@@ -170,7 +195,8 @@ public final class SulfurCubeChunkLoader {
                 heldChunks.put(pos, radius);
                 return;
             }
-            acquireTicket(chunkCache, level, pos, radius);
+            // Already held by this cube: refresh the ticket without touching the shared reference count.
+            refreshTicket(chunkCache, pos, radius);
         }
 
         void prune(ServerChunkCache chunkCache, ChunkPos current, @Nullable ChunkPos lookAhead) {
@@ -242,6 +268,24 @@ public final class SulfurCubeChunkLoader {
         return cfg == null ? 0 : Math.max(0, cfg.sulfurCubeChunkMaxLoaders);
     }
 
+    /** Ticks a cube may stand still before it stops loading chunks; {@code 0} disables the stop. */
+    private static long configuredIdleTicks() {
+        EconomyConfig cfg = EconomyConfig.get();
+        int seconds = cfg == null ? DEFAULT_IDLE_SECONDS : Math.clamp(cfg.sulfurCubeChunkIdleSeconds, 0, MAX_IDLE_SECONDS);
+        return (long) (seconds * TICKS_PER_SECOND);
+    }
+
+    /** Number of cubes currently holding chunk tickets (idle but tracked cubes do not count). */
+    private static int loadingTrackerCount() {
+        int count = 0;
+        for (CubeTracker tracker : TRACKERS.values()) {
+            if (tracker.loading) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     /**
      * Invoked from {@link SulfurCube#tick()}.
      *
@@ -268,8 +312,9 @@ public final class SulfurCubeChunkLoader {
         }
 
         int radius = configuredRadius();
+        long gameTime = serverLevel.getGameTime();
+        Vec3 position = cube.position();
         ChunkPos currentChunk = cube.chunkPosition();
-        ChunkPos lookAheadChunk = lookAheadChunk(cube, currentChunk, radius);
 
         CubeTracker tracker = TRACKERS.get(uuid);
         if (tracker != null && tracker.level != serverLevel) {
@@ -279,17 +324,52 @@ public final class SulfurCubeChunkLoader {
             TRACKERS.remove(uuid);
             tracker = null;
         }
-        if (tracker == null) {
+
+        boolean moved = tracker == null || position.distanceToSqr(tracker.lastPosition) > MOVE_EPSILON_SQR;
+        boolean resuming = tracker != null && moved && !tracker.loading;
+
+        if (tracker == null || resuming) {
             int maxLoaders = configuredMaxLoaders();
-            if (maxLoaders > 0 && TRACKERS.size() >= maxLoaders) {
+            if (maxLoaders > 0 && loadingTrackerCount() >= maxLoaders) {
                 warnCapReached(serverLevel, maxLoaders);
+                if (tracker == null) {
+                    return;
+                }
+                // Idle cube that cannot resume yet: keep it tracked, keep it idle.
+                tracker.lastTickCount = gameTime;
+                tracker.lastMoveTick = gameTime;
+                tracker.lastPosition = position;
                 return;
             }
-            tracker = new CubeTracker(uuid, serverLevel);
-            TRACKERS.put(uuid, tracker);
+            if (tracker == null) {
+                tracker = new CubeTracker(uuid, serverLevel, position, gameTime);
+                TRACKERS.put(uuid, tracker);
+            } else {
+                tracker.loading = true;
+            }
         }
 
-        tracker.lastTickCount = serverLevel.getGameTime();
+        tracker.lastTickCount = gameTime;
+        if (moved) {
+            tracker.lastPosition = position;
+            tracker.lastMoveTick = gameTime;
+        }
+
+        // A cube that has not moved for the idle window stops holding its chunk. Nearby players keep the
+        // area loaded as usual, and the tracker stays alive so the cube loads chunks again when it moves.
+        long idleTicks = configuredIdleTicks();
+        if (tracker.loading && idleTicks > 0 && gameTime - tracker.lastMoveTick >= idleTicks) {
+            tracker.releaseAll();
+            tracker.loading = false;
+            LOGGER.debug("[SulfurCubeChunkLoader] {} stopped loading chunks after {} ticks without movement.",
+                    uuid, idleTicks);
+            return;
+        }
+        if (!tracker.loading) {
+            return;
+        }
+
+        ChunkPos lookAheadChunk = lookAheadChunk(cube, position, currentChunk, radius);
         ServerChunkCache chunkCache = serverLevel.getChunkSource();
 
         tracker.hold(chunkCache, currentChunk, radius);
@@ -308,7 +388,7 @@ public final class SulfurCubeChunkLoader {
      * the cube actually is.
      */
     @Nullable
-    private static ChunkPos lookAheadChunk(SulfurCube cube, ChunkPos currentChunk, int radius) {
+    private static ChunkPos lookAheadChunk(SulfurCube cube, Vec3 position, ChunkPos currentChunk, int radius) {
         int lookAheadTicks = configuredLookAheadTicks();
         if (lookAheadTicks <= 0) {
             return null;
@@ -332,7 +412,7 @@ public final class SulfurCubeChunkLoader {
         }
 
         ChunkPos predicted = ChunkPos.containing(
-                BlockPos.containing(cube.getX() + offsetX, cube.getY(), cube.getZ() + offsetZ));
+                BlockPos.containing(position.x + offsetX, position.y, position.z + offsetZ));
         if (predicted.equals(currentChunk) || predicted.getChessboardDistance(currentChunk) <= radius) {
             return null; // already inside the loaded / ticking area
         }

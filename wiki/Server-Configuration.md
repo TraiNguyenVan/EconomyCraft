@@ -65,6 +65,7 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 | `sulfur_cube_chunk_lookahead_ticks` | `25` | How far ahead, in ticks of travel, an upcoming chunk is preloaded. Clamped to 0–100; `0` disables preloading. Only chunks outside the radius above are preloaded, never further than twice the radius. |
 | `sulfur_cube_lookahead_min_speed` | `4.0` | Horizontal speed in blocks per second above which preloading runs. |
 | `sulfur_cube_chunk_max_loaders` | `0` | Most sulfur cubes that may load chunks at once across the server. `0` = unlimited. Cubes past the cap load nothing until a slot frees up. |
+| `sulfur_cube_chunk_idle_seconds` | `120` | How long a loaded cube may stand still before it stops loading its chunk. Nearby players keep the area loaded as usual, and the cube starts loading again as soon as it moves. `0` keeps loading while the cube is alive. |
 | `max_active_contracts_per_player` | `0` | Most live contracts a player can be part of at once. `0` = unlimited. Overridable per player. |
 | `max_active_tolls_per_player` | `10` | Most tolls a player can have placed at once. `0` = unlimited. |
 | `max_contract_reward` | `1000000` | Highest reward a contract may offer. Clamped to 1–99,999,999. |

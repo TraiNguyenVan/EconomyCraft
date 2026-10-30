@@ -75,6 +75,7 @@
   "sulfur_cube_chunk_lookahead_ticks": 25,
   "sulfur_cube_lookahead_min_speed": 4.0,
   "sulfur_cube_chunk_max_loaders": 0,
+  "sulfur_cube_chunk_idle_seconds": 120,
   "factions": {
     "enabled": true,
     "selection_lockout_hours": 30,

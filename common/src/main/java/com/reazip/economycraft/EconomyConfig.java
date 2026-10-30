@@ -195,6 +195,8 @@ public class EconomyConfig {
     public double sulfurCubeLookAheadMinSpeed = com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.DEFAULT_LOOKAHEAD_MIN_SPEED;
     @SerializedName("sulfur_cube_chunk_max_loaders")
     public int sulfurCubeChunkMaxLoaders = 0;
+    @SerializedName("sulfur_cube_chunk_idle_seconds")
+    public int sulfurCubeChunkIdleSeconds = com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS;
 
     /* Temporary aliases for fork code that is migrated to the sectioned accessors incrementally. */
     public transient long startingBalance;
@@ -299,6 +301,9 @@ public class EconomyConfig {
                     parsed.sulfurCubeLookAheadMinSpeed, 0.0,
                     com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.MAX_LOOKAHEAD_MIN_SPEED, "");
             parsed.sulfurCubeChunkMaxLoaders = clampNonNegative("sulfur_cube_chunk_max_loaders", parsed.sulfurCubeChunkMaxLoaders);
+            parsed.sulfurCubeChunkIdleSeconds = clampRange("sulfur_cube_chunk_idle_seconds",
+                    parsed.sulfurCubeChunkIdleSeconds, 0,
+                    com.reazip.economycraft.chunkloading.SulfurCubeChunkLoader.MAX_IDLE_SECONDS);
             parsed.factions = requireSection("factions", parsed.factions, FactionsSection::new);
             parsed.professions = requireSection("professions", parsed.professions, ProfessionsSection::new);
             parsed.quests = requireSection("quests", parsed.quests, QuestsSection::new);

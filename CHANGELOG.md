@@ -12,7 +12,9 @@ stays entity-ticking while the cube moves. Natural cubes with an empty body neve
 shearing, death, a dimension change or a bucket pickup releases the tickets again. Radius, preload
 distance, minimum preload speed and a server-wide cap on how many cubes may load chunks are
 configurable with `sulfur_cube_chunk_*` keys, and `sulfur_cube_chunk_loading` turns the feature off
-entirely. Loader tickets use their own ticket type, so they never collide with nether portal tickets,
+entirely. A cube that stands still for `sulfur_cube_chunk_idle_seconds` (default two minutes) stops
+loading its chunk and starts again as soon as it moves, so parked cubes cannot hold chunks forever.
+Loader tickets use their own ticket type, so they never collide with nether portal tickets,
 are not written to the on-disk ticket store, and are shared correctly when several cubes stand in the
 same chunk.
 

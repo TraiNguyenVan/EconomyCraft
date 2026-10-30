@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -40,6 +41,7 @@ class SulfurCubeChunkLoaderTest {
     private SulfurCube cube;
     private UUID cubeUuid;
     private EconomyConfig config;
+    private final AtomicLong gameTime = new AtomicLong(1000L);
 
     @BeforeAll
     static void bootstrap() {
@@ -55,7 +57,7 @@ class SulfurCubeChunkLoaderTest {
         chunkSource = mock(ServerChunkCache.class);
         when(level.getChunkSource()).thenReturn(chunkSource);
         when(level.isClientSide()).thenReturn(false);
-        when(level.getGameTime()).thenReturn(1000L);
+        when(level.getGameTime()).thenAnswer(invocation -> gameTime.get());
 
         cube = mock(SulfurCube.class);
         cubeUuid = UUID.randomUUID();
@@ -74,6 +76,8 @@ class SulfurCubeChunkLoaderTest {
         config.sulfurCubeChunkLookAheadTicks = SulfurCubeChunkLoader.DEFAULT_LOOKAHEAD_TICKS;
         config.sulfurCubeLookAheadMinSpeed = SulfurCubeChunkLoader.DEFAULT_LOOKAHEAD_MIN_SPEED;
         config.sulfurCubeChunkMaxLoaders = 0;
+        config.sulfurCubeChunkIdleSeconds = SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS;
+        gameTime.set(1000L);
         SulfurCubeChunkLoader.clearAll();
     }
 
@@ -82,10 +86,25 @@ class SulfurCubeChunkLoaderTest {
         SulfurCubeChunkLoader.clearAll();
     }
 
+    /** Places the cube and advances no time, so the loader sees a stationary cube. */
+    private void place(SulfurCube target, double x, double y, double z) {
+        when(target.chunkPosition()).thenReturn(new ChunkPos((int) Math.floor(x) >> 4, (int) Math.floor(z) >> 4));
+        when(target.position()).thenReturn(new Vec3(x, y, z));
+        when(target.getY()).thenReturn(y);
+    }
+
+    private void place(double x, double y, double z) {
+        place(cube, x, y, z);
+    }
+
     private void moveTo(ChunkPos pos, double x, double z) {
         when(cube.chunkPosition()).thenReturn(pos);
-        when(cube.getX()).thenReturn(x);
-        when(cube.getZ()).thenReturn(z);
+        when(cube.position()).thenReturn(new Vec3(x, 64.0, z));
+        when(cube.getY()).thenReturn(64.0);
+    }
+
+    private void advanceTicks(long ticks) {
+        gameTime.addAndGet(ticks);
     }
 
     @Test
@@ -373,5 +392,110 @@ class SulfurCubeChunkLoaderTest {
         // The already-tracked cube keeps loading.
         SulfurCubeChunkLoader.onSulfurCubeTick(cube);
         assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount());
+    }
+
+    @Test
+    @DisplayName("A cube that stands still for the idle window stops loading its chunk")
+    void idleCubeStopsLoading() {
+        place(40.0, 64.0, 40.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).contains(new ChunkPos(2, 2)));
+
+        long idleTicks = (long) SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS * 20L;
+
+        advanceTicks(idleTicks - 1);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertFalse(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).isEmpty(), "still inside the idle window");
+
+        advanceTicks(1);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        verify(chunkSource).removeTicketWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(2, 2)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).isEmpty(), "no ticket is held while idle");
+        assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount(), "the cube stays tracked so it can resume");
+
+        // Remaining idle: never re-acquire, never refresh.
+        advanceTicks(10_000);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        verify(chunkSource, times(1)).addTicketAndLoadWithRadius(any(), any(), anyInt());
+        verify(chunkSource, times(1)).addTicketWithRadius(any(), any(), anyInt());
+        verify(chunkSource, times(1)).removeTicketWithRadius(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("An idle cube starts loading again as soon as it moves")
+    void idleCubeResumesWhenItMoves() {
+        place(40.0, 64.0, 40.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        advanceTicks((long) SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS * 20L);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).isEmpty());
+
+        // Pushed one block: the chunk is loaded again immediately.
+        place(41.0, 64.0, 40.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        verify(chunkSource, times(2)).addTicketAndLoadWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(2, 2)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).contains(new ChunkPos(2, 2)));
+    }
+
+    @Test
+    @DisplayName("A moving cube keeps loading past the idle window")
+    void movingCubeNeverGoesIdle() {
+        place(40.0, 64.0, 40.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        for (int step = 1; step <= 5; step++) {
+            advanceTicks((long) SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS * 20L / 2);
+            place(40.0 + step, 64.0, 40.0);
+            SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+            assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).contains(new ChunkPos(2, 2)),
+                    "movement resets the idle window at step " + step);
+        }
+        verify(chunkSource, never()).removeTicketWithRadius(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("sulfur_cube_chunk_idle_seconds = 0 keeps an idle cube loading")
+    void idleTimeoutCanBeDisabled() {
+        config.sulfurCubeChunkIdleSeconds = 0;
+        place(40.0, 64.0, 40.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        advanceTicks(100_000);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        verify(chunkSource, never()).removeTicketWithRadius(any(), any(), anyInt());
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).contains(new ChunkPos(2, 2)));
+    }
+
+    @Test
+    @DisplayName("An idle cube stops counting against the loader cap")
+    void idleCubeFreesTheLoaderSlot() {
+        config.sulfurCubeChunkMaxLoaders = 1;
+        place(40.0, 64.0, 40.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        advanceTicks((long) SulfurCubeChunkLoader.DEFAULT_IDLE_SECONDS * 20L);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        SulfurCube second = mock(SulfurCube.class);
+        when(second.getUUID()).thenReturn(UUID.randomUUID());
+        when(second.level()).thenReturn(level);
+        when(second.isAlive()).thenReturn(true);
+        when(second.hasBodyItem()).thenReturn(true);
+        when(second.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
+        when(second.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        place(second, 800.0, 64.0, 800.0);
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(second);
+
+        assertEquals(2, SulfurCubeChunkLoader.activeTrackerCount());
+        assertTrue(SulfurCubeChunkLoader.getHeldChunks(second.getUUID()).contains(new ChunkPos(50, 50)),
+                "a cube that stopped loading frees its cap slot");
     }
 }
