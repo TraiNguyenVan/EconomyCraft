@@ -1,5 +1,7 @@
 package com.reazip.economycraft;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.auction.AuctionManager;
 import com.reazip.economycraft.db.EconomyDatabase;
@@ -156,6 +158,36 @@ class StorePersistenceTest {
         assertEquals(1_280L, loaded.escrow, "escrowed money must not be lost on restart");
         assertEquals(Items.EMERALD, loaded.item.getItem());
         assertEquals(16, loaded.item.getCount());
+    }
+
+    @Test
+    void legacyOrderKeepsItsLoadedAmountAsTheProgressBaseline() throws Exception {
+        OrderRequest legacy = request();
+        legacy.id = 1;
+        legacy.amount = 30;
+        JsonObject savedOrder = legacy.save(server.registryAccess());
+        savedOrder.remove("originalAmount");
+        JsonArray requests = new JsonArray();
+        requests.add(savedOrder);
+        JsonObject legacyDocument = new JsonObject();
+        legacyDocument.addProperty("nextId", 2);
+        legacyDocument.add("requests", requests);
+        db.writeDocument("orders.json", legacyDocument.toString());
+
+        restart();
+
+        OrderRequest loaded = orders.getRequest(1);
+        assertNotNull(loaded);
+        assertEquals(30, loaded.originalAmount, "older orders use their saved remaining quantity as the baseline");
+        loaded.amount = 25;
+        orders.markChanged();
+
+        restart();
+
+        OrderRequest reloaded = orders.getRequest(1);
+        assertNotNull(reloaded);
+        assertEquals(25, reloaded.amount);
+        assertEquals(30, reloaded.originalAmount, "subsequent saves must preserve the migrated baseline");
     }
 
     @Test
