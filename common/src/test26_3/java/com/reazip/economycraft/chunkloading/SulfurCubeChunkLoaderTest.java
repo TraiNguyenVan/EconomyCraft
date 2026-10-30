@@ -2,29 +2,34 @@ package com.reazip.economycraft.chunkloading;
 
 import com.reazip.economycraft.EconomyConfig;
 import net.minecraft.SharedConstants;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
 import net.minecraft.server.Bootstrap;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.Ticket;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.monster.cubemob.SulfurCube;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.TicketStorage;
 import net.minecraft.world.phys.Vec3;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -34,6 +39,7 @@ class SulfurCubeChunkLoaderTest {
     private ServerChunkCache chunkSource;
     private SulfurCube cube;
     private UUID cubeUuid;
+    private EconomyConfig config;
 
     @BeforeAll
     static void bootstrap() {
@@ -57,12 +63,29 @@ class SulfurCubeChunkLoaderTest {
         when(cube.level()).thenReturn(level);
         when(cube.isAlive()).thenReturn(true);
         when(cube.isRemoved()).thenReturn(false);
+        when(cube.hasBodyItem()).thenReturn(true);
+        when(cube.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
+        when(cube.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        when(cube.chunkPosition()).thenReturn(new ChunkPos(0, 0));
 
-        // Ensure EconomyConfig is initialized with chunk loading enabled
-        EconomyConfig cfg = new EconomyConfig();
-        cfg.sulfurCubeChunkLoading = true;
-        // Reset any leftover trackers
+        config = EconomyConfig.get();
+        config.sulfurCubeChunkLoading = true;
+        config.sulfurCubeChunkRadius = SulfurCubeChunkLoader.DEFAULT_RADIUS;
+        config.sulfurCubeChunkLookAheadTicks = SulfurCubeChunkLoader.DEFAULT_LOOKAHEAD_TICKS;
+        config.sulfurCubeLookAheadMinSpeed = SulfurCubeChunkLoader.DEFAULT_LOOKAHEAD_MIN_SPEED;
+        config.sulfurCubeChunkMaxLoaders = 0;
         SulfurCubeChunkLoader.clearAll();
+    }
+
+    @AfterEach
+    void tearDown() {
+        SulfurCubeChunkLoader.clearAll();
+    }
+
+    private void moveTo(ChunkPos pos, double x, double z) {
+        when(cube.chunkPosition()).thenReturn(pos);
+        when(cube.getX()).thenReturn(x);
+        when(cube.getZ()).thenReturn(z);
     }
 
     @Test
@@ -81,12 +104,9 @@ class SulfurCubeChunkLoaderTest {
     }
 
     @Test
-    @DisplayName("Sulfur cube with swallowed block loads center chunk with radius 3")
+    @DisplayName("Sulfur cube with swallowed block loads center chunk with the configured radius")
     void sulfurCubeWithBlockLoadsChunks() {
-        when(cube.hasBodyItem()).thenReturn(true);
-        when(cube.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
-        when(cube.chunkPosition()).thenReturn(new ChunkPos(10, 20));
-        when(cube.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        moveTo(new ChunkPos(10, 20), 168.0, 328.0);
 
         assertTrue(SulfurCubeChunkLoader.hasBodyBlock(cube));
 
@@ -96,7 +116,7 @@ class SulfurCubeChunkLoaderTest {
         verify(chunkSource).addTicketAndLoadWithRadius(
                 eq(SulfurCubeChunkLoader.TICKET_TYPE),
                 eq(new ChunkPos(10, 20)),
-                eq(SulfurCubeChunkLoader.CHUNK_RADIUS)
+                eq(SulfurCubeChunkLoader.DEFAULT_RADIUS)
         );
 
         Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
@@ -104,54 +124,59 @@ class SulfurCubeChunkLoaderTest {
     }
 
     @Test
-    @DisplayName("Fast moving sulfur cube (10 blocks/sec = 0.5 blocks/tick) preloads lookahead chunk")
-    void fastMovingCubePreloadsAhead() {
-        when(cube.hasBodyItem()).thenReturn(true);
-        when(cube.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
+    @DisplayName("Tickets are refreshed with the same radius instead of being re-added")
+    void steadyCubeRefreshesInsteadOfReloading() {
+        moveTo(new ChunkPos(2, 2), 40.0, 40.0);
 
-        // Position: x=100, y=64, z=100 -> Chunk (6, 6)
-        when(cube.getX()).thenReturn(100.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        verify(chunkSource, times(1)).addTicketAndLoadWithRadius(any(), any(), anyInt());
+        verify(chunkSource, times(1)).addTicketWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(2, 2)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+    }
+
+    @Test
+    @DisplayName("10 blocks/sec stays inside the ticket radius, so no look-ahead ticket is created")
+    void fastCubeInsideCoverageDoesNotPreload() {
+        // x=100 at 0.5 blocks/tick: 25 tick look-ahead lands 12.5 blocks away, inside the radius-3 coverage.
+        moveTo(new ChunkPos(6, 6), 100.0, 100.0);
         when(cube.getY()).thenReturn(64.0);
-        when(cube.getZ()).thenReturn(100.0);
-        when(cube.chunkPosition()).thenReturn(new ChunkPos(6, 6));
-
-        // Moving at 10 blocks/sec in +X direction: dx = 0.5 blocks/tick
-        // Lookahead 25 ticks: targetX = 100 + 0.5 * 25 = 112.5 -> Block 112 -> Chunk 7 (112 >> 4 = 7)
         when(cube.getDeltaMovement()).thenReturn(new Vec3(0.5, 0.0, 0.0));
 
         SulfurCubeChunkLoader.onSulfurCubeTick(cube);
 
-        // Center chunk (6, 6) loaded
         verify(chunkSource).addTicketAndLoadWithRadius(
-                eq(SulfurCubeChunkLoader.TICKET_TYPE),
-                eq(new ChunkPos(6, 6)),
-                eq(SulfurCubeChunkLoader.CHUNK_RADIUS)
-        );
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(6, 6)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+        assertEquals(Set.of(new ChunkPos(6, 6)), SulfurCubeChunkLoader.getHeldChunks(cubeUuid));
+    }
 
-        // Lookahead chunk (7, 6) preloaded ahead
-        verify(chunkSource).addTicketAndLoadWithRadius(
-                eq(SulfurCubeChunkLoader.TICKET_TYPE),
-                eq(new ChunkPos(7, 6)),
-                eq(SulfurCubeChunkLoader.CHUNK_RADIUS)
-        );
+    @Test
+    @DisplayName("Look-ahead is clamped to twice the radius, not unbounded")
+    void lookAheadIsClamped() {
+        // 5 blocks/tick = 100 blocks/sec. Unclamped, 25 ticks predicts 125 blocks (= 8 chunks) ahead.
+        moveTo(new ChunkPos(0, 0), 8.0, 8.0);
+        when(cube.getY()).thenReturn(64.0);
+        when(cube.getDeltaMovement()).thenReturn(new Vec3(5.0, 0.0, 0.0));
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
 
         Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
-        assertTrue(held.contains(new ChunkPos(6, 6)));
-        assertTrue(held.contains(new ChunkPos(7, 6)));
+        int maxChunk = held.stream().mapToInt(ChunkPos::x).max().orElse(0);
+        assertTrue(maxChunk <= SulfurCubeChunkLoader.DEFAULT_RADIUS * 2,
+                "look-ahead must stay within twice the radius, held=" + held);
+        assertTrue(maxChunk > SulfurCubeChunkLoader.DEFAULT_RADIUS, "a chunk beyond coverage is still preloaded");
+        assertFalse(held.contains(new ChunkPos(8, 0)), "the unclamped prediction must not be ticketed");
     }
 
     @Test
     @DisplayName("Shearing sulfur cube immediately releases all held chunk tickets")
     void shearingReleasesTickets() {
-        when(cube.hasBodyItem()).thenReturn(true);
-        when(cube.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
-        when(cube.chunkPosition()).thenReturn(new ChunkPos(5, 5));
-        when(cube.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        moveTo(new ChunkPos(5, 5), 88.0, 88.0);
 
         SulfurCubeChunkLoader.onSulfurCubeTick(cube);
         assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount());
 
-        // Now sheared: block removed
         when(cube.hasBodyItem()).thenReturn(false);
         when(cube.getItemBySlot(EquipmentSlot.BODY)).thenReturn(ItemStack.EMPTY);
 
@@ -161,40 +186,192 @@ class SulfurCubeChunkLoaderTest {
         verify(chunkSource).removeTicketWithRadius(
                 eq(SulfurCubeChunkLoader.TICKET_TYPE),
                 eq(new ChunkPos(5, 5)),
-                eq(SulfurCubeChunkLoader.CHUNK_RADIUS)
+                eq(SulfurCubeChunkLoader.DEFAULT_RADIUS)
         );
     }
 
     @Test
     @DisplayName("Old chunks left behind when moving are pruned without thrashing")
     void movingFarAwayPrunesOldTickets() {
-        when(cube.hasBodyItem()).thenReturn(true);
-        when(cube.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
-        when(cube.getX()).thenReturn(0.0);
-        when(cube.getY()).thenReturn(64.0);
-        when(cube.getZ()).thenReturn(0.0);
-        when(cube.chunkPosition()).thenReturn(new ChunkPos(0, 0));
-        when(cube.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        moveTo(new ChunkPos(0, 0), 0.0, 0.0);
 
         SulfurCubeChunkLoader.onSulfurCubeTick(cube);
         assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).contains(new ChunkPos(0, 0)));
 
-        // Move to chunk (10, 10), which is > 1 chunk away
-        when(cube.chunkPosition()).thenReturn(new ChunkPos(10, 10));
-        when(cube.getX()).thenReturn(160.0);
-        when(cube.getZ()).thenReturn(160.0);
-
+        moveTo(new ChunkPos(10, 10), 160.0, 160.0);
         SulfurCubeChunkLoader.onSulfurCubeTick(cube);
 
-        // Old chunk (0, 0) should be removed
         verify(chunkSource).removeTicketWithRadius(
                 eq(SulfurCubeChunkLoader.TICKET_TYPE),
                 eq(new ChunkPos(0, 0)),
-                eq(SulfurCubeChunkLoader.CHUNK_RADIUS)
+                eq(SulfurCubeChunkLoader.DEFAULT_RADIUS)
         );
 
-        // New chunk (10, 10) is now held
         assertTrue(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).contains(new ChunkPos(10, 10)));
         assertFalse(SulfurCubeChunkLoader.getHeldChunks(cubeUuid).contains(new ChunkPos(0, 0)));
+    }
+
+    @Test
+    @DisplayName("Loader tickets never collide with vanilla portal tickets")
+    void ticketTypeDoesNotCollideWithVanillaPortal() {
+        assertNotEquals(TicketType.PORTAL, SulfurCubeChunkLoader.TICKET_TYPE);
+        assertFalse(SulfurCubeChunkLoader.TICKET_TYPE.persist(), "loader tickets must not reach the on-disk ticket store");
+        assertTrue(SulfurCubeChunkLoader.TICKET_TYPE.doesLoad());
+        assertTrue(SulfurCubeChunkLoader.TICKET_TYPE.doesSimulate());
+        assertTrue(SulfurCubeChunkLoader.TICKET_TYPE.hasTimeout());
+
+        TicketStorage storage = new TicketStorage();
+        ChunkPos pos = new ChunkPos(3, 4);
+        storage.addTicketWithRadius(TicketType.PORTAL, pos, 3);          // vanilla: entity in a portal
+        storage.addTicketWithRadius(SulfurCubeChunkLoader.TICKET_TYPE, pos, 3); // loader: cube present
+        assertEquals(2, storage.getTickets(pos.pack()).size(), "each owner keeps its own ticket");
+
+        storage.removeTicketWithRadius(SulfurCubeChunkLoader.TICKET_TYPE, pos, 3); // cube leaves
+        List<Ticket> left = storage.getTickets(pos.pack());
+        assertEquals(1, left.size(), "the vanilla portal ticket survives");
+        assertEquals(TicketType.PORTAL, left.getFirst().getType());
+    }
+
+    @Test
+    @DisplayName("Two cubes in one chunk share the ticket until the last one leaves")
+    void twoCubesInOneChunkKeepTheirOwnTickets() {
+        moveTo(new ChunkPos(7, 7), 120.0, 120.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        SulfurCube second = mock(SulfurCube.class);
+        when(second.getUUID()).thenReturn(UUID.randomUUID());
+        when(second.level()).thenReturn(level);
+        when(second.isAlive()).thenReturn(true);
+        when(second.hasBodyItem()).thenReturn(true);
+        when(second.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
+        when(second.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        when(second.chunkPosition()).thenReturn(new ChunkPos(7, 7));
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(second);
+        assertEquals(2, SulfurCubeChunkLoader.activeTrackerCount());
+
+        // Cube A is sheared: cube B still needs the chunk, so the ticket stays.
+        when(cube.hasBodyItem()).thenReturn(false);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        verify(chunkSource, never()).removeTicketWithRadius(any(), any(), anyInt());
+        assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount());
+
+        // Cube B leaves/has no block either: now the last reference drops.
+        when(second.hasBodyItem()).thenReturn(false);
+        SulfurCubeChunkLoader.onSulfurCubeTick(second);
+        verify(chunkSource).removeTicketWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(7, 7)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+        assertEquals(0, SulfurCubeChunkLoader.activeTrackerCount());
+    }
+
+    @Test
+    @DisplayName("Dimension change releases tickets in the old level and tracks the new one")
+    void dimensionChangeStartsFreshTracker() {
+        ServerLevel nether = mock(ServerLevel.class);
+        ServerChunkCache netherSource = mock(ServerChunkCache.class);
+        when(nether.getChunkSource()).thenReturn(netherSource);
+        when(nether.isClientSide()).thenReturn(false);
+        when(nether.getGameTime()).thenReturn(1000L);
+
+        moveTo(new ChunkPos(0, 0), 8.0, 8.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        verify(chunkSource).addTicketAndLoadWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(0, 0)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+
+        when(cube.level()).thenReturn(nether);
+        moveTo(new ChunkPos(50, 50), 808.0, 808.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        // The overworld ticket is released in the overworld, not in the nether.
+        verify(chunkSource).removeTicketWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(0, 0)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+        verify(netherSource, never()).removeTicketWithRadius(any(), any(), anyInt());
+        verify(netherSource).addTicketAndLoadWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(50, 50)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+
+        // Shutdown cleanup must release the live nether ticket.
+        SulfurCubeChunkLoader.clearAll();
+        verify(netherSource).removeTicketWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(50, 50)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+    }
+
+    @Test
+    @DisplayName("A client-side tick never touches server-side trackers")
+    void clientSideTickKeepsServerTracker() {
+        moveTo(new ChunkPos(1, 1), 24.0, 24.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount());
+
+        config.sulfurCubeChunkLoading = false;
+
+        ServerLevel clientLevel = mock(ServerLevel.class);
+        when(clientLevel.isClientSide()).thenReturn(true);
+        SulfurCube clientCube = mock(SulfurCube.class);
+        when(clientCube.getUUID()).thenReturn(cubeUuid);
+        when(clientCube.level()).thenReturn(clientLevel);
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(clientCube);
+
+        assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount());
+        verify(chunkSource, never()).removeTicketWithRadius(any(), any(), anyInt());
+    }
+
+    @Test
+    @DisplayName("Disabling the feature on the server releases every ticket")
+    void toggleOffReleasesTickets() {
+        moveTo(new ChunkPos(4, 4), 72.0, 72.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        config.sulfurCubeChunkLoading = false;
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        assertEquals(0, SulfurCubeChunkLoader.activeTrackerCount());
+        verify(chunkSource).removeTicketWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(4, 4)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+    }
+
+    @Test
+    @DisplayName("Server sweep releases the tracker of a cube that is gone")
+    void sweepReleasesRemovedCube() {
+        moveTo(new ChunkPos(9, 9), 152.0, 152.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount());
+
+        when(level.getEntity(cubeUuid)).thenReturn(null);
+
+        MinecraftServer server = mock(MinecraftServer.class);
+        for (int i = 0; i < 40; i++) {
+            SulfurCubeChunkLoader.onServerTick(server);
+        }
+
+        assertEquals(0, SulfurCubeChunkLoader.activeTrackerCount());
+        verify(chunkSource).removeTicketWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(9, 9)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+    }
+
+    @Test
+    @DisplayName("Max loader cap stops new trackers but keeps existing ones")
+    void maxLoaderCapStopsNewTrackers() {
+        config.sulfurCubeChunkMaxLoaders = 1;
+        moveTo(new ChunkPos(0, 0), 8.0, 8.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount());
+
+        SulfurCube second = mock(SulfurCube.class);
+        when(second.getUUID()).thenReturn(UUID.randomUUID());
+        when(second.level()).thenReturn(level);
+        when(second.isAlive()).thenReturn(true);
+        when(second.hasBodyItem()).thenReturn(true);
+        when(second.getItemBySlot(EquipmentSlot.BODY)).thenReturn(new ItemStack(Items.DIRT));
+        when(second.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        when(second.chunkPosition()).thenReturn(new ChunkPos(40, 40));
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(second);
+
+        assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount(), "the cap is enforced");
+
+        // The already-tracked cube keeps loading.
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+        assertEquals(1, SulfurCubeChunkLoader.activeTrackerCount());
     }
 }
