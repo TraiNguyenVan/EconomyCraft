@@ -36,9 +36,9 @@ import java.util.regex.Pattern;
 public final class ReleaseNotesService {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new Gson();
+    private static final String REPOSITORY_URL = "https://github.com/TraiNguyenVan/EconomyCraft";
     private static final URI LATEST_RELEASE_URI = URI.create(
             "https://api.github.com/repos/TraiNguyenVan/EconomyCraft/releases/latest");
-    private static final String RELEASE_PATH_PREFIX = "/TraiNguyenVan/EconomyCraft/releases/tag/";
     private static final Path CACHE_RELATIVE_PATH = Path.of("release-motd-cache.json");
     private static final int MAX_RESPONSE_CHARS = 512_000;
     private static final int MAX_TITLE_CHARS = 100;
@@ -76,16 +76,20 @@ public final class ReleaseNotesService {
         ReleaseInfo release = currentRelease;
         if (release == null) return List.of();
 
+        return createMessages(release.version, release.pullRequestTitles, maxChanges);
+    }
+
+    static List<Component> createMessages(String version, List<String> pullRequestTitles, int maxChanges) {
         List<Component> messages = new ArrayList<>();
-        messages.add(Component.literal("EconomyCraft v" + release.version)
+        messages.add(Component.literal("EconomyCraft v" + version)
                 .withStyle(style -> style.withColor(ChatFormatting.GOLD)
                         .withBold(true)
                         .withUnderlined(true)
-                        .withClickEvent(ChatCompat.openUrlEvent(release.releaseUrl))));
-        int count = Math.min(Math.clamp(maxChanges, 0, MAX_CACHED_TITLES), release.pullRequestTitles.size());
-        int firstTitle = release.pullRequestTitles.size() - count;
-        for (int i = firstTitle; i < release.pullRequestTitles.size(); i++) {
-            messages.add(Component.literal("• " + release.pullRequestTitles.get(i)).withStyle(ChatFormatting.GRAY));
+                        .withClickEvent(ChatCompat.openUrlEvent(REPOSITORY_URL))));
+        int count = Math.min(Math.clamp(maxChanges, 0, MAX_CACHED_TITLES), pullRequestTitles.size());
+        int firstTitle = pullRequestTitles.size() - count;
+        for (int i = firstTitle; i < pullRequestTitles.size(); i++) {
+            messages.add(Component.literal("• " + pullRequestTitles.get(i)).withStyle(ChatFormatting.GRAY));
         }
         return List.copyOf(messages);
     }
@@ -142,13 +146,11 @@ public final class ReleaseNotesService {
             if (json.has("prerelease") && json.get("prerelease").getAsBoolean()) return null;
 
             String tagName = stringField(json, "tag_name");
-            String releaseUrl = safeReleaseUrl(stringField(json, "html_url"));
-            if (tagName == null || !tagName.matches("v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?")
-                    || releaseUrl == null) return null;
+            if (tagName == null || !tagName.matches("v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?")) return null;
 
             String body = stringField(json, "body");
             return new ReleaseInfo(tagName.startsWith("v") ? tagName.substring(1) : tagName,
-                    releaseUrl, extractPullRequestTitles(body));
+                    extractPullRequestTitles(body));
         } catch (RuntimeException e) {
             return null;
         }
@@ -158,21 +160,6 @@ public final class ReleaseNotesService {
         if (!object.has(field) || object.get(field).isJsonNull()) return null;
         String value = object.get(field).getAsString().strip();
         return value.isEmpty() ? null : value;
-    }
-
-    private static String safeReleaseUrl(String candidate) {
-        if (candidate == null) return null;
-        try {
-            URI uri = URI.create(candidate);
-            if (!"https".equalsIgnoreCase(uri.getScheme())
-                    || !"github.com".equalsIgnoreCase(uri.getHost())
-                    || uri.getQuery() != null || uri.getFragment() != null
-                    || uri.getUserInfo() != null || uri.getPath() == null
-                    || !uri.getPath().startsWith(RELEASE_PATH_PREFIX)) return null;
-            return uri.toASCIIString();
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 
     private static List<String> extractPullRequestTitles(String body) {
@@ -210,8 +197,7 @@ public final class ReleaseNotesService {
         if (!Files.isRegularFile(path)) return null;
         try {
             ReleaseInfo cached = GSON.fromJson(Files.readString(path, StandardCharsets.UTF_8), ReleaseInfo.class);
-            if (cached == null || cached.version == null || !cached.version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?")
-                    || safeReleaseUrl(cached.releaseUrl) == null) return null;
+            if (cached == null || cached.version == null || !cached.version.matches("[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?")) return null;
             List<String> titles = cached.pullRequestTitles == null ? List.of()
                     : cached.pullRequestTitles.stream().filter(title -> title != null && !title.isBlank())
                     .map(title -> title.length() > MAX_TITLE_CHARS
@@ -220,7 +206,7 @@ public final class ReleaseNotesService {
             if (titles.size() > MAX_CACHED_TITLES) {
                 titles = List.copyOf(titles.subList(titles.size() - MAX_CACHED_TITLES, titles.size()));
             }
-            return new ReleaseInfo(cached.version, cached.releaseUrl, titles);
+            return new ReleaseInfo(cached.version, titles);
         } catch (Exception e) {
             LOGGER.warn("[EconomyCraft] Could not read the saved release notes cache: {}", e.getMessage());
             return null;
@@ -249,15 +235,13 @@ public final class ReleaseNotesService {
 
     private static final class ReleaseInfo {
         private String version;
-        private String releaseUrl;
         private List<String> pullRequestTitles;
 
         @SuppressWarnings("unused")
         private ReleaseInfo() {}
 
-        private ReleaseInfo(String version, String releaseUrl, List<String> pullRequestTitles) {
+        private ReleaseInfo(String version, List<String> pullRequestTitles) {
             this.version = version;
-            this.releaseUrl = releaseUrl;
             this.pullRequestTitles = pullRequestTitles;
         }
     }

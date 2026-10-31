@@ -340,7 +340,7 @@ merged. If both legacy `lines` and `blocks` are present, `blocks` is used and `l
 | `motd.blocks` | See default below. | Ordered message blocks. Each block has formatted `lines` and a delay before the next block. |
 | `motd.release_notes.enabled` | `true` | Append the latest release summary to the login MOTD. |
 | `motd.release_notes.after_block` | `-1` | Insert release notes before block 1 (`0`), after block N (`N`), or after the last block (`-1`). Invalid positions fall back to the last block. |
-| `motd.release_notes.max_changes` | `3` | Maximum number of newest merged PR titles to show. Clamped to 0-20; `0` keeps the version and link but hides titles. |
+| `motd.release_notes.max_changes` | `3` | Maximum number of newest merged PR titles to show. Clamped to 0-20; `0` keeps the linked version title but hides the titles. |
 
 `motd.delay_ticks` applies before the first item in the sequence. A block's `next_delay_seconds` applies before the
 next configured block or an inserted release summary. If release notes follow the final block, that final delay is
