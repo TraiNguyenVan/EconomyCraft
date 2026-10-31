@@ -123,9 +123,10 @@ public final class ShopUi {
                 new ItemMenu(id, inv, eco, category, displayTitle, null, page, player, sort));
     }
 
-    private static void openDirectCategoryItems(ServerPlayer player, EconomyManager eco, String category, String title) {
+    private static void openDirectCategoryItems(ServerPlayer player, EconomyManager eco, String category, String title,
+                                                int page, SortMode sort) {
         MenuUiSupport.openMenu(player, title, (id, inv) ->
-                new ItemMenu(id, inv, eco, category, title, null, 0, player, SortMode.DEFAULT, true));
+                new ItemMenu(id, inv, eco, category, title, null, page, player, sort, true));
     }
 
     private static boolean stockShopEnabled(EconomyManager eco) {
@@ -381,7 +382,7 @@ public final class ShopUi {
                     String category = directItems ? topCategory : topCategory + "." + sub;
                     String title = directItems
                             ? ShopDisplay.getCategoryName(prices, topCategory, topCategory) + " items" : sub;
-                    if (directItems) openDirectCategoryItems(viewer, eco, category, title);
+                    if (directItems) openDirectCategoryItems(viewer, eco, category, title, 0, SortMode.DEFAULT);
                     else openItems(viewer, eco, category, title);
                     return true;
                 }
@@ -565,7 +566,7 @@ public final class ShopUi {
                             if (searchQuery != null) {
                                 openSearchResults(viewer, eco, category, searchQuery, page, sort, backToSubcategories);
                             } else if (backToSubcategories) {
-                                openDirectCategoryItems(viewer, eco, category, displayTitle);
+                                openDirectCategoryItems(viewer, eco, category, displayTitle, page, sort);
                             } else {
                                 openItems(viewer, eco, category, displayTitle, page, sort);
                             }
