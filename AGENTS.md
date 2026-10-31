@@ -17,7 +17,7 @@ vanilla client: no client mod, custom packets, or registered `MenuType`. UI uses
 
 ## Rules for changes
 
-- **Pull requests:** read and follow `.github/pull_request_template.md` when creating a PR, including with `gh pr create`.
+- **Contributions:** follow the [contribution workflow](docs/contributing/workflow.md) for commit and pull request rules.
 
 - **API thread safety:** every public `api/v1` path must call `requireServerThread()`. The implementation is
   `common/.../api/v1/EconomyCraftApiBootstrap.java`, not an `EconomyCraftApiImpl`.

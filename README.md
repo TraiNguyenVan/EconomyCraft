@@ -98,7 +98,8 @@ jars come from CI artifacts or GitHub Releases. GitHub Releases use automaticall
 generated notes from merged pull requests; clear, user-facing PR titles become the
 release summary.
 
-For contributor rules, read the [architecture guide](docs/contributing/architecture.md),
+For contributor rules, read the [contribution workflow](docs/contributing/workflow.md),
+[architecture guide](docs/contributing/architecture.md),
 [documentation guidance](docs/contributing/documentation.md), and
 [toll contributor notes](docs/contributing/tolls.md).
 
