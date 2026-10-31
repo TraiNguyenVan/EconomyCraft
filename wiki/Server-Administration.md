@@ -69,10 +69,10 @@ in-progress login sequence.
 
 ### Server Quests
 
-The server-funded bounty board, behind the same node as Settings. It switches the board and the buyback market
-on and off, toggles the shop-only pool, sets the order fraction, the listing fraction and the period budget,
-sets the period length, and — behind the Reset Tools node — forces a re-draw. Every other `quests` key is
-file-only. All of them are in [configuration reference](Server-Configuration.md).
+The server-funded bounty board, behind the same node as Settings. It switches the board and finite stock shop
+on and off, toggles the shop-only pool, sets the fallback order fraction and period budget, and sets the period
+length. The Reset Tools node can force a re-draw. Market lookback and minimum sale count are file-only. All
+quest settings are in the [configuration reference](Server-Configuration.md).
 
 Force Re-draw cancels every open quest order and posts a fresh board immediately. Reserved money returns to the
 server bot, and the current period's mint cap stays spent.

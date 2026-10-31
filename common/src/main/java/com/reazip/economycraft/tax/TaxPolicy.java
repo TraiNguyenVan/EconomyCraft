@@ -168,6 +168,39 @@ public final class TaxPolicy {
         return resolve(scope, base, player, counterparty, eco).amount();
     }
 
+    /**
+     * A conservative tax reserve for an escrow that may be settled in up to {@code claims} partial
+     * payouts. It assumes the largest configured order tax and Monarchy import surcharge can occur
+     * on every payout, while allowing each payout's tax rounding to add a small amount.
+     */
+    public static long maximumTaxReserve(TaxScope scope, long base, int claims) {
+        double importFactor = 0.0;
+        var config = EconomyConfig.get();
+        if (FactionTaxRules.isImportScope(scope) && config.factions != null && config.factions.enabled
+                && config.factions.monarchy != null && config.factions.monarchy.importTaxChance > 0.0) {
+            importFactor = config.factions.monarchy.importTaxFactor;
+        }
+        return maximumTaxReserve(base, claims, config.taxRate, importFactor);
+    }
+
+    /** Pure reserve arithmetic; the rounding allowance covers each separately settled partial claim. */
+    public static long maximumTaxReserve(long base, int claims, double rate, double importFactor) {
+        if (base <= 0 || rate <= 0.0) return 0L;
+        double safeRate = Math.clamp(rate, 0.0, 1.0);
+        double safeImportFactor = Math.clamp(importFactor, 0.0, 1.0);
+        int safeClaims = Math.max(1, claims);
+        double rounding = safeImportFactor > 0.0
+                ? safeClaims * (1.0 + safeImportFactor / 2.0)
+                : safeClaims * 0.5;
+        double baseTaxRaw = base * safeRate;
+        double maximumRawTax = baseTaxRaw * (1.0 + safeImportFactor);
+        double floatingSlack = safeClaims * (Math.ulp(baseTaxRaw)
+                + (safeImportFactor > 0.0 ? Math.ulp(maximumRawTax) : 0.0));
+        double reserve = maximumRawTax + rounding + floatingSlack;
+        if (!Double.isFinite(reserve) || reserve >= Long.MAX_VALUE) return Long.MAX_VALUE;
+        return (long) Math.ceil(reserve);
+    }
+
     /** What the recipient receives after tax — order fulfilment. */
     public static long net(TaxScope scope, long base) {
         return resolve(scope, base).net();

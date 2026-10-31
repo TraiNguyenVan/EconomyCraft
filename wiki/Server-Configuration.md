@@ -48,7 +48,7 @@ Keys marked **file-only** are not editable from `/eco admin` → Settings; chang
 | `orders.expiration_hours` | `168` | Hours before an unfulfilled order expires and its escrow is refunded. `0` disables expiration. |
 | `orders.max_active_per_player` | `0` | Most open orders a player can have at once. `0` = unlimited. |
 | `transaction_log.enabled` | `true` | Record every balance change to a daily log file. |
-| `transaction_log.retention_days` | `7` | How many days of transaction logs to keep. Above `90` logs a console warning on start. |
+| `transaction_log.retention_days` | `90` | How many days of transaction logs to keep. When the quest board and logging are enabled, this is raised to at least the market lookback window. |
 | `auction_listing_broadcast` | `true` | Send notices when a listing is posted or its price drops. |
 | `auction_listing_notify_active_days` | `30` | Send listing notices to offline players seen within this many days. `0` limits notices to online players. |
 | `contract_default_duration_hours` | `168` | Default work time offered for a new contract (7 days). |
@@ -266,14 +266,15 @@ The list-valued profession settings use these shipped values:
 
 ### `quests`
 
-The server-funded quest board selects shop items at regular intervals and posts requests from the Server Quests account. Completing a request pays the listed reward, including any configured order tax. The weekly budget caps the total amount the board can pay; unused budget does not become player money.
+The server-funded quest board selects catalog items at regular intervals and posts requests from the Server Quests account. Its price is based on completed player-to-player auction sales: each sale is normalized by quantity, and the board uses the median over the lookback window. Until the minimum number of sales is reached, the median is linearly blended with the existing shop-based fallback. With enough sales, the median is used directly and overrides the quest-unit price bounds. If transaction logging is disabled, prices use the fallback. Bounty rewards are the fulfiller's take-home amount; the board reserves and pays applicable order tax separately. The weekly budget includes that tax reserve.
+
+Completed bounty items enter finite stock in `/shop` when the stock shop is enabled. The entry shows the exact stock and uses the current market-derived price. A purchase larger than available stock sells only the available quantity and charges only for what it delivers. Existing bot-owned auction listings are returned to stock on the next board sweep.
 
 | Key | Default | Description |
 |---|---|---|
 | `quests.blacklist` | `[]` | Price keys never drawable, even inside the unit window. |
 | `quests.bot_name` | `"Server Quests"` | Display name the reserved bot account resolves to in order lists and lore. |
-| `quests.buyback.enabled` | `true` | Resell accumulated quest stock through ordinary `/ah` listings owned by the bot. |
-| `quests.buyback.price_factor` | `0.8` | Fraction of the effective buy unit the buyback charges. Below `1` sells stock back discounted. |
+| `quests.buyback.enabled` | `true` | Show accumulated quest stock as finite purchase offers in `/shop`. Items with no quest stock have no shop entry. |
 | `quests.category_weights.blocks.stones` | `10` | Relative selection weight for stone block categories in the periodic quest draw. |
 | `quests.category_weights.food` | `25` | Relative selection weight for food categories in the periodic quest draw. |
 | `quests.category_weights.ores` | `30` | Relative selection weight for ore categories in the periodic quest draw. |
@@ -281,16 +282,18 @@ The server-funded quest board selects shop items at regular intervals and posts 
 | `quests.category_weights.utility` | `15` | Relative selection weight for utility categories in the periodic quest draw. |
 | `quests.enabled` | `true` | Master switch for the server-funded quest board. |
 | `quests.max_per_category` | `2` | Maximum number of items from one category in a periodic quest draw. |
-| `quests.max_unsold_expiries` | `1` | Unsold buyback expiries allowed before an item is removed from the buyback market. |
+| `quests.max_unsold_expiries` | `1` | Legacy handling for bot-owned auction listings while old listings are being migrated to shop stock. |
 | `quests.max_concurrent` | `10` | Safety ceiling on simultaneously open quest orders. |
-| `quests.max_quest_unit` | `100` | Highest quest-unit price an entry may be drawn at. Kills quests that would pay a fortune for one item. |
-| `quests.min_quest_unit` | `3` | Lowest quest-unit price an entry may be drawn at. Kills zero-value junk. |
+| `quests.max_quest_unit` | `100` | Highest fallback quest-unit price an entry may be drawn at. Market-derived prices override this bound. |
+| `quests.min_quest_unit` | `3` | Lowest fallback quest-unit price an entry may be drawn at. Market-derived prices override this bound. |
+| `quests.market_lookback_days` | `90` | Number of days of completed player-to-player auction sales used for the market median. |
+| `quests.market_minimum_sales` | `5` | Sales needed to use the market median directly; fewer sales are blended with the fallback. |
 | `quests.period_days` | `7` | Days in one quest period, counted from the last rollover rather than a calendar boundary. |
-| `quests.price_factor` | `0.5` | Fraction of the effective buy unit a quest pays per item. |
-| `quests.require_shop_price` | `true` | Only entries with a buy price are drawn. Sell-only catalog entries never reach the board or `/ah`. |
+| `quests.price_factor` | `0.5` | Fallback fraction of the effective buy unit a quest pays per item. Used when blending with sparse market history or when logging is disabled. |
+| `quests.require_shop_price` | `true` | Only entries with a buy price are drawn. Sell-only catalog entries never reach the board. |
 | `quests.reprice_threshold_percent` | `0.1` | Minimum relative price change that triggers a quest order update. |
-| `quests.sell_fallback_multiplier` | `3.3` | Multiplier on `unit_sell` for entries with no buy price. |
-| `quests.weekly_budget` | `12000` | Maximum amount the Server Quests account can spend per quest period. `0` posts no quests. |
+| `quests.sell_fallback_multiplier` | `3.3` | Multiplier on `unit_sell` for fallback prices when an entry has no buy price. |
+| `quests.weekly_budget` | `12000` | Maximum amount the Server Quests account can mint per quest period, including reserved order tax. `0` posts no quests. |
 | `quests.weekly_count` | `10` | How many distinct items the periodic draw picks. |
 
 ### `gemini_gossip`

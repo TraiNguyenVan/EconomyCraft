@@ -202,7 +202,7 @@ public class EconomyManager {
 
         this.logsDir = EconomyPaths.logsDir(server);
         TransactionLogWriter.cleanup(logsDir, EconomyConfig.get().transactionLog.retentionDays);
-        TransactionLogger transactionLogger = new TransactionLogger(logsDir, this::getBestName);
+        TransactionLogger transactionLogger = new TransactionLogger(logsDir, this::getBestName, this::onLoggedTransaction);
 
         this.balanceMutations = new BalanceMutationEngine(
                 balances,
@@ -260,6 +260,7 @@ public class EconomyManager {
         });
 
         balanceEvents.registerInternal(transactionLogger::onBalanceChanged);
+        quests.loadMarketHistory(this);
         balanceEvents.register(this::recordStats);
 
         scheduleProfileLookups(balances.keySet());
@@ -551,8 +552,14 @@ public class EconomyManager {
 
     public PaymentResult transferMoney(UUID from, UUID to, long debitAmount, long creditAmount,
                                        MutationSource source, @Nullable String detail, @Nullable String item) {
+        return transferMoney(from, to, debitAmount, creditAmount, source, detail, item, 0);
+    }
+
+    public PaymentResult transferMoney(UUID from, UUID to, long debitAmount, long creditAmount,
+                                       MutationSource source, @Nullable String detail, @Nullable String item,
+                                       int quantity) {
         requireServerThread();
-        return balanceMutations.transfer(from, to, debitAmount, creditAmount, source, detail, item);
+        return balanceMutations.transfer(from, to, debitAmount, creditAmount, source, detail, item, quantity);
     }
 
     PaymentResult transferMoneyMany(UUID from, Map<UUID, Long> credits, long debitAmount,
@@ -890,7 +897,11 @@ public class EconomyManager {
         return quests;
     }
 
-    /** Where filled quest goods accumulate until the buyback market spends them down. */
+    private void onLoggedTransaction(com.reazip.economycraft.util.TransactionEntry entry) {
+        quests.observeTransaction(entry, this);
+    }
+
+    /** Finite stock received from completed quest bounties and sold through the shop. */
     public QuestStock getQuestStock() {
         return questStock;
     }

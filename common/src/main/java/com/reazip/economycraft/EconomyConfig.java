@@ -117,7 +117,7 @@ public class EconomyConfig {
     public static class TransactionLog {
         public boolean enabled = true;
         @SerializedName("retention_days")
-        public int retentionDays = 7;
+        public int retentionDays = 90;
     }
 
     /*
@@ -312,6 +312,12 @@ public class EconomyConfig {
             parsed.factions.clamp();
             parsed.professions.clamp();
             parsed.quests.clamp();
+            if (parsed.transactionLog.enabled && parsed.quests.enabled
+                    && parsed.transactionLog.retentionDays < parsed.quests.marketLookbackDays) {
+                LOGGER.warn("[EconomyCraft] transaction_log.retention_days ({}) is below the quest market lookback ({}); raising it so price history can be retained.",
+                        parsed.transactionLog.retentionDays, parsed.quests.marketLookbackDays);
+                parsed.transactionLog.retentionDays = parsed.quests.marketLookbackDays;
+            }
             parsed.geminiGossip = parsed.geminiGossip.clamped();
             parsed.motd.clamp();
             INSTANCE = parsed;

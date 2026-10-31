@@ -20,7 +20,8 @@ public record TransactionEntry(
         long balanceAfter,
         @Nullable String source,
         @Nullable String detail,
-        @Nullable String item
+        @Nullable String item,
+        int quantity
 ) {
     /** Backward-compatible constructor for integrations written before item metadata was added. */
     public TransactionEntry(Instant time, BalanceMutationType type, UUID player, @Nullable String playerName,
@@ -28,7 +29,7 @@ public record TransactionEntry(
                             long balanceBefore, long balanceAfter, @Nullable String source,
                             @Nullable String detail) {
         this(time, type, player, playerName, counterparty, counterpartyName, amount,
-                balanceBefore, balanceAfter, source, detail, null);
+                balanceBefore, balanceAfter, source, detail, null, 0);
     }
 
     public static @Nullable TransactionEntry fromJson(JsonObject obj) {
@@ -45,7 +46,8 @@ public record TransactionEntry(
                     obj.get("balance_after").getAsLong(),
                     optionalString(obj, "source"),
                     optionalString(obj, "detail"),
-                    optionalString(obj, "item")
+                    optionalString(obj, "item"),
+                    obj.has("quantity") ? obj.get("quantity").getAsInt() : 0
             );
         } catch (RuntimeException e) {
             return null;

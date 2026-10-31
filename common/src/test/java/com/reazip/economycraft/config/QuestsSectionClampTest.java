@@ -31,7 +31,8 @@ class QuestsSectionClampTest {
         quests.maxUnsoldExpiries = 0;
         quests.maxPerCategory = 0;
         quests.categoryWeights = null;
-        quests.buyback.priceFactor = -1.0;
+        quests.marketLookbackDays = 0;
+        quests.marketMinimumSales = 0;
 
         quests.clamp();
 
@@ -49,7 +50,8 @@ class QuestsSectionClampTest {
         assertEquals(1, quests.maxPerCategory);
         assertEquals(QuestsSection.defaultCategoryWeights(), quests.categoryWeights);
         assertEquals("Server Quests", quests.botName);
-        assertEquals(0.0, quests.buyback.priceFactor);
+        assertEquals(1, quests.marketLookbackDays);
+        assertEquals(1, quests.marketMinimumSales);
     }
 
     @Test
@@ -63,11 +65,12 @@ class QuestsSectionClampTest {
         assertEquals(0.5, quests.priceFactor);
         assertEquals(10, quests.weeklyCount);
         assertEquals(10, quests.maxConcurrent);
+        assertEquals(90, quests.marketLookbackDays);
+        assertEquals(5, quests.marketMinimumSales);
         assertEquals(0.10, quests.repriceThresholdPercent);
         assertEquals(1, quests.maxUnsoldExpiries);
         assertEquals(2, quests.maxPerCategory);
         assertEquals(QuestsSection.defaultCategoryWeights(), quests.categoryWeights);
         assertTrue(quests.buyback.enabled);
-        assertEquals(0.8, quests.buyback.priceFactor);
     }
 }

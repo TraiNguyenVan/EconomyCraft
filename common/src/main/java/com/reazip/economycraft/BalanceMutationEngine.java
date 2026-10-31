@@ -102,10 +102,11 @@ final class BalanceMutationEngine {
     }
 
     PaymentResult pay(UUID senderId, UUID receiverId, long amount, MutationSource source, String detail) {
-        return transfer(senderId, receiverId, amount, amount, source, detail, null);
+        return transfer(senderId, receiverId, amount, amount, source, detail, null, 0);
     }
 
-    PaymentResult transfer(UUID senderId, UUID receiverId, long debitAmount, long creditAmount, MutationSource source, String detail, String item) {
+    PaymentResult transfer(UUID senderId, UUID receiverId, long debitAmount, long creditAmount,
+                           MutationSource source, String detail, String item, int quantity) {
         Objects.requireNonNull(senderId, "senderId");
         Objects.requireNonNull(receiverId, "receiverId");
         BalanceState sender = state(senderId);
@@ -145,10 +146,10 @@ final class BalanceMutationEngine {
         PaymentResult result = new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, receiverId, debitAmount,
                 sender.balance(), senderNew, receiver.balance(), receiverNew, optionalSource);
         events.emit(new BalanceChangeEvent(senderId, sender.balance(), senderNew,
-                BalanceMutationType.PAYMENT_SENT, Optional.of(receiverId), optionalSource, optionalDetail), item);
+                BalanceMutationType.PAYMENT_SENT, Optional.of(receiverId), optionalSource, optionalDetail), item, quantity);
         if (creditAmount > 0) {
             events.emit(new BalanceChangeEvent(receiverId, receiver.balance(), receiverNew,
-                    BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), item);
+                    BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), item, quantity);
         }
         onTransfer.accept(result, debitAmount);
         return result;

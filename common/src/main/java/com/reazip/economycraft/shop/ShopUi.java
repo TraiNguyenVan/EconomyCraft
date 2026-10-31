@@ -8,6 +8,9 @@ import com.reazip.economycraft.HubUi;
 import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.SellService;
 import com.reazip.economycraft.admin.AdminShopUi;
+import com.reazip.economycraft.quests.BuybackTransfers;
+import com.reazip.economycraft.quests.QuestManager;
+import com.reazip.economycraft.quests.QuestLogic;
 import com.reazip.economycraft.util.ChatCompat;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
@@ -66,7 +69,7 @@ public final class ShopUi {
             return;
         }
 
-        List<String> subs = prices.buySubcategories(cat);
+        List<String> subs = stockedSubcategories(eco, cat);
         if (!subs.isEmpty()) {
             openSubcategories(player, eco, cat);
             return;
@@ -111,6 +114,32 @@ public final class ShopUi {
                 new ItemMenu(id, inv, eco, category, displayTitle, null, page, player, sort));
     }
 
+    private static boolean stockShopEnabled(EconomyManager eco) {
+        var quests = EconomyConfig.get().quests;
+        return EconomyConfig.get().shop.enabled && quests != null && quests.enabled
+                && quests.buyback != null && quests.buyback.enabled;
+    }
+
+    private static boolean hasStockInCategory(EconomyManager eco, String category) {
+        if (!stockShopEnabled(eco)) return false;
+        String prefix = category == null ? "" : category.toLowerCase(java.util.Locale.ROOT);
+        return eco.getPrices().allEntries().stream().anyMatch(entry -> {
+            String entryCategory = entry.category() == null ? "" : entry.category().toLowerCase(java.util.Locale.ROOT);
+            return (prefix.isBlank() || entryCategory.equals(prefix) || entryCategory.startsWith(prefix + "."))
+                    && eco.getPrices().isCategoryEnabled(entry.category())
+                    && eco.getQuestStock().get(entry.key()) > 0;
+        });
+    }
+
+    private static List<String> stockedSubcategories(EconomyManager eco, String topCategory) {
+        return eco.getPrices().allSubcategories(topCategory).stream()
+                .filter(sub -> hasStockInCategory(eco, topCategory + "." + sub)).toList();
+    }
+
+    private static long stockUnitPrice(EconomyManager eco, PriceRegistry.PriceEntry entry) {
+        return eco.getQuests().marketUnit(eco, entry, System.currentTimeMillis());
+    }
+
     private static class CategoryMenu extends CompatMenu {
         private final EconomyManager eco;
         private final PriceRegistry prices;
@@ -136,8 +165,8 @@ public final class ShopUi {
 
         private void refreshCategories() {
             categories = new ArrayList<>();
-            for (String cat : prices.buyTopCategories()) {
-                if (ShopDisplay.hasItems(prices, cat, true)) categories.add(cat);
+            for (String cat : prices.allTopCategories()) {
+                if (hasStockInCategory(eco, cat)) categories.add(cat);
             }
         }
 
@@ -161,7 +190,7 @@ public final class ShopUi {
                 if (idx >= categories.size()) break;
 
                 String cat = categories.get(idx);
-                ItemStack icon = ShopDisplay.createCategoryIcon(cat, cat, prices, viewer, true);
+                ItemStack icon = ShopDisplay.createCategoryIcon(cat, cat, prices, viewer, false);
                 if (icon.isEmpty()) continue;
 
                 icon.set(DataComponents.CUSTOM_NAME, Component.literal(ShopDisplay.getCategoryName(prices, cat, cat))
@@ -203,7 +232,7 @@ public final class ShopUi {
                 if (index >= 0 && index < categories.size()) {
                     EconomySounds.click(viewer);
                     String cat = categories.get(index);
-                    if (prices.buySubcategories(cat).isEmpty()) {
+                    if (stockedSubcategories(eco, cat).isEmpty()) {
                         openItems(viewer, eco, cat);
                     } else {
                         openSubcategories(viewer, eco, cat);
@@ -245,7 +274,7 @@ public final class ShopUi {
         private int page;
 
         SubcategoryMenu(int id, Inventory inv, EconomyManager eco, String topCategory, ServerPlayer viewer) {
-            super(MenuUiSupport.getMenuType(MenuUiSupport.requiredRows(eco.getPrices().buySubcategories(topCategory).size())), id);
+            super(MenuUiSupport.getMenuType(MenuUiSupport.requiredRows(stockedSubcategories(eco, topCategory).size())), id);
             this.eco = eco;
             this.viewer = viewer;
             this.topCategory = topCategory;
@@ -260,12 +289,7 @@ public final class ShopUi {
         }
 
         private void refresh() {
-            subcategories = new ArrayList<>();
-            for (String sub : prices.buySubcategories(topCategory)) {
-                if (ShopDisplay.hasItems(prices, topCategory + "." + sub, true)) {
-                    subcategories.add(sub);
-                }
-            }
+            subcategories = stockedSubcategories(eco, topCategory);
         }
 
         private void setupSlots(Inventory inv) {
@@ -288,7 +312,7 @@ public final class ShopUi {
 
                 String sub = subcategories.get(idx);
                 String full = topCategory + "." + sub;
-                ItemStack icon = ShopDisplay.createCategoryIcon(sub, full, prices, viewer, true);
+                ItemStack icon = ShopDisplay.createCategoryIcon(sub, full, prices, viewer, false);
                 if (icon.isEmpty()) continue;
 
                 icon.set(DataComponents.CUSTOM_NAME, Component.literal(ShopDisplay.getCategoryName(prices, full, sub))
@@ -373,13 +397,17 @@ public final class ShopUi {
 
         private static List<PriceRegistry.PriceEntry> resolveEntries(EconomyManager eco, @Nullable String category,
                                                                     @Nullable String searchQuery) {
-            return searchQuery != null ? eco.getPrices().search(searchQuery, category) : eco.getPrices().buyableByCategory(category);
+            List<PriceRegistry.PriceEntry> candidates = searchQuery != null
+                    ? eco.getPrices().searchAll(searchQuery, category)
+                    : category == null ? eco.getPrices().allEntries() : eco.getPrices().allByCategory(category);
+            return candidates.stream().filter(entry -> eco.getPrices().isCategoryEnabled(entry.category()))
+                    .filter(entry -> eco.getQuestStock().get(entry.key()) > 0).toList();
         }
 
         private static List<PriceRegistry.PriceEntry> applySort(EconomyManager eco, List<PriceRegistry.PriceEntry> list, SortMode sort) {
             if (sort == SortMode.DEFAULT) return list;
             List<PriceRegistry.PriceEntry> copy = new ArrayList<>(list);
-            Comparator<PriceRegistry.PriceEntry> cmp = Comparator.comparingLong(eco::getEffectiveBuyPrice);
+            Comparator<PriceRegistry.PriceEntry> cmp = Comparator.comparingLong(entry -> stockUnitPrice(eco, entry));
             copy.sort(sort == SortMode.PRICE_DESC ? cmp.reversed() : cmp);
             return copy;
         }
@@ -394,9 +422,11 @@ public final class ShopUi {
         }
 
         private void updatePage() {
+            refreshEntries();
+            int totalPages = MenuUiSupport.totalPages(entries.size(), itemsPerPage);
+            page = Math.clamp(page, 0, totalPages - 1);
             container.clearContent();
             int start = page * itemsPerPage;
-            int totalPages = MenuUiSupport.totalPages(entries.size(), itemsPerPage);
 
             for (int i = 0; i < itemsPerPage; i++) {
                 int idx = start + i;
@@ -407,12 +437,15 @@ public final class ShopUi {
                 if (display.isEmpty()) continue;
 
                 int stackSize = Math.max(1, entry.stack());
-                long unitBuy = eco.getEffectiveBuyPrice(entry);
+                long unitBuy = stockUnitPrice(eco, entry);
+                long stock = eco.getQuestStock().get(entry.key());
+                int stackAmount = (int) Math.min(stackSize, Math.min(Integer.MAX_VALUE, stock));
                 boolean canSell = entry.unitSell() > 0 && EconomyConfig.get().selling.enabled;
                 boolean hasContents = MenuUiSupport.hasContainerContents(display);
 
                 List<Component> lore = new ArrayList<>();
                 Component buyLore = MenuUiSupport.labeledValue("Buy", EconomyCraft.formatMoney(unitBuy), MenuUiSupport.LABEL_PRIMARY_COLOR);
+                lore.add(MenuUiSupport.labeledValue("Stock", Long.toString(stock), MenuUiSupport.LABEL_PRIMARY_COLOR));
                 if (canSell) {
                     Component sellLore = MenuUiSupport.labeledValue("Sell", EconomyCraft.formatMoney(entry.unitSell()), MenuUiSupport.LABEL_PRIMARY_COLOR);
                     lore.add(MenuUiSupport.joinLore(buyLore, sellLore));
@@ -421,10 +454,10 @@ public final class ShopUi {
                 }
 
                 if (stackSize > 1) {
-                    Long buyStack = ShopDisplay.safeMultiply(unitBuy, stackSize);
+                    Long buyStack = ShopDisplay.safeMultiply(unitBuy, stackAmount);
                     Long sellStack = ShopDisplay.safeMultiply(entry.unitSell(), stackSize);
                     if (buyStack != null) {
-                        String label = "Stack (" + stackSize + ")";
+                        String label = "In stock (" + stackAmount + ")";
                         if (canSell && sellStack != null) {
                             lore.add(MenuUiSupport.labeledValues(label, MenuUiSupport.LABEL_PRIMARY_COLOR,
                                     EconomyCraft.formatMoney(buyStack), EconomyCraft.formatMoney(sellStack)));
@@ -544,19 +577,19 @@ public final class ShopUi {
         }
 
         private void handlePurchase(PriceRegistry.PriceEntry entry, int amount) {
-            if (!EconomyConfig.get().shop.enabled) {
+            if (!stockShopEnabled(eco)) {
                 EconomySounds.failure(viewer);
-                viewer.sendSystemMessage(Component.literal("Shop is disabled.").withStyle(ChatFormatting.RED));
+                viewer.sendSystemMessage(Component.literal("Quest stock shop is disabled.").withStyle(ChatFormatting.RED));
                 return;
             }
-            if (entry.unitBuy() <= 0 || !prices.isCategoryEnabled(entry.category())) {
+            if (!prices.isCategoryEnabled(entry.category())) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal("This item cannot be purchased.")
                         .withStyle(ChatFormatting.RED));
                 return;
             }
 
-            ItemStack base = ShopDisplay.createDisplayStack(entry, viewer);
+            ItemStack base = prices.createPrototype(entry);
             if (base.isEmpty()) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal("Item unavailable.")
@@ -564,8 +597,27 @@ public final class ShopUi {
                 return;
             }
 
-            long unitPrice = eco.getEffectiveBuyPrice(entry);
-            Long total = ShopDisplay.safeMultiply(unitPrice, amount);
+            long available = eco.getQuestStock().get(entry.key());
+            if (available <= 0) {
+                EconomySounds.failure(viewer);
+                viewer.sendSystemMessage(Component.literal("This item is out of stock.").withStyle(ChatFormatting.RED));
+                refreshEntries();
+                updatePage();
+                return;
+            }
+            int purchaseAmount = QuestLogic.stockPurchaseAmount(amount, available);
+            if (purchaseAmount <= 0) {
+                EconomySounds.failure(viewer);
+                viewer.sendSystemMessage(Component.literal("This item is out of stock.").withStyle(ChatFormatting.RED));
+                return;
+            }
+            long unitPrice = stockUnitPrice(eco, entry);
+            if (unitPrice <= 0) {
+                EconomySounds.failure(viewer);
+                viewer.sendSystemMessage(Component.literal("This item has no valid market price.").withStyle(ChatFormatting.RED));
+                return;
+            }
+            Long total = ShopDisplay.safeMultiply(unitPrice, purchaseAmount);
             if (total == null) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal("Price too large.")
@@ -581,27 +633,49 @@ public final class ShopUi {
                 return;
             }
 
-            String detail = EconomyCraft.describeItem(amount, base.getHoverName().getString());
-            if (!eco.removeMoney(viewer.getUUID(), total, EconomySources.SHOP_PURCHASE, detail, TransactionItems.keyOf(base)).successful()) {
+            String detail = EconomyCraft.describeItem(purchaseAmount, base.getHoverName().getString());
+            boolean[] purchased = {false};
+            BuybackTransfers.run(eco, () -> {
+                long taken = eco.getQuestStock().withdraw(entry.key(), purchaseAmount, false);
+                if (taken != purchaseAmount) {
+                    if (taken > 0) eco.getQuestStock().deposit(entry.key(), taken, false);
+                    return;
+                }
+                var result = eco.transferMoney(viewer.getUUID(), QuestManager.BOT_UUID, total, total,
+                        EconomySources.QUEST_BUYBACK, detail, TransactionItems.keyOf(base), purchaseAmount);
+                if (!result.successful()) {
+                    eco.getQuestStock().deposit(entry.key(), taken, false);
+                    return;
+                }
+                eco.getQuestStock().save();
+                eco.getQuests().onBuybackPurchased(entry.key());
+                purchased[0] = true;
+            });
+            if (!purchased[0]) {
                 EconomySounds.failure(viewer);
-                viewer.sendSystemMessage(Component.literal("Not enough balance.")
+                viewer.sendSystemMessage(Component.literal("Purchase failed. Check your balance and try again.")
                         .withStyle(ChatFormatting.RED));
                 return;
             }
 
-            boolean stored = giveToPlayer(base, amount);
+            boolean stored = giveToPlayer(base, purchaseAmount);
 
             EconomySounds.success(viewer);
-            viewer.sendSystemMessage(Component.literal(
-                            "Purchased " + amount + "x " + base.getHoverName().getString() +
-                                    " for " + EconomyCraft.formatMoneyChat(total))
+            String message = purchaseAmount < amount ? "Only " + purchaseAmount + " were in stock; purchased " : "Purchased ";
+            viewer.sendSystemMessage(Component.literal(message + purchaseAmount + "x " + base.getHoverName().getString()
+                            + " for " + EconomyCraft.formatMoneyChat(total))
                     .withStyle(ChatFormatting.GREEN));
 
             if (stored) {
                 sendStoredMessage(viewer);
             }
 
+            refreshEntries();
             updatePage();
+        }
+
+        private void refreshEntries() {
+            entries = applySort(eco, resolveEntries(eco, category, searchQuery), sort);
         }
 
         private void handleSell(PriceRegistry.PriceEntry entry, int amount) {

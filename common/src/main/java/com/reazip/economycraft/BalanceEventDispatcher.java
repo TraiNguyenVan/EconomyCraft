@@ -19,7 +19,8 @@ final class BalanceEventDispatcher implements BalanceEvents {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Map<MinecraftServer, BalanceEventDispatcher> BY_SERVER = new IdentityHashMap<>();
     private final CopyOnWriteArrayList<BalanceChangeListener> listeners = new CopyOnWriteArrayList<>();
-    private final CopyOnWriteArrayList<BiConsumer<BalanceChangeEvent, String>> internalListeners = new CopyOnWriteArrayList<>();
+    record ItemContext(String key, int quantity) {}
+    private final CopyOnWriteArrayList<BiConsumer<BalanceChangeEvent, ItemContext>> internalListeners = new CopyOnWriteArrayList<>();
 
     static synchronized BalanceEventDispatcher forServer(MinecraftServer server) {
         return BY_SERVER.computeIfAbsent(server, ignored -> new BalanceEventDispatcher());
@@ -33,7 +34,7 @@ final class BalanceEventDispatcher implements BalanceEvents {
         }
     }
 
-    void registerInternal(BiConsumer<BalanceChangeEvent, String> listener) {
+    void registerInternal(BiConsumer<BalanceChangeEvent, ItemContext> listener) {
         internalListeners.add(Objects.requireNonNull(listener, "listener"));
     }
 
@@ -54,9 +55,14 @@ final class BalanceEventDispatcher implements BalanceEvents {
     }
 
     void emit(BalanceChangeEvent event, String item) {
-        for (BiConsumer<BalanceChangeEvent, String> listener : internalListeners) {
+        emit(event, item, 0);
+    }
+
+    void emit(BalanceChangeEvent event, String item, int quantity) {
+        ItemContext context = item == null && quantity <= 0 ? null : new ItemContext(item, quantity);
+        for (BiConsumer<BalanceChangeEvent, ItemContext> listener : internalListeners) {
             try {
-                listener.accept(event, item);
+                listener.accept(event, context);
             } catch (Throwable error) {
                 LOGGER.error("[EconomyCraft] Internal balance change listener failed", error);
             }

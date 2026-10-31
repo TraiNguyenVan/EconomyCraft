@@ -137,6 +137,19 @@ class TaxPolicyTest {
         }
     }
 
+    @Test
+    void maximumTaxReserveCoversRoundedTaxAndPossibleImportSurcharge() {
+        long reserve = TaxPolicy.maximumTaxReserve(1_000L, 10, 0.10, 0.50);
+        long worstSplitTax = 0L;
+        for (int i = 0; i < 10; i++) {
+            long tax = Math.round(100L * 0.10);
+            worstSplitTax += tax + Math.round(tax * 0.50);
+        }
+
+        assertTrue(reserve >= worstSplitTax);
+        assertEquals(0L, TaxPolicy.maximumTaxReserve(100L, 10, 0.0, 1.0));
+    }
+
     // --- P1-T6: parity proof for the three documented smoke-test flows ---
 
     @Test

@@ -12,9 +12,10 @@ import java.util.Map;
  * The {@code quests} section: the automatic server bounty board.
  *
  * <p>Once a period of {@code period_days} days the server draws {@code weekly_count} distinct priced items and posts them all at once
- * as buy orders from a reserved bot account, each priced at {@code price_factor} of its effective buy
- * unit. Fills pay through the ordinary order path (including the order tax), and the bought items are
- * diverted into a stock ledger instead of a deliveries mailbox. The week is one-shot: a filled or
+ * as buy orders from a reserved bot account, priced from recent player auction sales when available
+ * and blended with the {@code price_factor} fallback while history is sparse. The displayed reward is
+ * the fulfiller's take-home amount; reserved funds cover any order tax. The bought items are diverted
+ * into a stock ledger instead of a deliveries mailbox. The week is one-shot: a filled or
  * expired quest never reposts, and whatever budget is left unspent simply never mints.
  *
  * <p>Money enters only through a capped weekly mint ({@code weekly_budget}): the bot tops its balance up
@@ -58,6 +59,12 @@ public class QuestsSection {
     @SerializedName("price_factor")
     public double priceFactor = 0.5;
 
+    @SerializedName("market_lookback_days")
+    public int marketLookbackDays = 90;
+
+    @SerializedName("market_minimum_sales")
+    public int marketMinimumSales = 5;
+
     /** How many distinct items the weekly draw picks. */
     @SerializedName("weekly_count")
     public int weeklyCount = 10;
@@ -92,9 +99,8 @@ public class QuestsSection {
     public List<String> blacklist = List.of();
 
     /**
-     * When true, only entries with a buy price (actually on the shop) can be drawn for quests or
-     * listed by the buyback. Sell-only catalog entries never touch the board or {@code /ah}.
-     * Buyback stock already banked for a buy-less item is voided on the next sweep.
+     * When true, only entries with a buy price can be drawn for quests. Sell-only catalog entries
+     * never reach the board. Stock already banked for a buy-less item remains available in the shop.
      */
     @SerializedName("require_shop_price")
     public boolean requireShopPrice = true;
@@ -131,6 +137,8 @@ public class QuestsSection {
     public void clamp() {
         weeklyBudget = ConfigClamp.nonNegative("quests.weekly_budget", weeklyBudget);
         priceFactor = ConfigClamp.percentage("quests.price_factor", priceFactor);
+        marketLookbackDays = clampMarketLookbackDays(marketLookbackDays);
+        marketMinimumSales = clampAtLeastOne("quests.market_minimum_sales", marketMinimumSales);
         periodDays = clampPeriodDays(periodDays);
         weeklyCount = clampAtLeastOne("quests.weekly_count", weeklyCount);
         maxConcurrent = clampAtLeastOne("quests.max_concurrent", maxConcurrent);
@@ -157,7 +165,6 @@ public class QuestsSection {
         } else {
             botName = botName.trim();
         }
-        buyback.clamp();
     }
 
     private static Map<String, Integer> clampCategoryWeights(Map<String, Integer> raw) {
@@ -198,26 +205,22 @@ public class QuestsSection {
         return value;
     }
 
-    /**
-     * The Phase 2 buyback market: resells accumulated quest stock to players through ordinary
-     * {@code /ah} listings owned by the bot account, one listing per stocked item.
-     *
-     * <p>Unlisted stock lists on the next quest sweep and new fills merge into the open listing
-     * with the whole stack repriced at the current unit; open listings reprice weekly at the
-     * rollover; an expired listing's items return to the ledger and relist on the next sweep.
-     * Purchases are tax-free both ways — the buyer pays the sticker price and the whole of it
-     * refills the bot wallet outside the mint cap (leftover bot balance still burns at rollover).
-     */
+    private static int clampMarketLookbackDays(int value) {
+        if (value < 1) {
+            LOGGER.warn("[EconomyCraft] quests.market_lookback_days ({}) is below 1; clamping to 1.", value);
+            return 1;
+        }
+        if (value > 365) {
+            LOGGER.warn("[EconomyCraft] quests.market_lookback_days ({}) is above 365; clamping.", value);
+            return 365;
+        }
+        return value;
+    }
+
+    /** Controls finite shop offers for accumulated quest stock. */
     public static class BuybackSettings {
         @SerializedName("enabled")
         public boolean enabled = true;
 
-        /** Fraction of the effective buy unit the buyback charges. {@code 0.8} sells stock back discounted. */
-        @SerializedName("price_factor")
-        public double priceFactor = 0.8;
-
-        public void clamp() {
-            priceFactor = ConfigClamp.percentage("quests.buyback.price_factor", priceFactor);
-        }
     }
 }

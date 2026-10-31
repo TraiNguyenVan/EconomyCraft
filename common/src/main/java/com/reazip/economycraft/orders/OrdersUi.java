@@ -103,6 +103,22 @@ public final class OrdersUi {
         }
     }
 
+    private static void addBountyRewardLore(List<Component> lore, OrderRequest request, long reward, int amount) {
+        if (request == null || !QuestManager.BOT_UUID.equals(request.requester) || !request.serverCoversOrderTax) {
+            addRewardLore(lore, reward, TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, reward), amount);
+            return;
+        }
+        lore.add(MenuUiSupport.labeledValue("Reward", EconomyCraft.formatMoney(reward), MenuUiSupport.LABEL_PRIMARY_COLOR));
+        lore.add(MenuUiSupport.hint("The board covers tax; you receive the full reward."));
+        if (amount > 1) {
+            long rewardPerItem = OrderManager.rewardPerItem(reward, amount);
+            if (rewardPerItem > 0) {
+                lore.add(MenuUiSupport.labeledValue("Reward per item", EconomyCraft.formatMoney(rewardPerItem),
+                        MenuUiSupport.LABEL_PRIMARY_COLOR));
+            }
+        }
+    }
+
     /** Marks a bot-posted order as a server bounty: funded by the weekly mint, one-shot, never reposted. */
     private static void addBountyLore(List<Component> lore, OrderRequest request) {
         if (request != null && QuestManager.BOT_UUID.equals(request.requester)) {
@@ -328,9 +344,8 @@ public final class OrdersUi {
                 boolean mine = viewer.getUUID().equals(r.requester);
                 String reqName = MenuUiSupport.resolvePlayerName(server, r.requester);
 
-                long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, r.price);
                 List<Component> lore = new ArrayList<>();
-                addRewardLore(lore, r.price, tax, r.amount);
+                addBountyRewardLore(lore, r, r.price, r.amount);
                 addBountyLore(lore, r);
                 addNoteLore(lore, r);
                 lore.add(MenuUiSupport.labeledValue("Amount", amountProgress(r),
@@ -530,10 +545,9 @@ public final class OrdersUi {
             ItemStack item = req.item.copy();
             var server = parent.viewer().level().getServer();
             String requesterName = MenuUiSupport.resolvePlayerName(server, req.requester);
-            long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, req.price);
             item.setCount(1);
             List<Component> itemLore = new ArrayList<>();
-            addRewardLore(itemLore, req.price, tax, req.amount);
+            addBountyRewardLore(itemLore, req, req.price, req.amount);
             addBountyLore(itemLore, req);
             addNoteLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", amountProgress(req), MenuUiSupport.LABEL_PRIMARY_COLOR));

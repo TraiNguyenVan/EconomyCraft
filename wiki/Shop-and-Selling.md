@@ -1,15 +1,17 @@
 # Shop and selling
 
-The shop lets you buy and sell items at prices set by the server. Open it with `/shop` or `/eco shop`, or choose **Shop** from `/eco`.
+The shop lets you buy available quest stock and sell items at server-set prices. Open it with `/shop` or `/eco shop`, or choose **Shop** from `/eco`.
 
 ## Buying and selling in the shop
 
 - Browse categories, use `/shop search <query>` to find an item, or open a category with `/shop <category>`.
 - Left-click an item to buy and right-click to sell. Shift-click uses the item's configured bulk amount.
-- An item may be buy-only, sell-only, or unavailable in one direction. The shop shows the available action and price.
+- A buy offer appears only while the server has quest stock for that item. Its entry shows the exact remaining quantity and the current price per item.
+- Shift-click buys up to the configured bulk amount. If less stock remains, the shop sells that amount and charges only for what it delivers.
+- Quest-stock prices follow recent completed player-to-player auction sales. If there is not enough sales history, the price blends with the shop-based fallback.
 - Shop purchases use the displayed price. No transaction tax is added to a fixed-price shop purchase.
 
-The server can disable the shop or selling separately. Dynamic pricing, when enabled, changes buy prices based on the economy; it does not change sell prices. Server administrators control these settings.
+The server can disable the shop, selling, or quest-stock offers separately. Dynamic pricing changes the shop-based fallback; it does not change prices derived from player auction sales. Server administrators control these settings.
 
 ## Selling from your inventory
 

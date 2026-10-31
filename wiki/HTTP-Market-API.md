@@ -141,9 +141,10 @@ range the mod's own item picker walks; armour and offhand have no offline counte
 command that accepted them would escrow a chestplate over HTTP and mean something else entirely to an
 offline player.
 
-**`system` is a tag, not a filter.** The quest board's rows are in `auctions` and `orders` with
-`"system": true` rather than being removed, so a consumer that cannot filter still sees the whole
-board instead of a silently truncated market. Filter on the flag to hide them.
+**`system` is a tag, not a filter.** Server-owned rows carry `"system": true`, so a consumer that
+cannot filter still sees the whole market instead of a silently truncated one. Current quest-board
+requests appear in `orders`; legacy bot-owned buyback listings are moved into finite `/shop` stock on
+the next board sweep. Filter on the flag to hide server-owned rows.
 
 **`taxRate` is the configured base rate**, so an effective auction cost is `price * (1 + taxRate)`
 without the consumer hard-coding a number that an admin can retune. It does **not** include a
@@ -262,9 +263,9 @@ as it is in the game, and the seller receives the whole ask. A Monarchy import s
 per-player Merchant discount means the client cannot compute `total` in advance from `taxRate` alone
 — show the ask on a confirmation step and the reply's `total` on the receipt.
 
-The sale is the mod's own auction purchase, the one the in-game menu runs, so the buyback rules, the
-seller's sale notification and the delivery fallback behave identically over HTTP. Quest-board
-listings (those with `system: true`) are buyable and are tax-free by design, as they are in the game.
+The sale is the mod's own auction purchase, the one the in-game menu runs, so the seller's sale
+notification and delivery fallback behave identically over HTTP. A legacy quest-board listing may
+still be buyable before migration; those old server listings are tax-free, as they are in the game.
 
 #### `cancelListing`
 

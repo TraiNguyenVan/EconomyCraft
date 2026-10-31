@@ -13,19 +13,23 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Consumer;
 
 final class TransactionLogger {
     private static final Gson GSON = new Gson();
 
     private final Path logsDir;
     private final Function<UUID, String> nameResolver;
+    private final Consumer<com.reazip.economycraft.util.TransactionEntry> observer;
 
-    TransactionLogger(Path logsDir, Function<UUID, String> nameResolver) {
+    TransactionLogger(Path logsDir, Function<UUID, String> nameResolver,
+                      Consumer<com.reazip.economycraft.util.TransactionEntry> observer) {
         this.logsDir = logsDir;
         this.nameResolver = nameResolver;
+        this.observer = observer;
     }
 
-    void onBalanceChanged(BalanceChangeEvent event, String item) {
+    void onBalanceChanged(BalanceChangeEvent event, BalanceEventDispatcher.ItemContext itemContext) {
         EconomyConfig config = EconomyConfig.get();
         WebhookConfig webhook = WebhookConfig.get();
         boolean isTransfer = event.type() == BalanceMutationType.PAYMENT_SENT
@@ -39,9 +43,17 @@ final class TransactionLogger {
         String counterpartyName = event.counterpartyId().map(this::displayName).orElse(null);
         String source = event.source().map(MutationSource::asString).orElse(null);
 
+        String item = itemContext != null ? itemContext.key() : null;
+        int quantity = itemContext != null ? itemContext.quantity() : 0;
         if (logging) {
+            Instant time = Instant.now();
             TransactionLogWriter.append(logsDir, config.transactionLog.retentionDays,
-                    toJsonLine(event, playerName, counterpartyName, source, item));
+                    toJsonLine(event, playerName, counterpartyName, source, item, quantity, time));
+            if (event.type() == BalanceMutationType.PAYMENT_RECEIVED && item != null && quantity > 0) {
+                observer.accept(new com.reazip.economycraft.util.TransactionEntry(time, event.type(), event.playerId(),
+                        playerName, event.counterpartyId().orElse(null), counterpartyName, event.difference(),
+                        event.previousBalance(), event.newBalance(), source, event.detail().orElse(null), item, quantity));
+            }
         }
         if (notifying) {
             WebhookNotifier.send(webhook.webhookUrl, toMessage(event, playerName, counterpartyName, source));
@@ -66,9 +78,10 @@ final class TransactionLogger {
         return name == null || name.isBlank() ? null : name;
     }
 
-    private static String toJsonLine(BalanceChangeEvent event, String playerName, String counterpartyName, String source, String item) {
+    private static String toJsonLine(BalanceChangeEvent event, String playerName, String counterpartyName,
+                                     String source, String item, int quantity, Instant time) {
         JsonObject obj = new JsonObject();
-        obj.addProperty("time", Instant.now().toString());
+        obj.addProperty("time", time.toString());
         obj.addProperty("type", event.type().name());
         obj.addProperty("player", event.playerId().toString());
         if (playerName != null) obj.addProperty("player_name", playerName);
@@ -80,6 +93,7 @@ final class TransactionLogger {
         if (source != null) obj.addProperty("source", source);
         event.detail().ifPresent(detail -> obj.addProperty("detail", detail));
         if (item != null) obj.addProperty("item", item);
+        if (quantity > 0) obj.addProperty("quantity", quantity);
         return GSON.toJson(obj);
     }
 
