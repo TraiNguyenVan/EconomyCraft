@@ -53,6 +53,9 @@ public final class ShopUi {
 
     public static void open(ServerPlayer player, EconomyManager eco, @Nullable String category) {
         if (!MenuUiSupport.checkOrDeny(player, EconomyPermissions.checkCommand(player, Nodes.COMMAND_SHOP))) return;
+        // The persisted ledger is authoritative. Re-read it before building the category or item
+        // list so a stale in-memory copy cannot make fulfilled quest stock disappear from /shop.
+        eco.getQuestStock().reload();
         if (category == null || category.isBlank()) {
             openRoot(player, eco);
             return;
@@ -85,6 +88,7 @@ public final class ShopUi {
 
     private static void openSearchResults(ServerPlayer player, EconomyManager eco, @Nullable String category,
                                           String query, int page, SortMode sort) {
+        eco.getQuestStock().reload();
         MenuUiSupport.openMenu(player, "Search: " + query, (id, inv) ->
                 new ItemMenu(id, inv, eco, category, null, query, page, player, sort));
     }
@@ -184,6 +188,16 @@ public final class ShopUi {
             java.util.Arrays.fill(slotToIndex, -1);
             int start = page * itemsPerPage;
             int totalPages = MenuUiSupport.totalPages(categories.size(), itemsPerPage);
+
+            if (categories.isEmpty()) {
+                boolean enabled = stockShopEnabled(eco);
+                container.setItem(22, MenuUiSupport.button(Items.BARRIER,
+                        enabled ? "No quest stock available" : "Quest stock shop is disabled",
+                        ChatFormatting.GRAY,
+                        MenuUiSupport.hint(enabled
+                                ? "Items from completed server quests appear here."
+                                : "An administrator can enable the quest stock shop.")));
+            }
 
             for (int i = 0; i < itemsPerPage; i++) {
                 int idx = start + i;
