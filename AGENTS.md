@@ -17,6 +17,8 @@ vanilla client: no client mod, custom packets, or registered `MenuType`. UI uses
 
 ## Rules for changes
 
+- **Pull requests:** read and follow `.github/pull_request_template.md` when creating a PR, including with `gh pr create`.
+
 - **API thread safety:** every public `api/v1` path must call `requireServerThread()`. The implementation is
   `common/.../api/v1/EconomyCraftApiBootstrap.java`, not an `EconomyCraftApiImpl`.
 - **Balance mutations:** route all player-facing balance changes through the asymmetric
