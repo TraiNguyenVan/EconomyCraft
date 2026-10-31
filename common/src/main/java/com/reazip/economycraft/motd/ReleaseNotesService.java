@@ -85,7 +85,7 @@ public final class ReleaseNotesService {
                 .withStyle(style -> style.withColor(ChatFormatting.GOLD)
                         .withBold(true)
                         .withUnderlined(true)
-                        .withClickEvent(ChatCompat.openUrlEvent(REPOSITORY_URL)));
+                        .withClickEvent(ChatCompat.openUrlEvent(REPOSITORY_URL))));
         int count = Math.min(Math.clamp(maxChanges, 0, MAX_CACHED_TITLES), pullRequestTitles.size());
         int firstTitle = pullRequestTitles.size() - count;
         for (int i = firstTitle; i < pullRequestTitles.size(); i++) {
