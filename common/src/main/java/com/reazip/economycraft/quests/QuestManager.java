@@ -683,10 +683,10 @@ public class QuestManager {
         String prefix = "[Quests] Quest board refreshed: " + activeQuestCount + " active "
                 + (activeQuestCount == 1 ? "bounty. " : "bounties. ");
         String button = "[Open Quest Board]";
-        ClickEvent clickEvent = ChatCompat.runCommandEvent("/quest");
+        ClickEvent clickEvent = ChatCompat.runCommandEvent("/eco quest");
         for (ServerPlayer online : eco.getServer().getPlayerList().getPlayers()) {
             if (clickEvent == null) {
-                ChatCompat.sendRunCommandTellraw(online, prefix, button, "/quest");
+                ChatCompat.sendRunCommandTellraw(online, prefix, button, "/eco quest");
             } else {
                 Component message = Component.literal(prefix).withStyle(ChatFormatting.GOLD)
                         .append(Component.literal(button).withStyle(style -> style.withUnderlined(true)
