@@ -17,8 +17,10 @@ import com.reazip.economycraft.util.TransactionEntry;
 import com.reazip.economycraft.util.TransactionLogReader;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxScope;
+import com.reazip.economycraft.util.ChatCompat;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -154,8 +156,6 @@ public class QuestManager {
         drawnKeys.addAll(drawResult.primary());
         backfillKeys.addAll(drawResult.backfill());
 
-        LOGGER.info("[EconomyCraft] Quest period started ({} day(s)): drew {} primary item(s), {} backfill candidate(s).",
-                quests.periodDays, drawnKeys.size(), backfillKeys.size());
         save();
     }
 
@@ -257,7 +257,7 @@ public class QuestManager {
             return false;
         }
         post(eco, proto, key, remainder, price, escrow, unit,
-                weekStartMs + QuestLogic.periodMillis(quests.periodDays), false);
+                weekStartMs + QuestLogic.periodMillis(quests.periodDays));
         return true;
     }
 
@@ -293,12 +293,10 @@ public class QuestManager {
         backfillKeys.addAll(drawResult.backfill());
 
         postedThisWeek = false;
-        postDrawn(eco);
+        int postedCount = postDrawn(eco);
         postedThisWeek = true;
         save();
-
-        LOGGER.info("[EconomyCraft] Admin forced a quest re-draw: {} quest(s) posted.", questOrderIds.size());
-        return questOrderIds.size();
+        return postedCount;
     }
 
     /** Milliseconds until the current period rolls over; {@code 0} if there is no live period yet. */
@@ -519,12 +517,13 @@ public class QuestManager {
         return candidatesWithMarket(eco).stream().map(QuestLogic.ScoredCandidate::key).toList();
     }
 
-    private void postDrawn(EconomyManager eco) {
+    private int postDrawn(EconomyManager eco) {
         var quests = EconomyConfig.get().quests;
         long weekEnd = weekStartMs + QuestLogic.periodMillis(quests.periodDays);
         int targetCount = quests.weeklyCount;
         List<String> pool = new ArrayList<>(drawnKeys);
         int backfillIndex = 0;
+        int postedCount = 0;
 
         for (int slot = 0; slot < pool.size(); slot++) {
             if (openQuestCount(eco) >= quests.maxConcurrent) break;
@@ -587,8 +586,13 @@ public class QuestManager {
                 }
                 continue;
             }
-            post(eco, proto, key, amount, price, escrow, unit, weekEnd, true);
+            if (post(eco, proto, key, amount, price, escrow, unit, weekEnd)) postedCount++;
         }
+
+        int activeQuestCount = openQuestCount(eco);
+        LOGGER.info("[EconomyCraft] Quest board refreshed: {} active quest(s).", activeQuestCount);
+        if (activeQuestCount > 0) broadcast(eco, activeQuestCount);
+        return postedCount;
     }
 
     private int openQuestCount(EconomyManager eco) {
@@ -630,8 +634,8 @@ public class QuestManager {
         return funded != null && funded >= escrow;
     }
 
-    private void post(EconomyManager eco, ItemStack proto, String key, int amount, long price, long escrow, long unit,
-                      long weekEnd, boolean announce) {
+    private boolean post(EconomyManager eco, ItemStack proto, String key, int amount, long price, long escrow, long unit,
+                         long weekEnd) {
         // Quests live exactly one board week, not the global order expiry: the rollover owns their
         // end of life. The escrow debit and the funded order commit in one transactional save, so
         // a crash can leave neither a debited bot without an order nor an unfunded quest.
@@ -639,17 +643,13 @@ public class QuestManager {
                 null, weekEnd, false, true);
         if (request == null) {
             LOGGER.warn("[EconomyCraft] Bot could not lock {} in quest escrow for {}; skipping the quest.", escrow, key);
-            return;
+            return false;
         }
 
         questOrderIds.add(request.id);
         postedKeys.add(key);
         postedUnits.put(String.valueOf(request.id), unit);
-        if (announce) {
-            broadcast(eco, amount, proto.getHoverName().getString(), price, unit);
-        }
-        LOGGER.info("[EconomyCraft] Posted quest #{}: {}x {} for {} ({} each).", request.id, amount,
-                key, price, unit);
+        return true;
     }
 
     private static long multiplyPrice(int amount, long unit) {
@@ -679,13 +679,20 @@ public class QuestManager {
         }
     }
 
-    private void broadcast(EconomyManager eco, int amount, String itemName, long price, long unit) {
-        Component message = Component.literal("[Quests] Server bounty: " + amount + "x " + itemName
-                        + " for " + com.reazip.economycraft.EconomyCraft.formatMoney(price)
-                        + " (" + com.reazip.economycraft.EconomyCraft.formatMoney(unit) + " each). Type /orders to fill it.")
-                .withStyle(ChatFormatting.GOLD);
+    private void broadcast(EconomyManager eco, int activeQuestCount) {
+        String prefix = "[Quests] Quest board refreshed: " + activeQuestCount + " active "
+                + (activeQuestCount == 1 ? "bounty. " : "bounties. ");
+        String button = "[Open Quest Board]";
+        ClickEvent clickEvent = ChatCompat.runCommandEvent("/eco quest");
         for (ServerPlayer online : eco.getServer().getPlayerList().getPlayers()) {
-            online.sendSystemMessage(message);
+            if (clickEvent == null) {
+                ChatCompat.sendRunCommandTellraw(online, prefix, button, "/eco quest");
+            } else {
+                Component message = Component.literal(prefix).withStyle(ChatFormatting.GOLD)
+                        .append(Component.literal(button).withStyle(style -> style.withUnderlined(true)
+                                .withColor(ChatFormatting.GREEN).withClickEvent(clickEvent)));
+                online.sendSystemMessage(message);
+            }
         }
     }
 
