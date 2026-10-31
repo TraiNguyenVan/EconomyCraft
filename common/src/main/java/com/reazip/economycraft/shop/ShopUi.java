@@ -139,6 +139,14 @@ public final class ShopUi {
                 .filter(sub -> hasStockInCategory(eco, topCategory + "." + sub)).toList();
     }
 
+    private static List<String> stockedSubcategoryOptions(EconomyManager eco, String topCategory) {
+        List<String> options = new ArrayList<>(stockedSubcategories(eco, topCategory));
+        boolean hasDirectStock = stockShopEnabled(eco) && eco.getPrices().allByCategory(topCategory).stream()
+                .anyMatch(entry -> eco.getQuestStock().get(entry.key()) > 0);
+        if (hasDirectStock) options.add(0, "");
+        return options;
+    }
+
     private static long stockUnitPrice(EconomyManager eco, PriceRegistry.PriceEntry entry) {
         return eco.getQuests().marketUnit(eco, entry, System.currentTimeMillis());
     }
@@ -287,7 +295,7 @@ public final class ShopUi {
         private int page;
 
         SubcategoryMenu(int id, Inventory inv, EconomyManager eco, String topCategory, ServerPlayer viewer) {
-            super(MenuUiSupport.getMenuType(MenuUiSupport.requiredRows(stockedSubcategories(eco, topCategory).size())), id);
+            super(MenuUiSupport.getMenuType(MenuUiSupport.requiredRows(stockedSubcategoryOptions(eco, topCategory).size())), id);
             this.eco = eco;
             this.viewer = viewer;
             this.topCategory = topCategory;
@@ -302,7 +310,7 @@ public final class ShopUi {
         }
 
         private void refresh() {
-            subcategories = stockedSubcategories(eco, topCategory);
+            subcategories = stockedSubcategoryOptions(eco, topCategory);
         }
 
         private void setupSlots(Inventory inv) {
@@ -324,14 +332,19 @@ public final class ShopUi {
                 if (idx >= subcategories.size()) break;
 
                 String sub = subcategories.get(idx);
-                String full = topCategory + "." + sub;
-                ItemStack icon = ShopDisplay.createCategoryIcon(sub, full, prices, viewer, false);
+                boolean directItems = sub.isBlank();
+                String full = directItems ? topCategory : topCategory + "." + sub;
+                ItemStack icon = directItems ? Items.CHEST.getDefaultInstance()
+                        : ShopDisplay.createCategoryIcon(sub, full, prices, viewer, false);
                 if (icon.isEmpty()) continue;
 
-                icon.set(DataComponents.CUSTOM_NAME, Component.literal(ShopDisplay.getCategoryName(prices, full, sub))
+                String name = directItems ? ShopDisplay.getCategoryName(prices, topCategory, topCategory) + " items"
+                        : ShopDisplay.getCategoryName(prices, full, sub);
+                icon.set(DataComponents.CUSTOM_NAME, Component.literal(name)
                         .withStyle(s -> s.withItalic(false)
                                 .withColor(ShopDisplay.getCategoryColor(prices, full, full)).withBold(true)));
-                icon.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint("Click to view items"))));
+                icon.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint(directItems
+                        ? "Items assigned directly to this category" : "Click to view items"))));
                 container.setItem(i, icon);
             }
 
@@ -354,7 +367,11 @@ public final class ShopUi {
                 if (index < subcategories.size()) {
                     EconomySounds.click(viewer);
                     String sub = subcategories.get(index);
-                    openItems(viewer, eco, topCategory + "." + sub, sub);
+                    boolean directItems = sub.isBlank();
+                    String category = directItems ? topCategory : topCategory + "." + sub;
+                    String title = directItems
+                            ? ShopDisplay.getCategoryName(prices, topCategory, topCategory) + " items" : sub;
+                    openItems(viewer, eco, category, title);
                     return true;
                 }
             }
