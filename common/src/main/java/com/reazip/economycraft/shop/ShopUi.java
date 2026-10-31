@@ -42,7 +42,6 @@ import java.util.Comparator;
 import java.util.List;
 
 public final class ShopUi {
-    private static final String QUEST_STOCK_CATEGORY = "__quest_stock__";
     private static final Component STORED_MSG = Component.literal("Item stored: ")
             .withStyle(ChatFormatting.YELLOW);
 
@@ -64,11 +63,7 @@ public final class ShopUi {
 
         PriceRegistry prices = eco.getPrices();
         String cat = category.trim();
-        if (QUEST_STOCK_CATEGORY.equalsIgnoreCase(cat)) {
-            openItems(player, eco, QUEST_STOCK_CATEGORY, "Quest Stock");
-            return;
-        }
-        if (!prices.isCategoryEnabled(cat)) {
+        if (!prices.isCategoryEnabled(cat) && !hasStockInCategory(eco, cat)) {
             openRoot(player, eco);
             return;
         }
@@ -93,9 +88,14 @@ public final class ShopUi {
 
     private static void openSearchResults(ServerPlayer player, EconomyManager eco, @Nullable String category,
                                           String query, int page, SortMode sort) {
+        openSearchResults(player, eco, category, query, page, sort, false);
+    }
+
+    private static void openSearchResults(ServerPlayer player, EconomyManager eco, @Nullable String category,
+                                          String query, int page, SortMode sort, boolean backToSubcategories) {
         eco.getQuestStock().reload();
         MenuUiSupport.openMenu(player, "Search: " + query, (id, inv) ->
-                new ItemMenu(id, inv, eco, category, null, query, page, player, sort));
+                new ItemMenu(id, inv, eco, category, null, query, page, player, sort, backToSubcategories));
     }
 
     private static void openRoot(ServerPlayer player, EconomyManager eco) {
@@ -123,6 +123,12 @@ public final class ShopUi {
                 new ItemMenu(id, inv, eco, category, displayTitle, null, page, player, sort));
     }
 
+    private static void openDirectCategoryItems(ServerPlayer player, EconomyManager eco, String category, String title,
+                                                int page, SortMode sort) {
+        MenuUiSupport.openMenu(player, title, (id, inv) ->
+                new ItemMenu(id, inv, eco, category, title, null, page, player, sort, true));
+    }
+
     private static boolean stockShopEnabled(EconomyManager eco) {
         var quests = EconomyConfig.get().quests;
         return EconomyConfig.get().shop.enabled && quests != null && quests.enabled
@@ -135,19 +141,21 @@ public final class ShopUi {
         return eco.getPrices().allEntries().stream().anyMatch(entry -> {
             String entryCategory = entry.category() == null ? "" : entry.category().toLowerCase(java.util.Locale.ROOT);
             return (prefix.isBlank() || entryCategory.equals(prefix) || entryCategory.startsWith(prefix + "."))
-                    && eco.getPrices().isCategoryEnabled(entry.category())
                     && eco.getQuestStock().get(entry.key()) > 0;
         });
-    }
-
-    private static boolean hasQuestStock(EconomyManager eco) {
-        return stockShopEnabled(eco) && eco.getPrices().allEntries().stream()
-                .anyMatch(entry -> eco.getQuestStock().get(entry.key()) > 0);
     }
 
     private static List<String> stockedSubcategories(EconomyManager eco, String topCategory) {
         return eco.getPrices().allSubcategories(topCategory).stream()
                 .filter(sub -> hasStockInCategory(eco, topCategory + "." + sub)).toList();
+    }
+
+    private static List<String> stockedSubcategoryOptions(EconomyManager eco, String topCategory) {
+        List<String> options = new ArrayList<>(stockedSubcategories(eco, topCategory));
+        boolean hasDirectStock = stockShopEnabled(eco) && eco.getPrices().allByCategory(topCategory).stream()
+                .anyMatch(entry -> eco.getQuestStock().get(entry.key()) > 0);
+        if (hasDirectStock) options.add(0, "");
+        return options;
     }
 
     private static long stockUnitPrice(EconomyManager eco, PriceRegistry.PriceEntry entry) {
@@ -179,7 +187,6 @@ public final class ShopUi {
 
         private void refreshCategories() {
             categories = new ArrayList<>();
-            if (hasQuestStock(eco)) categories.add(QUEST_STOCK_CATEGORY);
             for (String cat : prices.allTopCategories()) {
                 if (hasStockInCategory(eco, cat)) categories.add(cat);
             }
@@ -215,17 +222,13 @@ public final class ShopUi {
                 if (idx >= categories.size()) break;
 
                 String cat = categories.get(idx);
-                boolean questStock = QUEST_STOCK_CATEGORY.equals(cat);
-                ItemStack icon = questStock ? Items.CHEST.getDefaultInstance()
-                        : ShopDisplay.createCategoryIcon(cat, cat, prices, viewer, false);
+                ItemStack icon = ShopDisplay.createCategoryIcon(cat, cat, prices, viewer, false);
                 if (icon.isEmpty()) continue;
 
-                String name = questStock ? "Quest Stock" : ShopDisplay.getCategoryName(prices, cat, cat);
-                icon.set(DataComponents.CUSTOM_NAME, Component.literal(name)
-                        .withStyle(s -> s.withItalic(false).withColor(questStock ? ChatFormatting.AQUA
-                                : ShopDisplay.getCategoryColor(prices, cat, cat)).withBold(true)));
-                icon.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint(questStock
-                        ? "Browse items delivered to server quests" : "Click to view items"))));
+                icon.set(DataComponents.CUSTOM_NAME, Component.literal(ShopDisplay.getCategoryName(prices, cat, cat))
+                        .withStyle(s -> s.withItalic(false)
+                                .withColor(ShopDisplay.getCategoryColor(prices, cat, cat)).withBold(true)));
+                icon.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint("Click to view items"))));
                 int slot = ShopDisplay.STAR_SLOT_ORDER.get(i);
                 container.setItem(slot, icon);
                 slotToIndex[slot] = idx;
@@ -261,9 +264,7 @@ public final class ShopUi {
                 if (index >= 0 && index < categories.size()) {
                     EconomySounds.click(viewer);
                     String cat = categories.get(index);
-                    if (QUEST_STOCK_CATEGORY.equals(cat)) {
-                        openItems(viewer, eco, QUEST_STOCK_CATEGORY, "Quest Stock");
-                    } else if (stockedSubcategories(eco, cat).isEmpty()) {
+                    if (stockedSubcategories(eco, cat).isEmpty()) {
                         openItems(viewer, eco, cat);
                     } else {
                         openSubcategories(viewer, eco, cat);
@@ -305,7 +306,7 @@ public final class ShopUi {
         private int page;
 
         SubcategoryMenu(int id, Inventory inv, EconomyManager eco, String topCategory, ServerPlayer viewer) {
-            super(MenuUiSupport.getMenuType(MenuUiSupport.requiredRows(stockedSubcategories(eco, topCategory).size())), id);
+            super(MenuUiSupport.getMenuType(MenuUiSupport.requiredRows(stockedSubcategoryOptions(eco, topCategory).size())), id);
             this.eco = eco;
             this.viewer = viewer;
             this.topCategory = topCategory;
@@ -320,7 +321,7 @@ public final class ShopUi {
         }
 
         private void refresh() {
-            subcategories = stockedSubcategories(eco, topCategory);
+            subcategories = stockedSubcategoryOptions(eco, topCategory);
         }
 
         private void setupSlots(Inventory inv) {
@@ -342,14 +343,19 @@ public final class ShopUi {
                 if (idx >= subcategories.size()) break;
 
                 String sub = subcategories.get(idx);
-                String full = topCategory + "." + sub;
-                ItemStack icon = ShopDisplay.createCategoryIcon(sub, full, prices, viewer, false);
+                boolean directItems = sub.isBlank();
+                String full = directItems ? topCategory : topCategory + "." + sub;
+                ItemStack icon = directItems ? Items.CHEST.getDefaultInstance()
+                        : ShopDisplay.createCategoryIcon(sub, full, prices, viewer, false);
                 if (icon.isEmpty()) continue;
 
-                icon.set(DataComponents.CUSTOM_NAME, Component.literal(ShopDisplay.getCategoryName(prices, full, sub))
+                String name = directItems ? ShopDisplay.getCategoryName(prices, topCategory, topCategory) + " items"
+                        : ShopDisplay.getCategoryName(prices, full, sub);
+                icon.set(DataComponents.CUSTOM_NAME, Component.literal(name)
                         .withStyle(s -> s.withItalic(false)
                                 .withColor(ShopDisplay.getCategoryColor(prices, full, full)).withBold(true)));
-                icon.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint("Click to view items"))));
+                icon.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint(directItems
+                        ? "Items assigned directly to this category" : "Click to view items"))));
                 container.setItem(i, icon);
             }
 
@@ -372,7 +378,12 @@ public final class ShopUi {
                 if (index < subcategories.size()) {
                     EconomySounds.click(viewer);
                     String sub = subcategories.get(index);
-                    openItems(viewer, eco, topCategory + "." + sub, sub);
+                    boolean directItems = sub.isBlank();
+                    String category = directItems ? topCategory : topCategory + "." + sub;
+                    String title = directItems
+                            ? ShopDisplay.getCategoryName(prices, topCategory, topCategory) + " items" : sub;
+                    if (directItems) openDirectCategoryItems(viewer, eco, category, title, 0, SortMode.DEFAULT);
+                    else openItems(viewer, eco, category, title);
                     return true;
                 }
             }
@@ -390,6 +401,7 @@ public final class ShopUi {
         @Nullable private final String category;
         @Nullable private final String displayTitle;
         @Nullable private final String searchQuery;
+        private final boolean backToSubcategories;
         private SortMode sort;
         private List<PriceRegistry.PriceEntry> entries;
         private final SimpleContainer container;
@@ -400,19 +412,26 @@ public final class ShopUi {
 
         ItemMenu(int id, Inventory inv, EconomyManager eco, @Nullable String category, @Nullable String displayTitle,
                  @Nullable String searchQuery, int page, ServerPlayer viewer, SortMode sort) {
+            this(id, inv, eco, category, displayTitle, searchQuery, page, viewer, sort, false);
+        }
+
+        ItemMenu(int id, Inventory inv, EconomyManager eco, @Nullable String category, @Nullable String displayTitle,
+                 @Nullable String searchQuery, int page, ServerPlayer viewer, SortMode sort,
+                 boolean backToSubcategories) {
             this(id, inv, eco, category, displayTitle, searchQuery, page, viewer, sort,
-                    applySort(eco, resolveEntries(eco, category, searchQuery), sort));
+                    applySort(eco, resolveEntries(eco, category, searchQuery), sort), backToSubcategories);
         }
 
         private ItemMenu(int id, Inventory inv, EconomyManager eco, @Nullable String category, @Nullable String displayTitle,
                          @Nullable String searchQuery, int page, ServerPlayer viewer, SortMode sort,
-                         List<PriceRegistry.PriceEntry> resolved) {
+                         List<PriceRegistry.PriceEntry> resolved, boolean backToSubcategories) {
             super(MenuUiSupport.getMenuType(MenuUiSupport.requiredRows(resolved.size())), id);
             this.eco = eco;
             this.viewer = viewer;
             this.category = category;
             this.displayTitle = displayTitle;
             this.searchQuery = searchQuery;
+            this.backToSubcategories = backToSubcategories;
             this.sort = sort;
             this.prices = eco.getPrices();
 
@@ -428,14 +447,10 @@ public final class ShopUi {
 
         private static List<PriceRegistry.PriceEntry> resolveEntries(EconomyManager eco, @Nullable String category,
                                                                     @Nullable String searchQuery) {
-            boolean questStockOnly = QUEST_STOCK_CATEGORY.equals(category);
             List<PriceRegistry.PriceEntry> candidates = searchQuery != null
-                    ? eco.getPrices().searchAll(searchQuery, questStockOnly ? null : category)
-                    : questStockOnly || category == null ? eco.getPrices().allEntries()
-                    : eco.getPrices().allByCategory(category);
-            return candidates.stream().filter(entry -> questStockOnly
-                            || eco.getPrices().isCategoryEnabled(entry.category()))
-                    .filter(entry -> eco.getQuestStock().get(entry.key()) > 0).toList();
+                    ? eco.getPrices().searchAll(searchQuery, category)
+                    : category == null ? eco.getPrices().allEntries() : eco.getPrices().allByCategory(category);
+            return candidates.stream().filter(entry -> eco.getQuestStock().get(entry.key()) > 0).toList();
         }
 
         private static List<PriceRegistry.PriceEntry> applySort(EconomyManager eco, List<PriceRegistry.PriceEntry> list, SortMode sort) {
@@ -549,7 +564,9 @@ public final class ShopUi {
                     if (MenuUiSupport.hasContainerContents(display)) {
                         ContainerPreviewUi.open(viewer, display, () -> {
                             if (searchQuery != null) {
-                                openSearchResults(viewer, eco, category, searchQuery, page, sort);
+                                openSearchResults(viewer, eco, category, searchQuery, page, sort, backToSubcategories);
+                            } else if (backToSubcategories) {
+                                openDirectCategoryItems(viewer, eco, category, displayTitle, page, sort);
                             } else {
                                 openItems(viewer, eco, category, displayTitle, page, sort);
                             }
@@ -583,7 +600,8 @@ public final class ShopUi {
             if (slot == navRowStart + 5 && (page + 1) * itemsPerPage < entries.size()) { EconomySounds.page(viewer); page++; updatePage(); return true; }
             if (slot == navRowStart + 7 && !searching()) {
                 EconomySounds.click(viewer);
-                TextInputUi.openSearch(viewer, "Search Shop", (p, q) -> ShopUi.openSearchResults(p, eco, category, q, 0, sort));
+                TextInputUi.openSearch(viewer, "Search Shop", (p, q) ->
+                        ShopUi.openSearchResults(p, eco, category, q, 0, sort, backToSubcategories));
                 return true;
             }
             if (slot == navRowStart + 1) {
@@ -596,7 +614,9 @@ public final class ShopUi {
             }
             if (slot == navRowStart + 8) {
                 EconomySounds.click(viewer);
-                if (category != null && category.contains(".")) {
+                if (backToSubcategories && category != null) {
+                    openSubcategories(viewer, eco, category);
+                } else if (category != null && category.contains(".")) {
                     openSubcategories(viewer, eco, category.substring(0, category.indexOf('.')));
                 } else {
                     openRoot(viewer, eco);
@@ -616,13 +636,6 @@ public final class ShopUi {
                 viewer.sendSystemMessage(Component.literal("Quest stock shop is disabled.").withStyle(ChatFormatting.RED));
                 return;
             }
-            if (!QUEST_STOCK_CATEGORY.equals(category) && !prices.isCategoryEnabled(entry.category())) {
-                EconomySounds.failure(viewer);
-                viewer.sendSystemMessage(Component.literal("This item cannot be purchased.")
-                        .withStyle(ChatFormatting.RED));
-                return;
-            }
-
             ItemStack base = prices.createPrototype(entry);
             if (base.isEmpty()) {
                 EconomySounds.failure(viewer);
