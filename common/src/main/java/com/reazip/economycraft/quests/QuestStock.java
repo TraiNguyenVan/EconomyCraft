@@ -84,9 +84,8 @@ public class QuestStock {
         return total;
     }
 
-    /** Drops the ledger and re-reads it after a stock purchase or legacy listing migration rolls back. */
+    /** Re-reads the ledger after a stock purchase or legacy listing migration rolls back. */
     public synchronized void reload() {
-        stock.clear();
         load();
     }
 
