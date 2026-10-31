@@ -362,6 +362,8 @@ public final class SulfurCubeChunkLoader {
             }
         }
 
+        Vec3 effectiveVelocity = resolveEffectiveVelocity(cube, position, tracker != null ? tracker.lastPosition : null);
+
         tracker.lastTickCount = gameTime;
         if (moved) {
             tracker.lastPosition = position;
@@ -382,7 +384,7 @@ public final class SulfurCubeChunkLoader {
             return;
         }
 
-        List<ChunkPos> lookAhead = lookAheadChunks(cube, position, currentChunk, radius, tracker);
+        List<ChunkPos> lookAhead = lookAheadChunks(position, currentChunk, radius, effectiveVelocity);
         ServerChunkCache chunkCache = serverLevel.getChunkSource();
 
         tracker.hold(chunkCache, currentChunk, radius);
@@ -392,7 +394,7 @@ public final class SulfurCubeChunkLoader {
         tracker.prune(chunkCache, currentChunk, lookAhead);
     }
 
-    private static Vec3 resolveEffectiveVelocity(SulfurCube cube, Vec3 position, @Nullable CubeTracker tracker) {
+    private static Vec3 resolveEffectiveVelocity(SulfurCube cube, Vec3 position, @Nullable Vec3 previousPosition) {
         Vec3 velocity = cube.getDeltaMovement();
         if (cube.isPassenger()) {
             Entity root = cube.getRootVehicle();
@@ -403,8 +405,8 @@ public final class SulfurCubeChunkLoader {
                 }
             }
         }
-        if (tracker != null && tracker.lastPosition != null) {
-            Vec3 displacement = position.subtract(tracker.lastPosition);
+        if (previousPosition != null) {
+            Vec3 displacement = position.subtract(previousPosition);
             if (displacement.horizontalDistanceSqr() > velocity.horizontalDistanceSqr()) {
                 velocity = displacement;
             }
@@ -420,13 +422,12 @@ public final class SulfurCubeChunkLoader {
      * <p>Preloading tickets are placed along the path so that fast movement up to 30 blocks/sec
      * or higher always encounters chunks that are already in the {@code ENTITY_TICKING} state.
      */
-    private static List<ChunkPos> lookAheadChunks(SulfurCube cube, Vec3 position, ChunkPos currentChunk, int radius, @Nullable CubeTracker tracker) {
+    private static List<ChunkPos> lookAheadChunks(Vec3 position, ChunkPos currentChunk, int radius, Vec3 velocity) {
         int lookAheadTicks = configuredLookAheadTicks();
         if (lookAheadTicks <= 0) {
             return Collections.emptyList();
         }
 
-        Vec3 velocity = resolveEffectiveVelocity(cube, position, tracker);
         double horizontalSpeedSqr = velocity.x * velocity.x + velocity.z * velocity.z;
         double minSpeedPerTick = configuredLookAheadMinSpeed() / TICKS_PER_SECOND;
         if (horizontalSpeedSqr < minSpeedPerTick * minSpeedPerTick) {
@@ -434,10 +435,14 @@ public final class SulfurCubeChunkLoader {
         }
 
         double horizontalSpeed = Math.sqrt(horizontalSpeedSqr);
+        if (horizontalSpeed <= 1e-6) {
+            return Collections.emptyList();
+        }
+
         double maxAheadBlocks = radius * 2.0 * 16.0;
         double aheadBlocks = Math.min(horizontalSpeed * lookAheadTicks, maxAheadBlocks);
 
-        int entityTickingRadius = Math.max(1, radius - 2);
+        int entityTickingRadius = Math.max(0, radius - 2);
         List<ChunkPos> chunks = new ArrayList<>();
 
         double unitX = velocity.x / horizontalSpeed;

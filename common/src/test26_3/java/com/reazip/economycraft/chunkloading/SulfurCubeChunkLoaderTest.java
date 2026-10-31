@@ -242,6 +242,55 @@ class SulfurCubeChunkLoaderTest {
     }
 
     @Test
+    @DisplayName("Displacement across ticks triggers preloading even with zero reported deltaMovement")
+    void contraptionDisplacementPreloadsWithoutReportedVelocity() {
+        // Tick 1: stationary at (100.0, 64.0, 100.0) -> Chunk (6, 6)
+        moveTo(new ChunkPos(6, 6), 100.0, 100.0);
+        when(cube.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        // Tick 2: moved by 1.5 blocks to 101.5 with zero reported deltaMovement (contraption push)
+        advanceTicks(1);
+        moveTo(new ChunkPos(6, 6), 101.5, 100.0);
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
+        assertTrue(held.contains(new ChunkPos(6, 6)), "current chunk held");
+        assertTrue(held.contains(new ChunkPos(8, 6)), "lookahead chunk preloaded from displacement");
+    }
+
+    @Test
+    @DisplayName("Radius 2 has entity-ticking radius 0, so distance 1 chunks are preloaded")
+    void radiusTwoPreloadsDistanceOneGaps() {
+        config.sulfurCubeChunkRadius = 2;
+        moveTo(new ChunkPos(6, 6), 100.0, 100.0);
+        when(cube.getY()).thenReturn(64.0);
+        when(cube.getDeltaMovement()).thenReturn(new Vec3(1.5, 0.0, 0.0));
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
+        assertTrue(held.contains(new ChunkPos(6, 6)), "current chunk held");
+        assertTrue(held.contains(new ChunkPos(7, 6)), "distance 1 chunk must be preloaded for radius 2");
+        assertTrue(held.contains(new ChunkPos(8, 6)), "distance 2 chunk preloaded");
+    }
+
+    @Test
+    @DisplayName("Stationary cube with zero min speed does not ticket origin (0, 0)")
+    void zeroMinSpeedStationaryCubeDoesNotLoadOrigin() {
+        config.sulfurCubeLookAheadMinSpeed = 0.0;
+        moveTo(new ChunkPos(100, 100), 1600.0, 1600.0);
+        when(cube.getY()).thenReturn(64.0);
+        when(cube.getDeltaMovement()).thenReturn(Vec3.ZERO);
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
+        assertEquals(Set.of(new ChunkPos(100, 100)), held, "only current chunk should be held");
+        assertFalse(held.contains(new ChunkPos(0, 0)), "origin (0, 0) must not be ticketed");
+    }
+
+    @Test
     @DisplayName("Shearing sulfur cube immediately releases all held chunk tickets")
     void shearingReleasesTickets() {
         moveTo(new ChunkPos(5, 5), 88.0, 88.0);
