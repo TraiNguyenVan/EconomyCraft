@@ -4,6 +4,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -22,7 +23,7 @@ class ReleaseNotesServiceTest {
 
         assertEquals("EconomyCraft v1.12.1", messages.get(0).getString());
         Style titleStyle = messages.get(0).getStyle();
-        assertEquals(ChatFormatting.GOLD.getColor(), titleStyle.getColor().getValue());
+        assertEquals(TextColor.fromLegacyFormat(ChatFormatting.GOLD), titleStyle.getColor());
         assertTrue(titleStyle.isBold());
         assertTrue(titleStyle.isUnderlined());
         assertOpenUrl(titleStyle.getClickEvent(), REPOSITORY_URL);
