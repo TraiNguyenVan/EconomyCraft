@@ -78,34 +78,53 @@ public class QuestStock {
         return Map.copyOf(stock);
     }
 
+    synchronized void restoreSnapshot(Map<String, Long> snapshot) {
+        stock.clear();
+        stock.putAll(snapshot);
+    }
+
     public synchronized long total() {
         long total = 0;
         for (long count : stock.values()) total += count;
         return total;
     }
 
-    /** Drops the ledger and re-reads it after a stock purchase or legacy listing migration rolls back. */
+    /** Re-reads the ledger after a stock purchase or legacy listing migration rolls back. */
     public synchronized void reload() {
-        stock.clear();
         load();
     }
 
     private void load() {
-        String json = Documents.read(db, file, "stock.json");
-        if (json == null) return;
+        Documents.ReadResult result = Documents.readWithStatus(db, file, "stock.json");
+        if (!result.successful()) return;
+
+        Map<String, Long> loaded = parseStock(result.content());
+        if (loaded == null) return;
+        stock.clear();
+        stock.putAll(loaded);
+    }
+
+    private Map<String, Long> parseStock(String json) {
+        Map<String, Long> loaded = new LinkedHashMap<>();
+        if (json == null) return loaded;
         try {
             JsonObject root = GSON.fromJson(json, JsonObject.class);
-            if (root == null) return;
+            if (root == null) {
+                LOGGER.error("[EconomyCraft] Failed to parse quest stock in {}; keeping the current ledger.", file);
+                return null;
+            }
             for (var entry : root.entrySet()) {
                 try {
                     long count = entry.getValue().getAsLong();
-                    if (count > 0) stock.put(entry.getKey(), count);
+                    if (count > 0) loaded.put(entry.getKey(), count);
                 } catch (Exception ignored) {
                     LOGGER.warn("[EconomyCraft] Dropping an unreadable quest stock entry for {} in {}", entry.getKey(), file);
                 }
             }
+            return loaded;
         } catch (Exception ex) {
-            LOGGER.error("[EconomyCraft] Failed to load {}; starting with empty quest stock.", file, ex);
+            LOGGER.error("[EconomyCraft] Failed to load {}; keeping the current quest stock.", file, ex);
+            return null;
         }
     }
 
