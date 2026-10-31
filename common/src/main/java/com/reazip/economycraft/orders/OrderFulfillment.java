@@ -518,23 +518,23 @@ public final class OrderFulfillment {
                                                        OrderRequest order, boolean exhausted) {
         if (botOrder) {
             long payout = taxCoveredBounty ? payment : payment - botTax;
+            if (taxCoveredBounty) {
+                long unusedReserve = exhausted ? Math.max(0L, order.escrow) : 0L;
+                long refundCapacity = Math.max(0L, EconomyManager.maxBalance() - eco.peekBalance(requester));
+                long reserveRefund = Math.min(unusedReserve, refundCapacity);
+                if (reserveRefund < unusedReserve) {
+                    LOGGER.warn("[EconomyCraft] Could only return {} of {} unused quest tax reserve; the quest wallet is at its balance limit.",
+                            reserveRefund, unusedReserve);
+                }
+                boolean settled = eco.settleQuestOrderPayout(fulfillerId, payout, detail, reserveRefund,
+                        "unused quest tax reserve");
+                return settled
+                        ? new PaymentOutcome(true, true, payout, null)
+                        : new PaymentOutcome(false, false, 0, Status.FULFILLER_CANT_RECEIVE);
+            }
             var credit = eco.addMoney(fulfillerId, payout, EconomySources.ORDER_FULFILLMENT, detail);
             if (!credit.successful()) {
                 return new PaymentOutcome(false, false, 0, Status.FULFILLER_CANT_RECEIVE);
-            }
-            long unusedReserve = taxCoveredBounty && exhausted ? Math.max(0L, order.escrow) : 0L;
-            if (unusedReserve > 0) {
-                try {
-                    var refund = eco.addMoney(requester, unusedReserve, EconomySources.ORDER_ESCROW_REFUND,
-                            "unused quest tax reserve");
-                    if (!refund.successful()) {
-                        LOGGER.warn("[EconomyCraft] Could not return {} unused tax reserve to the quest wallet ({})",
-                                unusedReserve, refund.status());
-                    }
-                } catch (RuntimeException failure) {
-                    LOGGER.warn("[EconomyCraft] Could not return {} unused tax reserve to the quest wallet",
-                            unusedReserve, failure);
-                }
             }
             return new PaymentOutcome(true, true, payout, null);
         }

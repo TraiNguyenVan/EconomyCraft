@@ -45,14 +45,16 @@ final class TransactionLogger {
 
         String item = itemContext != null ? itemContext.key() : null;
         int quantity = itemContext != null ? itemContext.quantity() : 0;
+        String marketKey = itemContext != null ? itemContext.marketKey() : null;
         if (logging) {
             Instant time = Instant.now();
             TransactionLogWriter.append(logsDir, config.transactionLog.retentionDays,
-                    toJsonLine(event, playerName, counterpartyName, source, item, quantity, time));
+                    toJsonLine(event, playerName, counterpartyName, source, item, quantity, marketKey, time));
             if (event.type() == BalanceMutationType.PAYMENT_RECEIVED && item != null && quantity > 0) {
                 observer.accept(new com.reazip.economycraft.util.TransactionEntry(time, event.type(), event.playerId(),
                         playerName, event.counterpartyId().orElse(null), counterpartyName, event.difference(),
-                        event.previousBalance(), event.newBalance(), source, event.detail().orElse(null), item, quantity));
+                        event.previousBalance(), event.newBalance(), source, event.detail().orElse(null),
+                        item, quantity, marketKey));
             }
         }
         if (notifying) {
@@ -79,7 +81,7 @@ final class TransactionLogger {
     }
 
     private static String toJsonLine(BalanceChangeEvent event, String playerName, String counterpartyName,
-                                     String source, String item, int quantity, Instant time) {
+                                     String source, String item, int quantity, String marketKey, Instant time) {
         JsonObject obj = new JsonObject();
         obj.addProperty("time", time.toString());
         obj.addProperty("type", event.type().name());
@@ -94,6 +96,7 @@ final class TransactionLogger {
         event.detail().ifPresent(detail -> obj.addProperty("detail", detail));
         if (item != null) obj.addProperty("item", item);
         if (quantity > 0) obj.addProperty("quantity", quantity);
+        if (marketKey != null) obj.addProperty("market_key", marketKey);
         return GSON.toJson(obj);
     }
 

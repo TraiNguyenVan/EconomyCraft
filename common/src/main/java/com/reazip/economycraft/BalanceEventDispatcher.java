@@ -19,7 +19,7 @@ final class BalanceEventDispatcher implements BalanceEvents {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Map<MinecraftServer, BalanceEventDispatcher> BY_SERVER = new IdentityHashMap<>();
     private final CopyOnWriteArrayList<BalanceChangeListener> listeners = new CopyOnWriteArrayList<>();
-    record ItemContext(String key, int quantity) {}
+    record ItemContext(String key, int quantity, String marketKey) {}
     private final CopyOnWriteArrayList<BiConsumer<BalanceChangeEvent, ItemContext>> internalListeners = new CopyOnWriteArrayList<>();
 
     static synchronized BalanceEventDispatcher forServer(MinecraftServer server) {
@@ -59,7 +59,12 @@ final class BalanceEventDispatcher implements BalanceEvents {
     }
 
     void emit(BalanceChangeEvent event, String item, int quantity) {
-        ItemContext context = item == null && quantity <= 0 ? null : new ItemContext(item, quantity);
+        emit(event, item, quantity, null);
+    }
+
+    void emit(BalanceChangeEvent event, String item, int quantity, String marketKey) {
+        ItemContext context = item == null && quantity <= 0 && marketKey == null
+                ? null : new ItemContext(item, quantity, marketKey);
         for (BiConsumer<BalanceChangeEvent, ItemContext> listener : internalListeners) {
             try {
                 listener.accept(event, context);

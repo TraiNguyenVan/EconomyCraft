@@ -5,6 +5,9 @@ import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.db.Documents;
 import org.slf4j.Logger;
 
+import java.util.Map;
+import java.util.UUID;
+
 /**
  * Runs one quest-stock transfer, keeping the durable documents and live stores in step.
  *
@@ -22,6 +25,7 @@ public final class BuybackTransfers {
     private BuybackTransfers() {}
 
     public static void run(EconomyManager eco, Runnable transfer) {
+        Map<UUID, Long> balanceSnapshot = eco.getBalancesSnapshot();
         try {
             Documents.atomic(eco.getDatabase(), transfer);
         } catch (RuntimeException failure) {
@@ -33,6 +37,13 @@ public final class BuybackTransfers {
                 eco.getNegotiations().reload();
             } catch (RuntimeException resync) {
                 LOGGER.error("[EconomyCraft] Failed to resync quest stock after a rolled-back transfer", resync);
+            }
+            if (balanceSnapshot != null) {
+                try {
+                    eco.restoreBalancesSnapshot(balanceSnapshot);
+                } catch (RuntimeException resync) {
+                    LOGGER.error("[EconomyCraft] Failed to resync balances after a rolled-back quest stock transfer", resync);
+                }
             }
             throw failure;
         }

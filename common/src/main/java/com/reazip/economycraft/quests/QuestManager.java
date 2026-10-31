@@ -78,6 +78,10 @@ public class QuestManager {
     private final Map<String, List<QuestLogic.MarketSale>> marketSales = new LinkedHashMap<>();
     private final Set<String> seenMarketRows = new HashSet<>();
     private final List<TransactionEntry> pendingMarketRows = new ArrayList<>();
+    private Map<String, PriceRegistry.PriceEntry> marketEntriesByKey;
+    private Map<String, List<PriceRegistry.PriceEntry>> marketEntriesByItemId;
+    private Map<String, String> legacyDisplayNameKeys;
+    private Set<String> ambiguousLegacyDisplayNames;
     private boolean marketHistoryStarted;
     private boolean marketHistoryLoaded;
     private long mintedThisWeek;
@@ -440,13 +444,13 @@ public class QuestManager {
         long cutoff = now - Math.max(1, EconomyConfig.get().quests.marketLookbackDays) * 24L * 60L * 60L * 1000L;
         long saleTime = entry.time().toEpochMilli();
         if (saleTime < cutoff || saleTime > now) return;
-        String key = resolveMarketKey(entry, eco);
         int quantity = entry.quantity();
-        if (quantity <= 0 && entry.detail() != null) {
+        String key = resolveMarketKey(entry, eco);
+        if ((quantity <= 0 || key == null) && entry.detail() != null) {
             QuestLogic.LegacySale legacySale = QuestLogic.parseLegacySaleDetail(entry.detail());
             if (legacySale == null) return;
-            quantity = legacySale.quantity();
-            key = resolveLegacyName(legacySale.displayName(), eco);
+            if (quantity <= 0) quantity = legacySale.quantity();
+            if (key == null) key = resolveLegacyName(legacySale.displayName(), eco);
         }
         if (key == null || quantity <= 0) return;
         String fingerprint = entry.time() + "|" + entry.player() + "|" + entry.counterparty() + "|"
@@ -457,22 +461,43 @@ public class QuestManager {
         sales.add(new QuestLogic.MarketSale(entry.amount(), quantity, saleTime));
     }
 
-    private static String resolveMarketKey(TransactionEntry entry, EconomyManager eco) {
-        if (entry.item() == null || entry.quantity() <= 0) return null;
-        List<PriceRegistry.PriceEntry> matches = eco.getPrices().allEntries().stream()
-                .filter(candidate -> candidate.customItem() == null && candidate.id().asString().equals(entry.item()))
-                .toList();
-        return matches.size() == 1 ? matches.getFirst().key() : null;
+    private String resolveMarketKey(TransactionEntry entry, EconomyManager eco) {
+        ensureMarketPriceIndexes(eco);
+        if (entry.marketKey() != null && !entry.marketKey().isBlank()) {
+            PriceRegistry.PriceEntry marketEntry = marketEntriesByKey.get(entry.marketKey());
+            return marketEntry != null && marketEntry.customItem() == null ? marketEntry.key() : null;
+        }
+        if (entry.item() == null) return null;
+        List<PriceRegistry.PriceEntry> matches = marketEntriesByItemId.get(entry.item());
+        return matches != null && matches.size() == 1 ? matches.getFirst().key() : null;
     }
 
-    private static String resolveLegacyName(String name, EconomyManager eco) {
-        List<String> matches = new ArrayList<>();
+    private String resolveLegacyName(String name, EconomyManager eco) {
+        ensureMarketPriceIndexes(eco);
+        if (ambiguousLegacyDisplayNames.contains(name)) return null;
+        return legacyDisplayNameKeys.get(name);
+    }
+
+    private void ensureMarketPriceIndexes(EconomyManager eco) {
+        if (marketEntriesByKey != null) return;
+        Map<String, PriceRegistry.PriceEntry> byKey = new LinkedHashMap<>();
+        Map<String, List<PriceRegistry.PriceEntry>> byItemId = new LinkedHashMap<>();
+        Map<String, String> keysByName = new LinkedHashMap<>();
+        Set<String> ambiguous = new HashSet<>();
         for (PriceRegistry.PriceEntry candidate : eco.getPrices().allEntries()) {
             if (candidate.customItem() != null) continue;
+            byKey.put(candidate.key(), candidate);
+            byItemId.computeIfAbsent(candidate.id().asString(), ignored -> new ArrayList<>()).add(candidate);
             ItemStack prototype = eco.getPrices().createPrototype(candidate);
-            if (!prototype.isEmpty() && prototype.getHoverName().getString().equals(name)) matches.add(candidate.key());
+            if (prototype.isEmpty()) continue;
+            String displayName = prototype.getHoverName().getString();
+            String previous = keysByName.putIfAbsent(displayName, candidate.key());
+            if (previous != null && !previous.equals(candidate.key())) ambiguous.add(displayName);
         }
-        return matches.size() == 1 ? matches.getFirst() : null;
+        marketEntriesByKey = byKey;
+        marketEntriesByItemId = byItemId;
+        legacyDisplayNameKeys = keysByName;
+        ambiguousLegacyDisplayNames = ambiguous;
     }
 
     private boolean hasPlayerOrder(EconomyManager eco, String key) {

@@ -28,12 +28,15 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Map;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** Atomic migration of legacy quest-board AH listings into finite shop stock. */
@@ -117,6 +120,17 @@ class BuybackTransferAtomicityTest {
         assertEquals(0L, eco.getQuestStock().get(KEY));
         assertEquals(4, new AuctionManager(server, deliveries, db).getListings().get(0).item.getCount());
         assertEquals(0L, new QuestStock(server, db).get(KEY));
+    }
+
+    @Test
+    void rolledBackMoneyTransferRestoresTheBalanceSnapshot() {
+        Map<UUID, Long> snapshot = Map.of(UUID.randomUUID(), 73L);
+        when(eco.getBalancesSnapshot()).thenReturn(snapshot);
+
+        assertThrows(IllegalStateException.class,
+                () -> BuybackTransfers.run(eco, () -> { throw new IllegalStateException("rollback"); }));
+
+        verify(eco).restoreBalancesSnapshot(snapshot);
     }
 
     private static AuctionListing botListing(int count) {

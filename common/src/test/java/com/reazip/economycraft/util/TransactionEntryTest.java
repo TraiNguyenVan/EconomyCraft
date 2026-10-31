@@ -20,6 +20,7 @@ class TransactionEntryTest {
         assertEquals(BalanceMutationType.PAYMENT_RECEIVED, entry.type());
         assertNull(entry.item());
         assertEquals(0, entry.quantity());
+        assertNull(entry.marketKey());
     }
 
     @Test
@@ -27,11 +28,13 @@ class TransactionEntryTest {
         JsonObject row = row();
         row.addProperty("item", "minecraft:iron_ingot");
         row.addProperty("quantity", 64);
+        row.addProperty("market_key", "minecraft:iron_ingot");
 
         TransactionEntry entry = TransactionEntry.fromJson(row);
 
         assertEquals("minecraft:iron_ingot", entry.item());
         assertEquals(64, entry.quantity());
+        assertEquals("minecraft:iron_ingot", entry.marketKey());
     }
 
     private static JsonObject row() {
