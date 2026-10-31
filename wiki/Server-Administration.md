@@ -136,6 +136,10 @@ The market route is `GET /economycraft/v1/market`, which reads and never writes.
 
 Configure login messages in the `motd` section of `config/economycraft/config.json`. The [configuration reference](Server-Configuration.md) describes the keys. Use `/eco reload` after editing the file; this also cancels an in-progress message sequence. `/eco motd` previews all configured message blocks immediately.
 
+### Login MOTD release notes
+
+The in-game login MOTD can include the latest release summary: a clickable version title that opens the full GitHub release notes, followed by a configurable number of newest merged pull-request titles. Configure whether it appears, its position among MOTD blocks, and its title limit under `motd.release_notes`; see the [configuration reference](Server-Configuration.md#motd). The notes are fetched once when the server starts on Fabric or NeoForge and cached with up to 20 titles. If GitHub is unavailable, the saved release is used. `/eco motd` previews the configured placement and limit immediately. Restart the server to pick up a newer release.
+
 ## Permissions and optional integrations
 
 | Permission node | Access |

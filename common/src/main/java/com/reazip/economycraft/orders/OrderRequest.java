@@ -14,6 +14,7 @@ public class OrderRequest {
     public UUID requester;
     public ItemStack item;
     public int amount;
+    public int originalAmount;
     public long price;
     public long escrow;
     public long createdAt;
@@ -21,12 +22,17 @@ public class OrderRequest {
     @org.jetbrains.annotations.Nullable
     public String description;
 
+    public int deliveredAmount() {
+        return Math.max(0, Math.max(amount, originalAmount) - amount);
+    }
+
     public JsonObject save(HolderLookup.Provider provider) {
         JsonObject obj = new JsonObject();
         obj.addProperty("id", id);
         if (requester != null) obj.addProperty("requester", requester.toString());
         obj.addProperty("price", price);
         obj.addProperty("amount", amount);
+        obj.addProperty("originalAmount", originalAmount > 0 ? originalAmount : amount);
         obj.addProperty("escrow", escrow);
         obj.addProperty("createdAt", createdAt);
         obj.addProperty("expiresAt", expiresAt);
@@ -44,6 +50,7 @@ public class OrderRequest {
         if (obj.has("requester")) r.requester = UUID.fromString(obj.get("requester").getAsString());
         r.price = obj.get("price").getAsLong();
         r.amount = obj.get("amount").getAsInt();
+        r.originalAmount = obj.has("originalAmount") ? obj.get("originalAmount").getAsInt() : r.amount;
         if (obj.has("escrow")) {
             r.escrow = obj.get("escrow").getAsLong();
         }

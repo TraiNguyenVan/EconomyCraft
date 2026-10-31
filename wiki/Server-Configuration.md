@@ -338,10 +338,15 @@ merged. If both legacy `lines` and `blocks` are present, `blocks` is used and `l
 | `motd.delay_ticks` | `40` | Ticks after joining before the message appears (`40` = 2 seconds). Clamped to 0-1200. |
 | `motd.enabled` | `true` | Send the join message on login. |
 | `motd.blocks` | See default below. | Ordered message blocks. Each block has formatted `lines` and a delay before the next block. |
+| `motd.release_notes.enabled` | `true` | Append the latest release summary to the login MOTD. |
+| `motd.release_notes.after_block` | `-1` | Insert release notes before block 1 (`0`), after block N (`N`), or after the last block (`-1`). Invalid positions fall back to the last block. |
+| `motd.release_notes.max_changes` | `3` | Maximum number of newest merged PR titles to show. Clamped to 0-20; `0` keeps the version and link but hides titles. |
 
-`motd.delay_ticks` applies before block one. Each `next_delay_seconds` applies after its block and before the next;
-zero advances on the next server tick, and the last block's value is ignored. `/eco motd` immediately previews all
-blocks with separators. `/eco reload` cancels sequences already in progress.
+`motd.delay_ticks` applies before the first item in the sequence. A block's `next_delay_seconds` applies before the
+next configured block or an inserted release summary. If release notes follow the final block, that final delay is
+used too; with the default block it is 30 seconds. When a summary is inserted between blocks, the following block
+continues immediately after the summary. `/eco motd` previews the same ordering and settings immediately, without
+delays, even when `motd.enabled` disables automatic join messages. `/eco reload` cancels sequences already in progress.
 
 
 #### Default message blocks
@@ -349,6 +354,11 @@ blocks with separators. `/eco reload` cancels sequences already in progress.
 ```json
 {
   "motd": {
+    "release_notes": {
+      "enabled": true,
+      "after_block": -1,
+      "max_changes": 3
+    },
     "blocks": [
       {
         "lines": [

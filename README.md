@@ -94,7 +94,9 @@ expired and no release exists. For that exception, use these commands:
 ```
 
 Pull requests run common tests and both loader jar builds in GitHub Actions. Deployable
-jars come from CI artifacts or GitHub Releases.
+jars come from CI artifacts or GitHub Releases. GitHub Releases use automatically
+generated notes from merged pull requests; clear, user-facing PR titles become the
+release summary.
 
 For contributor rules, read the [architecture guide](docs/contributing/architecture.md),
 [documentation guidance](docs/contributing/documentation.md), and
