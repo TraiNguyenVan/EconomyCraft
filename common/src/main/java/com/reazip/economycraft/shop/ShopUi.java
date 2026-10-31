@@ -42,7 +42,6 @@ import java.util.Comparator;
 import java.util.List;
 
 public final class ShopUi {
-    private static final String QUEST_STOCK_CATEGORY = "__quest_stock__";
     private static final Component STORED_MSG = Component.literal("Item stored: ")
             .withStyle(ChatFormatting.YELLOW);
 
@@ -64,11 +63,7 @@ public final class ShopUi {
 
         PriceRegistry prices = eco.getPrices();
         String cat = category.trim();
-        if (QUEST_STOCK_CATEGORY.equalsIgnoreCase(cat)) {
-            openItems(player, eco, QUEST_STOCK_CATEGORY, "Quest Stock");
-            return;
-        }
-        if (!prices.isCategoryEnabled(cat)) {
+        if (!prices.isCategoryEnabled(cat) && !hasStockInCategory(eco, cat)) {
             openRoot(player, eco);
             return;
         }
@@ -135,14 +130,8 @@ public final class ShopUi {
         return eco.getPrices().allEntries().stream().anyMatch(entry -> {
             String entryCategory = entry.category() == null ? "" : entry.category().toLowerCase(java.util.Locale.ROOT);
             return (prefix.isBlank() || entryCategory.equals(prefix) || entryCategory.startsWith(prefix + "."))
-                    && eco.getPrices().isCategoryEnabled(entry.category())
                     && eco.getQuestStock().get(entry.key()) > 0;
         });
-    }
-
-    private static boolean hasQuestStock(EconomyManager eco) {
-        return stockShopEnabled(eco) && eco.getPrices().allEntries().stream()
-                .anyMatch(entry -> eco.getQuestStock().get(entry.key()) > 0);
     }
 
     private static List<String> stockedSubcategories(EconomyManager eco, String topCategory) {
@@ -179,7 +168,6 @@ public final class ShopUi {
 
         private void refreshCategories() {
             categories = new ArrayList<>();
-            if (hasQuestStock(eco)) categories.add(QUEST_STOCK_CATEGORY);
             for (String cat : prices.allTopCategories()) {
                 if (hasStockInCategory(eco, cat)) categories.add(cat);
             }
@@ -215,17 +203,13 @@ public final class ShopUi {
                 if (idx >= categories.size()) break;
 
                 String cat = categories.get(idx);
-                boolean questStock = QUEST_STOCK_CATEGORY.equals(cat);
-                ItemStack icon = questStock ? Items.CHEST.getDefaultInstance()
-                        : ShopDisplay.createCategoryIcon(cat, cat, prices, viewer, false);
+                ItemStack icon = ShopDisplay.createCategoryIcon(cat, cat, prices, viewer, false);
                 if (icon.isEmpty()) continue;
 
-                String name = questStock ? "Quest Stock" : ShopDisplay.getCategoryName(prices, cat, cat);
-                icon.set(DataComponents.CUSTOM_NAME, Component.literal(name)
-                        .withStyle(s -> s.withItalic(false).withColor(questStock ? ChatFormatting.AQUA
-                                : ShopDisplay.getCategoryColor(prices, cat, cat)).withBold(true)));
-                icon.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint(questStock
-                        ? "Browse items delivered to server quests" : "Click to view items"))));
+                icon.set(DataComponents.CUSTOM_NAME, Component.literal(ShopDisplay.getCategoryName(prices, cat, cat))
+                        .withStyle(s -> s.withItalic(false)
+                                .withColor(ShopDisplay.getCategoryColor(prices, cat, cat)).withBold(true)));
+                icon.set(DataComponents.LORE, new ItemLore(List.of(MenuUiSupport.hint("Click to view items"))));
                 int slot = ShopDisplay.STAR_SLOT_ORDER.get(i);
                 container.setItem(slot, icon);
                 slotToIndex[slot] = idx;
@@ -261,9 +245,7 @@ public final class ShopUi {
                 if (index >= 0 && index < categories.size()) {
                     EconomySounds.click(viewer);
                     String cat = categories.get(index);
-                    if (QUEST_STOCK_CATEGORY.equals(cat)) {
-                        openItems(viewer, eco, QUEST_STOCK_CATEGORY, "Quest Stock");
-                    } else if (stockedSubcategories(eco, cat).isEmpty()) {
+                    if (stockedSubcategories(eco, cat).isEmpty()) {
                         openItems(viewer, eco, cat);
                     } else {
                         openSubcategories(viewer, eco, cat);
@@ -428,14 +410,10 @@ public final class ShopUi {
 
         private static List<PriceRegistry.PriceEntry> resolveEntries(EconomyManager eco, @Nullable String category,
                                                                     @Nullable String searchQuery) {
-            boolean questStockOnly = QUEST_STOCK_CATEGORY.equals(category);
             List<PriceRegistry.PriceEntry> candidates = searchQuery != null
-                    ? eco.getPrices().searchAll(searchQuery, questStockOnly ? null : category)
-                    : questStockOnly || category == null ? eco.getPrices().allEntries()
-                    : eco.getPrices().allByCategory(category);
-            return candidates.stream().filter(entry -> questStockOnly
-                            || eco.getPrices().isCategoryEnabled(entry.category()))
-                    .filter(entry -> eco.getQuestStock().get(entry.key()) > 0).toList();
+                    ? eco.getPrices().searchAll(searchQuery, category)
+                    : category == null ? eco.getPrices().allEntries() : eco.getPrices().allByCategory(category);
+            return candidates.stream().filter(entry -> eco.getQuestStock().get(entry.key()) > 0).toList();
         }
 
         private static List<PriceRegistry.PriceEntry> applySort(EconomyManager eco, List<PriceRegistry.PriceEntry> list, SortMode sort) {
@@ -616,13 +594,6 @@ public final class ShopUi {
                 viewer.sendSystemMessage(Component.literal("Quest stock shop is disabled.").withStyle(ChatFormatting.RED));
                 return;
             }
-            if (!QUEST_STOCK_CATEGORY.equals(category) && !prices.isCategoryEnabled(entry.category())) {
-                EconomySounds.failure(viewer);
-                viewer.sendSystemMessage(Component.literal("This item cannot be purchased.")
-                        .withStyle(ChatFormatting.RED));
-                return;
-            }
-
             ItemStack base = prices.createPrototype(entry);
             if (base.isEmpty()) {
                 EconomySounds.failure(viewer);

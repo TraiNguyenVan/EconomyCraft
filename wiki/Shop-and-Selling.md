@@ -7,7 +7,7 @@ The shop lets you buy available quest stock and sell items at server-set prices.
 - Browse categories, use `/shop search <query>` to find an item, or open a category with `/shop <category>`.
 - Left-click an item to buy and right-click to sell. Shift-click uses the item's configured bulk amount.
 - A buy offer appears only while the server has quest stock for that item. Its entry shows the exact remaining quantity and the current price per item.
-- **Quest Stock** lists delivered items even when their normal shop category is disabled. This stock-only view does not enable or expose the disabled category catalog.
+- A category with quest stock remains visible under its normal name even when that category is disabled. Its page still shows only items currently in quest stock; unrelated catalog items stay hidden.
 - Shift-click buys up to the configured bulk amount. If less stock remains, the shop sells that amount and charges only for what it delivers.
 - Quest-stock prices follow recent completed player-to-player auction sales. If there is not enough sales history, the price blends with the shop-based fallback.
 - Shop purchases use the displayed price. No transaction tax is added to a fixed-price shop purchase.
