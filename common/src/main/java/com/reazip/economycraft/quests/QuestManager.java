@@ -82,6 +82,7 @@ public class QuestManager {
     private Map<String, List<PriceRegistry.PriceEntry>> marketEntriesByItemId;
     private Map<String, String> legacyDisplayNameKeys;
     private Set<String> ambiguousLegacyDisplayNames;
+    private long marketPriceRevision = -1;
     private boolean marketHistoryStarted;
     private boolean marketHistoryLoaded;
     private long mintedThisWeek;
@@ -479,16 +480,18 @@ public class QuestManager {
     }
 
     private void ensureMarketPriceIndexes(EconomyManager eco) {
-        if (marketEntriesByKey != null) return;
+        PriceRegistry prices = eco.getPrices();
+        long revision = prices.revision();
+        if (marketEntriesByKey != null && marketPriceRevision == revision) return;
         Map<String, PriceRegistry.PriceEntry> byKey = new LinkedHashMap<>();
         Map<String, List<PriceRegistry.PriceEntry>> byItemId = new LinkedHashMap<>();
         Map<String, String> keysByName = new LinkedHashMap<>();
         Set<String> ambiguous = new HashSet<>();
-        for (PriceRegistry.PriceEntry candidate : eco.getPrices().allEntries()) {
+        for (PriceRegistry.PriceEntry candidate : prices.allEntries()) {
             if (candidate.customItem() != null) continue;
             byKey.put(candidate.key(), candidate);
             byItemId.computeIfAbsent(candidate.id().asString(), ignored -> new ArrayList<>()).add(candidate);
-            ItemStack prototype = eco.getPrices().createPrototype(candidate);
+            ItemStack prototype = prices.createPrototype(candidate);
             if (prototype.isEmpty()) continue;
             String displayName = prototype.getHoverName().getString();
             String previous = keysByName.putIfAbsent(displayName, candidate.key());
@@ -498,6 +501,7 @@ public class QuestManager {
         marketEntriesByItemId = byItemId;
         legacyDisplayNameKeys = keysByName;
         ambiguousLegacyDisplayNames = ambiguous;
+        marketPriceRevision = revision;
     }
 
     private boolean hasPlayerOrder(EconomyManager eco, String key) {
