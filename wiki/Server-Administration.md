@@ -158,7 +158,7 @@ The in-game login MOTD can include the latest release summary: its clickable gol
 | `economycraft.command.shop` | Shop command and menu button. |
 | `economycraft.command.auction` | Auction house commands. |
 | `economycraft.command.sell` | Sell menu. |
-| `economycraft.command.orders` | Orders board. |
+| `economycraft.command.orders` | Player orders and quest board commands. |
 | `economycraft.command.deliveries` | Deliveries menu. |
 | `economycraft.command.daily` | Daily reward. |
 | `economycraft.command.transactions` | Transaction history. |

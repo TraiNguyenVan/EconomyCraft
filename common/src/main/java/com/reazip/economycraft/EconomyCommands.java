@@ -92,6 +92,8 @@ public final class EconomyCommands {
         registerStandalone(dispatcher, buildShop(), Nodes.COMMAND_SHOP);
         dispatcher.register(withCommandPermission(
                 buildOrders("orders", buildContext).requires(s -> EconomyConfig.get().commands.standalone), Nodes.COMMAND_ORDERS));
+        dispatcher.register(withCommandPermission(
+                buildQuest().requires(s -> EconomyConfig.get().commands.standalone), Nodes.COMMAND_ORDERS));
         registerStandalone(dispatcher, buildContracts(), Nodes.COMMAND_CONTRACTS);
         dispatcher.register(withCommandPermission(
                 buildDeliveries().requires(s -> EconomyConfig.get().commands.standalone), Nodes.COMMAND_DELIVERIES));
@@ -187,6 +189,7 @@ public final class EconomyCommands {
         root.then(withCommandPermission(buildOffers(), Nodes.COMMAND_OFFERS));
         root.then(withCommandPermission(buildShop(), Nodes.COMMAND_SHOP));
         root.then(withCommandPermission(buildOrders("orders", buildContext), Nodes.COMMAND_ORDERS));
+        root.then(withCommandPermission(buildQuest(), Nodes.COMMAND_ORDERS));
         root.then(withCommandPermission(buildContracts(), Nodes.COMMAND_CONTRACTS));
         root.then(withCommandPermission(buildDeliveries(), Nodes.COMMAND_DELIVERIES));
         root.then(withCommandPermission(buildDaily(), Nodes.COMMAND_DAILY));
@@ -1104,6 +1107,11 @@ public final class EconomyCommands {
                                         ctx.getSource()))));
     }
 
+    private static LiteralArgumentBuilder<CommandSourceStack> buildQuest() {
+        return literal("quest")
+                .executes(ctx -> openQuest(ctx.getSource().getPlayerOrException(), ctx.getSource()));
+    }
+
     private static int openOrders(ServerPlayer player, CommandSourceStack source) {
         if (!EconomyConfig.get().orders.enabled) {
             source.sendFailure(Component.literal("Orders are disabled.").withStyle(ChatFormatting.RED));
@@ -1115,6 +1123,26 @@ public final class EconomyCommands {
         } catch (Exception e) {
             LOGGER.error("[EconomyCraft] Failed to open /orders for {}", player.getDisplayName().getString(), e);
             source.sendFailure(Component.literal("Failed to open orders. Check server logs."));
+            return 0;
+        }
+    }
+
+    private static int openQuest(ServerPlayer player, CommandSourceStack source) {
+        var quests = EconomyConfig.get().quests;
+        if (quests == null || !quests.enabled) {
+            source.sendFailure(Component.literal("Quests are disabled.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        if (!EconomyConfig.get().orders.enabled) {
+            source.sendFailure(Component.literal("Orders are disabled.").withStyle(ChatFormatting.RED));
+            return 0;
+        }
+        try {
+            OrdersUi.openQuestBoard(player, EconomyCraft.getManager(source.getServer()));
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("[EconomyCraft] Failed to open /quest for {}", player.getDisplayName().getString(), e);
+            source.sendFailure(Component.literal("Failed to open the quest board. Check server logs."));
             return 0;
         }
     }

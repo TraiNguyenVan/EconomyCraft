@@ -60,15 +60,24 @@ public final class OrdersUi {
         open(player, eco, 0, null, SortMode.DEFAULT, false);
     }
 
+    public static void openQuestBoard(ServerPlayer player, EconomyManager eco) {
+        open(player, eco, 0, null, SortMode.DEFAULT, false, true);
+    }
+
     public static void openSearch(ServerPlayer player, EconomyManager eco, String query) {
         open(player, eco, 0, query, SortMode.DEFAULT, false);
     }
 
     private static void open(ServerPlayer player, EconomyManager eco, int page, @Nullable String query,
                              SortMode sort, boolean mineOnly) {
+        open(player, eco, page, query, sort, mineOnly, false);
+    }
+
+    private static void open(ServerPlayer player, EconomyManager eco, int page, @Nullable String query,
+                             SortMode sort, boolean mineOnly, boolean questBoard) {
         if (!MenuUiSupport.checkOrDeny(player, EconomyPermissions.checkCommand(player, Nodes.COMMAND_ORDERS))) return;
-        MenuUiSupport.openMenu(player, "Orders", (id, inv) ->
-                new RequestMenu(id, inv, eco.getOrders(), eco, player, page, query, sort, mineOnly));
+        MenuUiSupport.openMenu(player, questBoard ? "Quest Board" : "Orders", (id, inv) ->
+                new RequestMenu(id, inv, eco.getOrders(), eco, player, page, query, sort, mineOnly, questBoard));
     }
 
     public static void openClaims(ServerPlayer player, EconomyManager eco) {
@@ -240,6 +249,7 @@ public final class OrdersUi {
         private final OrderManager orders;
         private final EconomyManager eco;
         private final ServerPlayer viewer;
+        private final boolean questBoard;
         @Nullable private final String query;
         private SortMode sort;
         private boolean mineOnly;
@@ -252,17 +262,19 @@ public final class OrdersUi {
         private final Runnable listener = this::updatePage;
 
         RequestMenu(int id, Inventory inv, OrderManager orders, EconomyManager eco, ServerPlayer viewer, int page,
-                    @Nullable String query, SortMode sort, boolean mineOnly) {
-            this(id, inv, orders, eco, viewer, page, query, sort, mineOnly,
-                    resolveRequests(orders, query, sort, mineOnly, viewer));
+                    @Nullable String query, SortMode sort, boolean mineOnly, boolean questBoard) {
+            this(id, inv, orders, eco, viewer, page, query, sort, mineOnly, questBoard,
+                    resolveRequests(orders, eco, query, sort, mineOnly, viewer, questBoard));
         }
 
         private RequestMenu(int id, Inventory inv, OrderManager orders, EconomyManager eco, ServerPlayer viewer, int page,
-                            @Nullable String query, SortMode sort, boolean mineOnly, List<OrderRequest> resolved) {
+                            @Nullable String query, SortMode sort, boolean mineOnly, boolean questBoard,
+                            List<OrderRequest> resolved) {
             super(MenuUiSupport.getMenuType(MenuUiSupport.listMenuRows(resolved.size())), id);
             this.orders = orders;
             this.eco = eco;
             this.viewer = viewer;
+            this.questBoard = questBoard;
             this.page = page;
             this.query = query;
             this.sort = sort;
@@ -282,11 +294,17 @@ public final class OrdersUi {
             }
         }
 
-        private static List<OrderRequest> resolveRequests(OrderManager orders, @Nullable String query, SortMode sort,
-                                                         boolean mineOnly, ServerPlayer viewer) {
+        private static List<OrderRequest> resolveRequests(OrderManager orders, EconomyManager eco,
+                                                         @Nullable String query, SortMode sort,
+                                                         boolean mineOnly, ServerPlayer viewer, boolean questBoard) {
             List<OrderRequest> list = new ArrayList<>(orders.getRequests());
             var server = viewer.level().getServer();
-            list.removeIf(r -> MenuUiSupport.resolvePlayerName(server, r.requester) == null);
+            if (questBoard) {
+                list.removeIf(r -> !eco.getQuests().isQuestOrder(r));
+            } else {
+                list.removeIf(r -> eco.getQuests().isQuestOrder(r)
+                        || MenuUiSupport.resolvePlayerName(server, r.requester) == null);
+            }
             if (query != null && !query.isBlank()) {
                 list.removeIf(r -> !MenuUiSupport.matchesSearch(r.item, query));
             }
@@ -303,9 +321,9 @@ public final class OrdersUi {
 
         @Override
         public void updatePage() {
-            List<OrderRequest> updated = resolveRequests(orders, query, sort, mineOnly, viewer);
+            List<OrderRequest> updated = resolveRequests(orders, eco, query, sort, mineOnly, viewer, questBoard);
             if (MenuUiSupport.listMenuRows(updated.size()) != rows) {
-                OrdersUi.open(viewer, eco, 0, query, sort, mineOnly);
+                OrdersUi.open(viewer, eco, 0, query, sort, mineOnly, questBoard);
                 return;
             }
             requests = updated;
@@ -313,6 +331,14 @@ public final class OrdersUi {
         }
 
         private void cycleSort() {
+            if (questBoard) {
+                sort = switch (sort) {
+                    case DEFAULT -> SortMode.PRICE_ASC;
+                    case PRICE_ASC -> SortMode.PRICE_DESC;
+                    case PRICE_DESC -> SortMode.DEFAULT;
+                };
+                return;
+            }
             if (mineOnly) {
                 mineOnly = false;
                 sort = SortMode.DEFAULT;
@@ -342,7 +368,7 @@ public final class OrdersUi {
                 ItemStack display = r.item.copy();
 
                 boolean mine = viewer.getUUID().equals(r.requester);
-                String reqName = MenuUiSupport.resolvePlayerName(server, r.requester);
+                String reqName = questBoard ? "Quest Board" : MenuUiSupport.resolvePlayerName(server, r.requester);
 
                 List<Component> lore = new ArrayList<>();
                 addBountyRewardLore(lore, r, r.price, r.amount);
@@ -363,8 +389,10 @@ public final class OrdersUi {
             }
 
             if (requests.isEmpty()) {
-                container.setItem(Math.min(4, itemsPerPage - 1), MenuUiSupport.button(Items.BOOK, "No open requests",
-                        ChatFormatting.YELLOW, MenuUiSupport.hint("Click \"New request\" below to post one")));
+                container.setItem(Math.min(4, itemsPerPage - 1), questBoard
+                        ? MenuUiSupport.button(Items.BOOK, "No active bounties right now", ChatFormatting.YELLOW)
+                        : MenuUiSupport.button(Items.BOOK, "No open requests", ChatFormatting.YELLOW,
+                                MenuUiSupport.hint("Click \"New request\" below to post one")));
             }
 
             if (page > 0) container.setItem(navRowStart + 3, MenuUiSupport.prevPageButton());
@@ -373,16 +401,24 @@ public final class OrdersUi {
             container.setItem(navRowStart, MenuUiSupport.createBalanceItem(eco, viewer.getUUID(), viewer,
                     IdentityCompat.of(viewer).name()));
 
-            container.setItem(navRowStart + 1, MenuUiSupport.button(Items.HOPPER, "Sort",
-                    MenuUiSupport.LABEL_PRIMARY_COLOR,
-                    MenuUiSupport.italicHint("Click to cycle"),
-                    MenuUiSupport.toggleOption("Recently Listed", !mineOnly && sort == SortMode.DEFAULT),
-                    MenuUiSupport.toggleOption("Lowest Reward", !mineOnly && sort == SortMode.PRICE_ASC),
-                    MenuUiSupport.toggleOption("Highest Reward", !mineOnly && sort == SortMode.PRICE_DESC),
-                    MenuUiSupport.toggleOption("Mine Only", mineOnly)));
+            container.setItem(navRowStart + 1, questBoard
+                    ? MenuUiSupport.button(Items.HOPPER, "Sort", MenuUiSupport.LABEL_PRIMARY_COLOR,
+                            MenuUiSupport.italicHint("Click to cycle"),
+                            MenuUiSupport.toggleOption("Recently Listed", sort == SortMode.DEFAULT),
+                            MenuUiSupport.toggleOption("Lowest Reward", sort == SortMode.PRICE_ASC),
+                            MenuUiSupport.toggleOption("Highest Reward", sort == SortMode.PRICE_DESC))
+                    : MenuUiSupport.button(Items.HOPPER, "Sort", MenuUiSupport.LABEL_PRIMARY_COLOR,
+                            MenuUiSupport.italicHint("Click to cycle"),
+                            MenuUiSupport.toggleOption("Recently Listed", !mineOnly && sort == SortMode.DEFAULT),
+                            MenuUiSupport.toggleOption("Lowest Reward", !mineOnly && sort == SortMode.PRICE_ASC),
+                            MenuUiSupport.toggleOption("Highest Reward", !mineOnly && sort == SortMode.PRICE_DESC),
+                            MenuUiSupport.toggleOption("Mine Only", mineOnly)));
 
-            container.setItem(navRowStart + 2, MenuUiSupport.button(Items.WRITABLE_BOOK, "New request",
-                    ChatFormatting.GREEN, MenuUiSupport.hint("Pick any item and name your price.")));
+            container.setItem(navRowStart + 2, questBoard
+                    ? MenuUiSupport.button(Items.BOOK, "Server bounties", ChatFormatting.GREEN,
+                            MenuUiSupport.hint("Fulfill a bounty to earn its listed reward."))
+                    : MenuUiSupport.button(Items.WRITABLE_BOOK, "New request", ChatFormatting.GREEN,
+                            MenuUiSupport.hint("Pick any item and name your price.")));
 
             container.setItem(navRowStart + 4, MenuUiSupport.pageIndicator(page, totalPages));
 
@@ -407,7 +443,7 @@ public final class OrdersUi {
                 int index = page * itemsPerPage + slot;
                 if (index < requests.size() && MenuUiSupport.hasContainerContents(requests.get(index).item)) {
                     ContainerPreviewUi.open(viewer, requests.get(index).item,
-                            () -> OrdersUi.open(viewer, eco, page, query, sort, mineOnly));
+                            () -> OrdersUi.open(viewer, eco, page, query, sort, mineOnly, questBoard));
                 }
                 return true;
             }
@@ -441,6 +477,7 @@ public final class OrdersUi {
                 return true;
             }
             if (slot == navRowStart + 2) {
+                if (questBoard) return true;
                 EconomySounds.click(viewer);
                 viewer.closeContainer();
                 startRequest(viewer, eco);
@@ -463,9 +500,10 @@ public final class OrdersUi {
             if (slot == navRowStart + 8) {
                 EconomySounds.click(viewer);
                 if (query != null && !query.isBlank()) {
-                    OrdersUi.open(viewer, eco, 0, null, sort, mineOnly);
+                    OrdersUi.open(viewer, eco, 0, null, sort, mineOnly, questBoard);
                 } else {
-                    TextInputUi.openSearch(viewer, "Search Orders", (p, q) -> OrdersUi.open(p, eco, 0, q, sort, mineOnly));
+                    TextInputUi.openSearch(viewer, questBoard ? "Search Quest Board" : "Search Orders",
+                            (p, q) -> OrdersUi.open(p, eco, 0, q, sort, mineOnly, questBoard));
                 }
                 return true;
             }
@@ -513,8 +551,13 @@ public final class OrdersUi {
         }
 
         @Override
+        public boolean questBoard() {
+            return questBoard;
+        }
+
+        @Override
         public void backToList(ServerPlayer player) {
-            OrdersUi.open(player, eco, 0, query, sort, mineOnly);
+            OrdersUi.open(player, eco, 0, query, sort, mineOnly, questBoard);
         }
 
         @Override
@@ -638,14 +681,14 @@ public final class OrdersUi {
 
                 parent.updatePage();
                 ((ServerPlayer) player).closeContainer();
-                OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                parent.backToList(serverPlayer);
                 return true;
             }
 
             if (slot == MenuUiSupport.ROW_CANCEL) {
                 EconomySounds.click((ServerPlayer) player);
                 ((ServerPlayer) player).closeContainer();
-                OrdersUi.open((ServerPlayer) player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                parent.backToList((ServerPlayer) player);
                 return true;
             }
 
@@ -655,13 +698,13 @@ public final class OrdersUi {
                 if (current == null || !NegotiationEvents.canNegotiateOrder(current)) {
                     fail(serverPlayer, "Request no longer available");
                     ((ServerPlayer) player).closeContainer();
-                    OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                    parent.backToList(serverPlayer);
                     return true;
                 }
                 if (current.requester.equals(serverPlayer.getUUID())) {
                     fail(serverPlayer, "You cannot offer on your own request");
                     ((ServerPlayer) player).closeContainer();
-                    OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                    parent.backToList(serverPlayer);
                     return true;
                 }
                 EconomySounds.click(serverPlayer);
@@ -691,13 +734,13 @@ public final class OrdersUi {
             if (current == null || !NegotiationEvents.canNegotiateOrder(current)) {
                 fail(player, "Request no longer available");
                 ((ServerPlayer) player).closeContainer();
-                OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                parent.backToList(player);
                 return;
             }
             if (current.requester.equals(player.getUUID())) {
                 fail(player, "You cannot offer on your own request");
                 ((ServerPlayer) player).closeContainer();
-                OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                parent.backToList(player);
                 return;
             }
             parent.eco().getNegotiations().makeOffer(NegotiationStore.Kind.ORDER, requestId,
@@ -711,7 +754,7 @@ public final class OrdersUi {
                             + " — the requester was notified.")
                     .withStyle(ChatFormatting.GREEN));
             ((ServerPlayer) player).closeContainer();
-            OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+            parent.backToList(player);
         }
     }
 
@@ -784,13 +827,13 @@ public final class OrdersUi {
                     }
                 }
                 ((ServerPlayer) player).closeContainer();
-                OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                parent.backToList(serverPlayer);
                 return true;
             }
             if (slot == MenuUiSupport.ROW_CANCEL) {
                 EconomySounds.click((ServerPlayer) player);
                 ((ServerPlayer) player).closeContainer();
-                OrdersUi.open((ServerPlayer) player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                parent.backToList((ServerPlayer) player);
                 return true;
             }
             if (slot == EDIT_PRICE_SLOT && NegotiationEvents.canNegotiateOrder(request)) {
@@ -799,7 +842,7 @@ public final class OrdersUi {
                 if (current == null || !current.requester.equals(serverPlayer.getUUID())) {
                     failStatic(serverPlayer, "Request no longer available");
                     ((ServerPlayer) player).closeContainer();
-                    OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                    parent.backToList(serverPlayer);
                     return true;
                 }
                 EconomySounds.click(serverPlayer);
@@ -818,7 +861,7 @@ public final class OrdersUi {
                 if (current == null || !current.requester.equals(serverPlayer.getUUID())) {
                     failStatic(serverPlayer, "Request no longer available");
                     ((ServerPlayer) player).closeContainer();
-                    OrdersUi.open(serverPlayer, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                    parent.backToList(serverPlayer);
                     return true;
                 }
                 EconomySounds.click(serverPlayer);
@@ -865,7 +908,7 @@ public final class OrdersUi {
             default -> failStatic(player, "Request no longer available");
         }
         ((ServerPlayer) player).closeContainer();
-        OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+        parent.backToList(player);
     }
 
     private static void applyRewardEdit(RequestContext parent, ServerPlayer player, int requestId, long newPrice) {
@@ -893,7 +936,7 @@ public final class OrdersUi {
             default -> failStatic(player, "Request no longer available");
         }
         ((ServerPlayer) player).closeContainer();
-        OrdersUi.open(player, parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+        parent.backToList(player);
     }
 
     private static void failStatic(ServerPlayer player, String message) {
@@ -918,6 +961,8 @@ public final class OrdersUi {
         SortMode sort();
 
         boolean mineOnly();
+
+        boolean questBoard();
 
         void openConfirm(ServerPlayer player, OrderRequest req);
 
@@ -945,6 +990,11 @@ public final class OrdersUi {
 
         @Override
         public boolean mineOnly() {
+            return false;
+        }
+
+        @Override
+        public boolean questBoard() {
             return false;
         }
 
@@ -1089,7 +1139,7 @@ public final class OrdersUi {
                 if (req != null && req.requester.equals(parent.viewer().getUUID())) {
                     parent.openRemove(parent.viewer(), req);
                 } else {
-                    OrdersUi.open(parent.viewer(), parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                    parent.backToList(parent.viewer());
                 }
                 return true;
             }
@@ -1186,7 +1236,7 @@ public final class OrdersUi {
                     return;
                 }
                 parent.viewer().closeContainer();
-                OrdersUi.open(parent.viewer(), parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+                parent.backToList(parent.viewer());
                 return;
             }
             String desc = describe(req);
@@ -1204,7 +1254,7 @@ public final class OrdersUi {
                             + " — the fulfiller was notified.")
                     .withStyle(ChatFormatting.GREEN));
             parent.viewer().closeContainer();
-            OrdersUi.open(parent.viewer(), parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+            parent.backToList(parent.viewer());
         }
 
         private void decline() {
@@ -1229,7 +1279,7 @@ public final class OrdersUi {
         private void fail(String message) {
             failStatic(parent.viewer(), message);
             parent.viewer().closeContainer();
-            OrdersUi.open(parent.viewer(), parent.eco(), 0, parent.query(), parent.sort(), parent.mineOnly());
+            parent.backToList(parent.viewer());
         }
     }
 

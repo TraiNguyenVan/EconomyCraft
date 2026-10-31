@@ -1,6 +1,8 @@
 # Server quests
 
-Server quests are requests funded by the server. Find them in `/orders`, marked as server-funded bounties. Fulfill a request through the normal orders interface to receive its listed reward. The board covers any applicable order tax, so the fulfiller receives the full amount shown.
+Server quests are requests funded by the server. Open `/quest` or `/eco quest` to browse and fulfill active bounties. Player-created requests remain in `/orders` or `/eco orders`. The board covers any applicable order tax, so the fulfiller receives the full amount shown.
+
+When the board refreshes with active bounties, online players receive one chat notice with a clickable button to open `/quest`.
 
 The board is drawn from eligible items in the server's price catalog and refreshes by period. Each period has a server-funded budget; the board may stop posting once the budget is used. Open quests expire when a period rolls over and do not carry forward.
 
