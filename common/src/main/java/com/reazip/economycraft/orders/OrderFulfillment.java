@@ -173,6 +173,23 @@ public final class OrderFulfillment {
      */
     public static OrderRequest createEscrowedRequest(EconomyManager eco, UUID requester, ItemStack item, int amount, long price,
                                                      @org.jetbrains.annotations.Nullable String description, long expiresAt, boolean broadcast) {
+        return createEscrowedRequest(eco, requester, item, amount, price, price, description, expiresAt, broadcast);
+    }
+
+    /** Creates a request whose reserved balance may exceed the advertised reward. */
+    public static OrderRequest createEscrowedRequest(EconomyManager eco, UUID requester, ItemStack item, int amount,
+                                                     long price, long escrow,
+                                                     @org.jetbrains.annotations.Nullable String description,
+                                                     long expiresAt, boolean broadcast) {
+        return createEscrowedRequest(eco, requester, item, amount, price, escrow, description, expiresAt, broadcast, false);
+    }
+
+    /** Creates a request whose tax reserve guarantees the fulfiller the advertised reward. */
+    public static OrderRequest createEscrowedRequest(EconomyManager eco, UUID requester, ItemStack item, int amount,
+                                                     long price, long escrow,
+                                                     @org.jetbrains.annotations.Nullable String description,
+                                                     long expiresAt, boolean broadcast, boolean serverCoversOrderTax) {
+        if (price <= 0 || escrow < price) return null;
         String desc = com.reazip.economycraft.util.ListingDescriptions.sanitize(description);
         String detail = EconomyCraft.describeItem(amount, item.getHoverName().getString());
 
@@ -183,7 +200,8 @@ public final class OrderFulfillment {
         request.amount = amount;
         request.originalAmount = amount;
         // Escrow is recorded before the debit so the debit's transactional save persists both.
-        request.escrow = price;
+        request.escrow = escrow;
+        request.serverCoversOrderTax = serverCoversOrderTax;
         request.createdAt = System.currentTimeMillis();
         request.expiresAt = expiresAt;
         request.description = desc;
@@ -192,7 +210,7 @@ public final class OrderFulfillment {
         orders.stage(request);
         boolean debited;
         try {
-            debited = eco.removeMoney(requester, price, EconomySources.ORDER_ESCROW_HOLD, detail).successful();
+            debited = eco.removeMoney(requester, escrow, EconomySources.ORDER_ESCROW_HOLD, detail).successful();
         } catch (RuntimeException e) {
             orders.unstage(request.id);
             throw e;
@@ -339,6 +357,27 @@ public final class OrderFulfillment {
 
         String detail = EconomyCraft.describeItem(claim.given(), itemProto.getHoverName().getString());
 
+        boolean botOrder = QuestManager.BOT_UUID.equals(requester);
+        boolean taxCoveredBounty = botOrder && claim.order().serverCoversOrderTax;
+        long botTax = 0L;
+        if (botOrder) {
+            botTax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, claim.payment(), fulfillerId, eco);
+            if (botTax < 0 || (taxCoveredBounty && claim.order().escrow < botTax)) {
+                orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
+                return new Result(Status.REQUESTER_CANT_PAY, 0, 0, 0, 0, claim.order().amount, itemProto, requester);
+            }
+            if (taxCoveredBounty) {
+                try {
+                    claim = new OrderManager.ClaimResult(claim.status(), claim.order(), claim.given(), claim.payment(),
+                            Math.addExact(claim.escrowUsed(), botTax), claim.exhausted());
+                    claim.order().escrow -= botTax;
+                } catch (ArithmeticException overflow) {
+                    orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
+                    return new Result(Status.REQUESTER_CANT_PAY, 0, 0, 0, 0, claim.order().amount, itemProto, requester);
+                }
+            }
+        }
+
         // The goods leave the fulfiller exactly once, and they leave it BEFORE any money moves:
         // no settlement can commit while they are still in the inventory, because there is no
         // transaction that spans the ledger and Minecraft's own saves. The removal becomes
@@ -381,7 +420,6 @@ public final class OrderFulfillment {
         // together with the payment, the order reduction and the buyer's delivery/quest stock.
         consumeHandoff(eco, fulfillerId, handoff);
 
-        boolean botOrder = QuestManager.BOT_UUID.equals(requester);
         String stagedStockKey = botOrder ? stageQuestStock(eco, itemProto, claim.given()) : null;
         List<ItemStack> stagedDeliveries = botOrder
                 ? List.of()
@@ -389,7 +427,8 @@ public final class OrderFulfillment {
 
         PaymentOutcome outcome;
         try {
-            outcome = settleOrderPayment(eco, requester, fulfillerId, claim.payment(), claim.escrowUsed(), detail);
+            outcome = settleOrderPayment(eco, requester, fulfillerId, claim.payment(), claim.escrowUsed(), detail,
+                    botOrder, taxCoveredBounty, botTax, claim.order(), claim.exhausted());
         } catch (RuntimeException e) {
             // The save threw before it committed, so the transaction rolled back: the balances go
             // back the way the engine found them, and the handoff plus every staged good and the
@@ -474,7 +513,32 @@ public final class OrderFulfillment {
     }
 
     private static PaymentOutcome settleOrderPayment(EconomyManager eco, UUID requester, UUID fulfillerId, long payment,
-                                                       long escrowUsed, String detail) {
+                                                       long escrowUsed, String detail, boolean botOrder,
+                                                       boolean taxCoveredBounty, long botTax,
+                                                       OrderRequest order, boolean exhausted) {
+        if (botOrder) {
+            long payout = taxCoveredBounty ? payment : payment - botTax;
+            if (taxCoveredBounty) {
+                long unusedReserve = exhausted ? Math.max(0L, order.escrow) : 0L;
+                long refundCapacity = Math.max(0L, EconomyManager.maxBalance() - eco.peekBalance(requester));
+                long reserveRefund = Math.min(unusedReserve, refundCapacity);
+                if (reserveRefund < unusedReserve) {
+                    LOGGER.warn("[EconomyCraft] Could only return {} of {} unused quest tax reserve; the quest wallet is at its balance limit.",
+                            reserveRefund, unusedReserve);
+                }
+                boolean settled = eco.settleQuestOrderPayout(fulfillerId, payout, detail, reserveRefund,
+                        "unused quest tax reserve");
+                return settled
+                        ? new PaymentOutcome(true, true, payout, null)
+                        : new PaymentOutcome(false, false, 0, Status.FULFILLER_CANT_RECEIVE);
+            }
+            var credit = eco.addMoney(fulfillerId, payout, EconomySources.ORDER_FULFILLMENT, detail);
+            if (!credit.successful()) {
+                return new PaymentOutcome(false, false, 0, Status.FULFILLER_CANT_RECEIVE);
+            }
+            return new PaymentOutcome(true, true, payout, null);
+        }
+
         long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment, fulfillerId, eco);
         long payout = payment - tax;
         long shortfall = payment - escrowUsed;
@@ -694,12 +758,16 @@ public final class OrderFulfillment {
 
     public static long payoutFor(OrderRequest order, int give) {
         long payment = OrderManager.partialPayment(order, give);
+        if (order != null && QuestManager.BOT_UUID.equals(order.requester) && order.serverCoversOrderTax) return payment;
         long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment);
         return payment - tax;
     }
 
     private static double netRatePerUnit(OrderRequest order) {
         if (order == null || order.amount <= 0) return 0;
+        if (QuestManager.BOT_UUID.equals(order.requester) && order.serverCoversOrderTax) {
+            return order.price / (double) order.amount;
+        }
         return TaxPolicy.netRate(TaxScope.TRANSACTION_ORDER, order.price / (double) order.amount);
     }
 
@@ -750,7 +818,7 @@ public final class OrderFulfillment {
 
     /**
      * Books bot-bound goods into the quest stock ledger instead of a deliveries mailbox, which nobody
-     * would ever claim. Keyed by price key so the Phase 2 buyback market can price stock back out.
+     * would ever claim. The finite shop uses the same price key to find and sell that stock.
      * Staged without persisting so the payout's save commits the stock and the money together.
      */
     private static String stageQuestStock(EconomyManager eco, ItemStack proto, int amount) {

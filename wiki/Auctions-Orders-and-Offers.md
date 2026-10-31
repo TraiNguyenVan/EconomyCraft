@@ -26,7 +26,7 @@ The order board shows delivered items over the original requested amount after p
 
 ## Price offers
 
-An offer is a non-binding price suggestion on another player's auction listing or order. It does not reserve money or items, and the owner can accept or decline it. The listing or request may still be bought or fulfilled at its posted terms first. Offers on server quest orders and quest buyback listings are not accepted.
+An offer is a non-binding price suggestion on another player's auction listing or order. It does not reserve money or items, and the owner can accept or decline it. The listing or request may still be bought or fulfilled at its posted terms first. Offers on server quest orders are not accepted.
 
 Open `/offers` or `/eco offers` to review offers on your listings and requests, and manage offers you have made. The owner receives notices about new offers and their outcomes. A notice may include a link that opens the relevant offer screen directly.
 

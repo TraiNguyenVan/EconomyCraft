@@ -8,6 +8,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The quest board's arithmetic, kept free of Minecraft types so it is unit-testable without a server.
@@ -18,6 +23,24 @@ import java.util.Set;
  */
 public final class QuestLogic {
     private QuestLogic() {}
+
+    private static final Pattern LEGACY_SALE_DETAIL = Pattern.compile("^(\\d+)x\\s+(.+)$");
+
+    public record LegacySale(int quantity, String displayName) {}
+
+    /** Parses old auction log descriptions that preserved both quantity and display name. */
+    public static LegacySale parseLegacySaleDetail(String detail) {
+        if (detail == null) return null;
+        Matcher matcher = LEGACY_SALE_DETAIL.matcher(detail);
+        if (!matcher.matches()) return null;
+        try {
+            int quantity = Integer.parseInt(matcher.group(1));
+            String displayName = matcher.group(2).trim();
+            return quantity > 0 && !displayName.isBlank() ? new LegacySale(quantity, displayName) : null;
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
 
     /**
      * The per-item price a quest pays, in whole coins.
@@ -33,6 +56,49 @@ public final class QuestLogic {
         long base = effectiveBuy > 0 ? effectiveBuy : Math.round(unitSell * sellFallbackMultiplier);
         if (base <= 0) return 0;
         return Math.max(1, Math.round(base * priceFactor));
+    }
+
+    /** The finite amount a stock offer can deliver for one request. */
+    public static int stockPurchaseAmount(int requested, long available) {
+        return requested <= 0 || available <= 0 ? 0 : (int) Math.min(requested, available);
+    }
+
+    /** Market sale recorded as the seller's credit for the stated quantity. */
+    public record MarketSale(long sellerProceeds, int quantity, long timeMillis) {}
+
+    /** Median seller proceeds per item, blended with the shop fallback until enough sales exist. */
+    public static long marketUnit(List<MarketSale> sales, long nowMillis, int lookbackDays,
+                                  int minimumSales, long fallbackUnit) {
+        fallbackUnit = Math.max(0L, fallbackUnit);
+        long cutoff = nowMillis - Math.max(1, lookbackDays) * 24L * 60L * 60L * 1000L;
+        List<BigDecimal> units = new ArrayList<>();
+        if (sales != null) {
+            for (MarketSale sale : sales) {
+                if (sale == null || sale.sellerProceeds() <= 0 || sale.quantity() <= 0
+                        || sale.timeMillis() < cutoff || sale.timeMillis() > nowMillis) continue;
+                units.add(BigDecimal.valueOf(sale.sellerProceeds())
+                        .divide(BigDecimal.valueOf(sale.quantity()), MathContext.DECIMAL128));
+            }
+        }
+        if (units.isEmpty()) return fallbackUnit;
+        Collections.sort(units);
+        int count = units.size();
+        BigDecimal middle = count % 2 == 0
+                ? units.get(count / 2 - 1).add(units.get(count / 2)).divide(BigDecimal.valueOf(2), MathContext.DECIMAL128)
+                : units.get(count / 2);
+        int threshold = Math.max(1, minimumSales);
+        BigDecimal blended = middle;
+        if (count < threshold) {
+            BigDecimal marketWeight = BigDecimal.valueOf(count)
+                    .divide(BigDecimal.valueOf(threshold), MathContext.DECIMAL128);
+            blended = middle.multiply(marketWeight)
+                    .add(BigDecimal.valueOf(fallbackUnit).multiply(BigDecimal.ONE.subtract(marketWeight)));
+        }
+        try {
+            return Math.max(1L, blended.setScale(0, RoundingMode.HALF_UP).longValueExact());
+        } catch (ArithmeticException overflow) {
+            return Long.MAX_VALUE;
+        }
     }
 
     /**

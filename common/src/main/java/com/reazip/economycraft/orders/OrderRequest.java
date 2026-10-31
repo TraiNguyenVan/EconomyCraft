@@ -17,6 +17,8 @@ public class OrderRequest {
     public int originalAmount;
     public long price;
     public long escrow;
+    /** Whether the requester reserved tax separately so the fulfiller receives the full bounty. */
+    public boolean serverCoversOrderTax;
     public long createdAt;
     public long expiresAt;
     @org.jetbrains.annotations.Nullable
@@ -34,6 +36,7 @@ public class OrderRequest {
         obj.addProperty("amount", amount);
         obj.addProperty("originalAmount", originalAmount > 0 ? originalAmount : amount);
         obj.addProperty("escrow", escrow);
+        if (serverCoversOrderTax) obj.addProperty("serverCoversOrderTax", true);
         obj.addProperty("createdAt", createdAt);
         obj.addProperty("expiresAt", expiresAt);
         if (description != null && !description.isBlank()) {
@@ -54,6 +57,8 @@ public class OrderRequest {
         if (obj.has("escrow")) {
             r.escrow = obj.get("escrow").getAsLong();
         }
+        r.serverCoversOrderTax = obj.has("serverCoversOrderTax")
+                && obj.get("serverCoversOrderTax").getAsBoolean();
         if (obj.has("createdAt")) r.createdAt = obj.get("createdAt").getAsLong();
         if (obj.has("expiresAt")) r.expiresAt = obj.get("expiresAt").getAsLong();
         if (obj.has("description") && !obj.get("description").isJsonNull()) {

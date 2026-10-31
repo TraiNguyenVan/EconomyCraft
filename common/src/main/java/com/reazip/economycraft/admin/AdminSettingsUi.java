@@ -432,9 +432,9 @@ public final class AdminSettingsUi {
         }
 
         private void editRetentionDays(Setting setting, long current, Item icon,
-                                       java.util.function.LongConsumer apply) {
+                                       java.util.function.LongConsumer apply, long minimum) {
             NumberInputUi.open(viewer, setting.label, new ItemStack(icon), setting.label, current,
-                    EconomyConfig.MIN_TRANSACTION_LOG_RETENTION_DAYS, Integer.MAX_VALUE,
+                    minimum, Integer.MAX_VALUE,
                     new int[]{30, 7, 1}, SettingsMenu::days,
                     "Confirm", null,
                     (p, next) -> {
@@ -652,11 +652,17 @@ public final class AdminSettingsUi {
                 }
                 case TRANSACTION_LOG -> {
                     config.transactionLog.enabled = !config.transactionLog.enabled;
+                    if (config.transactionLog.enabled && config.quests.enabled
+                            && config.transactionLog.retentionDays < config.quests.marketLookbackDays) {
+                        config.transactionLog.retentionDays = config.quests.marketLookbackDays;
+                    }
                     save(viewer);
                     render();
                 }
                 case TRANSACTION_LOG_RETENTION -> editRetentionDays(setting, config.transactionLog.retentionDays,
-                        Items.MAP, v -> EconomyConfig.get().transactionLog.retentionDays = (int) v);
+                        Items.MAP, v -> EconomyConfig.get().transactionLog.retentionDays = (int) v,
+                        config.transactionLog.enabled && config.quests.enabled ? config.quests.marketLookbackDays
+                                : EconomyConfig.MIN_TRANSACTION_LOG_RETENTION_DAYS);
                 case DYNAMIC_PRICES -> {
                     config.dynamicPrices.enabled = !config.dynamicPrices.enabled;
                     save(viewer);

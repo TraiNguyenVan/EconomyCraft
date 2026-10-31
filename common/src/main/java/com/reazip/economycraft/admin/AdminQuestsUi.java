@@ -30,9 +30,8 @@ import java.util.List;
 /**
  * The quest board's admin screen: live tuning without touching files.
  *
- * <p>Both fractions apply on the next quest sweep (a minute or two) — factor edits converge the
- * open orders automatically, and the shop-price gate takes new draws and buyback listings with
- * it. The reset period is read live too, so shortening it rolls the board over on the next sweep;
+ * <p>The fallback fraction applies on the next quest sweep, and the shop-price gate takes new
+ * draws with it. The reset period is read live too, so shortening it rolls the board over on the next sweep;
  * that case confirms first, since it cancels the quests players are standing on. Only hand-editing
  * the JSON files on disk still needs Reload from disk.
  */
@@ -44,7 +43,7 @@ public final class AdminQuestsUi {
     private static final int BUYBACK = 11;
     private static final int SHOP_GATE = 12;
     private static final int PRICE_FACTOR = 13;
-    private static final int BUYBACK_FACTOR = 14;
+    private static final int MARKET_PRICE = 14;
     private static final int BUDGET = 15;
     private static final int FORCE_REDRAW = 16;
     private static final int PERIOD = 17;
@@ -87,24 +86,26 @@ public final class AdminQuestsUi {
                     MenuUiSupport.hint("The server's automatic buy orders."),
                     MenuUiSupport.hint("Click to switch on or off.")));
 
-            container.setItem(BUYBACK, MenuUiSupport.button(Items.CHEST, "Buyback Market", ChatFormatting.GREEN,
+            container.setItem(BUYBACK, MenuUiSupport.button(Items.CHEST, "Quest Stock Shop", ChatFormatting.GREEN,
                     stateLine(quests.buyback.enabled),
-                    MenuUiSupport.hint("Resell quest stock on /ah."),
+                    MenuUiSupport.hint("Sell available quest stock in /shop."),
                     MenuUiSupport.hint("Click to switch on or off.")));
 
             container.setItem(SHOP_GATE, MenuUiSupport.button(Items.EMERALD, "Shop-Only Pool", ChatFormatting.AQUA,
                     stateLine(quests.requireShopPrice),
                     MenuUiSupport.hint("Only items with a shop price"),
-                    MenuUiSupport.hint("can be drawn or listed back."),
+                    MenuUiSupport.hint("be drawn for the bounty board."),
                     MenuUiSupport.hint("Click to switch on or off.")));
 
-            container.setItem(PRICE_FACTOR, MenuUiSupport.button(Items.PAPER, "Order Fraction", ChatFormatting.YELLOW,
-                    MenuUiSupport.line("Pays " + percent(quests.priceFactor) + " of effective buy.", ChatFormatting.WHITE),
+            container.setItem(PRICE_FACTOR, MenuUiSupport.button(Items.PAPER, "Fallback Order Fraction", ChatFormatting.YELLOW,
+                    MenuUiSupport.line("Fallback pays " + percent(quests.priceFactor) + " of effective buy.", ChatFormatting.WHITE),
+                    MenuUiSupport.hint("Blended with player auction prices."),
                     MenuUiSupport.hint("Click to change. Live on next sweep.")));
 
-            container.setItem(BUYBACK_FACTOR, MenuUiSupport.button(Items.PAPER, "Listing Fraction", ChatFormatting.YELLOW,
-                    MenuUiSupport.line("Charges " + percent(quests.buyback.priceFactor) + " of effective buy.", ChatFormatting.WHITE),
-                    MenuUiSupport.hint("Click to change. Live on next sweep.")));
+            container.setItem(MARKET_PRICE, MenuUiSupport.button(Items.EMERALD, "Market Price", ChatFormatting.AQUA,
+                    MenuUiSupport.line("Median player auction sale price.", ChatFormatting.WHITE),
+                    MenuUiSupport.hint("Looks back " + quests.marketLookbackDays + " days."),
+                    MenuUiSupport.hint("Blends until " + quests.marketMinimumSales + " sales.")));
 
             container.setItem(BUDGET, MenuUiSupport.button(Items.GOLD_INGOT, "Period Budget", ChatFormatting.GOLD,
                     MenuUiSupport.line(EconomyCraft.formatMoney(quests.weeklyBudget) + " per period.", ChatFormatting.WHITE),
@@ -120,9 +121,9 @@ public final class AdminQuestsUi {
                     MenuUiSupport.hint("Reprice order only if price drifts >= this."),
                     MenuUiSupport.hint("Click to change.")));
 
-            container.setItem(MAX_EXPIRIES, MenuUiSupport.button(Items.BARRIER, "Max AH Expiries", ChatFormatting.RED,
+            container.setItem(MAX_EXPIRIES, MenuUiSupport.button(Items.BARRIER, "Legacy AH Expiries", ChatFormatting.RED,
                     MenuUiSupport.line(quests.maxUnsoldExpiries + " expiry cycle(s)", ChatFormatting.WHITE),
-                    MenuUiSupport.hint("Quarantines item and voids unsold stock."),
+                    MenuUiSupport.hint("Only affects old bot auction listings."),
                     MenuUiSupport.hint("Click to cycle (1..5).")));
 
             container.setItem(MAX_PER_CATEGORY, MenuUiSupport.button(Items.COMPASS, "Category Quota", ChatFormatting.AQUA,
@@ -133,7 +134,7 @@ public final class AdminQuestsUi {
             int quarantined = eco.getQuests().getAutoMarketBlacklist().size();
             container.setItem(MARKET_BLACKLIST, MenuUiSupport.button(Items.LAVA_BUCKET, "Market Quarantine", ChatFormatting.DARK_RED,
                     MenuUiSupport.line(quarantined + " item(s) quarantined.", ChatFormatting.WHITE),
-                    MenuUiSupport.hint("Items that failed to sell on /ah."),
+                    MenuUiSupport.hint("Items quarantined from old auction buybacks."),
                     MenuUiSupport.hint("Click to clear quarantine.")));
 
             if (EconomyPermissions.checkAdmin(viewer, Nodes.ADMIN_RESET)) {
@@ -207,18 +208,6 @@ public final class AdminQuestsUi {
                             "Order fraction", Math.round(quests.priceFactor * 100),
                             (p, next) -> {
                                 EconomyConfig.get().quests.priceFactor = next / 100.0;
-                                EconomyConfig.save();
-                                EconomySounds.click(p);
-                                open(p, eco);
-                            },
-                            p -> open(p, eco));
-                }
-                case BUYBACK_FACTOR -> {
-                    EconomySounds.click(viewer);
-                    NumberInputUi.openPercent(viewer, "Listing fraction", new ItemStack(Items.PAPER),
-                            "Listing fraction", Math.round(quests.buyback.priceFactor * 100),
-                            (p, next) -> {
-                                EconomyConfig.get().quests.buyback.priceFactor = next / 100.0;
                                 EconomyConfig.save();
                                 EconomySounds.click(p);
                                 open(p, eco);

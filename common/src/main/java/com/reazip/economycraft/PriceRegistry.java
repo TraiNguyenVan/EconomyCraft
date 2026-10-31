@@ -55,6 +55,7 @@ public final class PriceRegistry {
     private final Map<String, CategorySettings> categorySettings = new LinkedHashMap<>();
     private final List<PriceEntry> removedEntries = new ArrayList<>();
     private JsonObject bundledDefaults;
+    private long revision;
 
     public PriceRegistry(MinecraftServer server) {
         this.file = EconomyPaths.configDir(server).resolve("prices.json");
@@ -71,6 +72,7 @@ public final class PriceRegistry {
     }
 
     public void reload() {
+        revision++;
         this.prices.clear();
         this.categorySettings.clear();
         this.removedEntries.clear();
@@ -168,6 +170,11 @@ public final class PriceRegistry {
         } catch (Exception ex) {
             LOGGER.error("[EconomyCraft] Failed to load prices.json from {}", file, ex);
         }
+    }
+
+    /** Changes whenever the catalog is reloaded, so derived indexes can be invalidated. */
+    public long revision() {
+        return revision;
     }
 
     public PriceEntry resolve(ItemStack stack) {

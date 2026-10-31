@@ -17,12 +17,15 @@ import java.util.function.BiConsumer;
 import java.util.function.LongSupplier;
 
 final class BalanceMutationEngine {
+    record Credit(long amount, MutationSource source, String detail) {}
+
     private final Map<UUID, Long> balances;
     private final LongSupplier startingBalance;
     private final Runnable onInitialized;
     private final Runnable onMutationCommitted;
     private final BalanceEventDispatcher events;
     private final BiConsumer<PaymentResult, Long> onTransfer;
+    private final Consumer<Runnable> afterCommit;
 
     BalanceMutationEngine(
             Map<UUID, Long> balances,
@@ -30,7 +33,8 @@ final class BalanceMutationEngine {
             Runnable onInitialized,
             Runnable onMutationCommitted,
             BalanceEventDispatcher events,
-            BiConsumer<PaymentResult, Long> onTransfer
+            BiConsumer<PaymentResult, Long> onTransfer,
+            Consumer<Runnable> afterCommit
     ) {
         this.balances = balances;
         this.startingBalance = startingBalance;
@@ -38,6 +42,7 @@ final class BalanceMutationEngine {
         this.onMutationCommitted = onMutationCommitted;
         this.events = events;
         this.onTransfer = onTransfer;
+        this.afterCommit = afterCommit;
     }
 
     long getBalance(UUID playerId) {
@@ -102,10 +107,11 @@ final class BalanceMutationEngine {
     }
 
     PaymentResult pay(UUID senderId, UUID receiverId, long amount, MutationSource source, String detail) {
-        return transfer(senderId, receiverId, amount, amount, source, detail, null);
+        return transfer(senderId, receiverId, amount, amount, source, detail, null, 0, null);
     }
 
-    PaymentResult transfer(UUID senderId, UUID receiverId, long debitAmount, long creditAmount, MutationSource source, String detail, String item) {
+    PaymentResult transfer(UUID senderId, UUID receiverId, long debitAmount, long creditAmount,
+                           MutationSource source, String detail, String item, int quantity, String marketKey) {
         Objects.requireNonNull(senderId, "senderId");
         Objects.requireNonNull(receiverId, "receiverId");
         BalanceState sender = state(senderId);
@@ -144,14 +150,52 @@ final class BalanceMutationEngine {
         Optional<String> optionalDetail = Optional.ofNullable(detail);
         PaymentResult result = new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, receiverId, debitAmount,
                 sender.balance(), senderNew, receiver.balance(), receiverNew, optionalSource);
-        events.emit(new BalanceChangeEvent(senderId, sender.balance(), senderNew,
-                BalanceMutationType.PAYMENT_SENT, Optional.of(receiverId), optionalSource, optionalDetail), item);
-        if (creditAmount > 0) {
-            events.emit(new BalanceChangeEvent(receiverId, receiver.balance(), receiverNew,
-                    BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), item);
-        }
-        onTransfer.accept(result, debitAmount);
+        afterCommit.accept(() -> {
+            events.emit(new BalanceChangeEvent(senderId, sender.balance(), senderNew,
+                    BalanceMutationType.PAYMENT_SENT, Optional.of(receiverId), optionalSource, optionalDetail),
+                    item, quantity, marketKey);
+            if (creditAmount > 0) {
+                events.emit(new BalanceChangeEvent(receiverId, receiver.balance(), receiverNew,
+                        BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail),
+                        item, quantity, marketKey);
+            }
+            onTransfer.accept(result, debitAmount);
+        });
         return result;
+    }
+
+    /** Adds several escrow-backed credits with one persistence transaction. */
+    boolean addMany(Map<UUID, Credit> credits) {
+        Objects.requireNonNull(credits, "credits");
+        if (credits.isEmpty()) return false;
+
+        Map<UUID, BalanceState> states = new LinkedHashMap<>();
+        Map<UUID, Long> staged = new LinkedHashMap<>();
+        for (Map.Entry<UUID, Credit> entry : credits.entrySet()) {
+            UUID playerId = Objects.requireNonNull(entry.getKey(), "player id");
+            Credit credit = Objects.requireNonNull(entry.getValue(), "credit");
+            if (credit.amount() <= 0) return false;
+            BalanceState state = state(playerId);
+            if (credit.amount() > EconomyManager.maxBalance() - state.balance()) return false;
+            states.put(playerId, state);
+            staged.put(playerId, state.balance() + credit.amount());
+        }
+
+        balances.putAll(staged);
+        try {
+            onMutationCommitted.run();
+        } catch (RuntimeException e) {
+            states.values().forEach(this::restore);
+            throw e;
+        }
+
+        afterCommit.accept(() -> credits.forEach((playerId, credit) -> {
+            BalanceState state = states.get(playerId);
+            events.emit(new BalanceChangeEvent(playerId, state.balance(), staged.get(playerId),
+                    BalanceMutationType.ADD, Optional.empty(), Optional.ofNullable(credit.source()),
+                    Optional.ofNullable(credit.detail())), null);
+        }));
+        return true;
     }
 
     /** Settles one debit against several recipients in one balance/database commit. */
@@ -206,16 +250,18 @@ final class BalanceMutationEngine {
 
         Optional<MutationSource> optionalSource = Optional.ofNullable(source);
         Optional<String> optionalDetail = Optional.ofNullable(detail);
-        events.emit(new BalanceChangeEvent(senderId, sender.balance(), staged.get(senderId),
-                BalanceMutationType.PAYMENT_SENT, Optional.of(firstReceiver), optionalSource, optionalDetail), null);
-        for (Map.Entry<UUID, Long> entry : credits.entrySet()) {
-            BalanceState receiver = states.get(entry.getKey());
-            long newBalance = staged.get(entry.getKey());
-            events.emit(new BalanceChangeEvent(entry.getKey(), receiver.balance(), newBalance,
-                    BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), null);
-            onTransfer.accept(new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, entry.getKey(), entry.getValue(),
-                    sender.balance(), staged.get(senderId), receiver.balance(), newBalance, optionalSource), debitAmount);
-        }
+        afterCommit.accept(() -> {
+            events.emit(new BalanceChangeEvent(senderId, sender.balance(), staged.get(senderId),
+                    BalanceMutationType.PAYMENT_SENT, Optional.of(firstReceiver), optionalSource, optionalDetail), null);
+            for (Map.Entry<UUID, Long> entry : credits.entrySet()) {
+                BalanceState receiver = states.get(entry.getKey());
+                long newBalance = staged.get(entry.getKey());
+                events.emit(new BalanceChangeEvent(entry.getKey(), receiver.balance(), newBalance,
+                        BalanceMutationType.PAYMENT_RECEIVED, Optional.of(senderId), optionalSource, optionalDetail), null);
+                onTransfer.accept(new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, entry.getKey(), entry.getValue(),
+                        sender.balance(), staged.get(senderId), receiver.balance(), newBalance, optionalSource), debitAmount);
+            }
+        });
         return new PaymentResult(BalanceMutationStatus.SUCCESS, senderId, firstReceiver, debitAmount,
                 sender.balance(), staged.get(senderId), states.get(firstReceiver).balance(), staged.get(firstReceiver), optionalSource);
     }
@@ -257,8 +303,8 @@ final class BalanceMutationEngine {
         Optional<MutationSource> optionalSource = Optional.ofNullable(source);
         BalanceMutationResult result = new BalanceMutationResult(BalanceMutationStatus.SUCCESS, type,
                 state.playerId(), requestedAmount, state.balance(), newBalance, optionalSource);
-        events.emit(new BalanceChangeEvent(state.playerId(), state.balance(), newBalance, type,
-                Optional.empty(), optionalSource, Optional.ofNullable(detail)), item);
+        afterCommit.accept(() -> events.emit(new BalanceChangeEvent(state.playerId(), state.balance(), newBalance, type,
+                Optional.empty(), optionalSource, Optional.ofNullable(detail)), item));
         return result;
     }
 

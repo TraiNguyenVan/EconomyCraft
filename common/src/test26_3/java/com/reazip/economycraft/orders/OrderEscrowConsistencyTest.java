@@ -3,6 +3,7 @@ package com.reazip.economycraft.orders;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.reazip.economycraft.DeliveryManager;
+import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.NotificationManager;
 import com.reazip.economycraft.PriceRegistry;
@@ -121,6 +122,10 @@ class OrderEscrowConsistencyTest {
 
     @BeforeEach
     void setUp() throws SQLException {
+        EconomyConfig.get().taxRate = 0.1;
+        EconomyConfig.get().factions.enabled = false;
+        EconomyConfig.get().professions.enabled = false;
+
         server = mock(MinecraftServer.class);
         when(server.getWorldPath(LevelResource.ROOT)).thenReturn(world);
         when(server.registryAccess())
@@ -152,6 +157,7 @@ class OrderEscrowConsistencyTest {
         when(eco.getServer()).thenReturn(server);
         when(eco.getNotifications()).thenReturn(mock(NotificationManager.class));
         when(eco.getNegotiations()).thenReturn(mock(NegotiationStore.class));
+        when(eco.peekBalance(any(UUID.class))).thenAnswer(call -> balances.getOrDefault(call.getArgument(0), 0L));
         doAnswer(call -> {
             commitDocuments();
             return null;
@@ -210,6 +216,26 @@ class OrderEscrowConsistencyTest {
                     }
                     return result(BalanceMutationStatus.SUCCESS, BalanceMutationType.ADD,
                             id, amount, before, before + amount, source);
+                });
+        when(eco.settleQuestOrderPayout(any(UUID.class), anyLong(), anyString(), anyLong(), anyString()))
+                .thenAnswer(call -> {
+                    UUID fulfiller = call.getArgument(0);
+                    long payout = call.getArgument(1);
+                    long refund = call.getArgument(3);
+                    if (SELLER.equals(fulfiller)) heldAtPayout = sellerHoldings.get();
+                    long sellerBefore = balances.getOrDefault(fulfiller, 0L);
+                    long botBefore = balances.getOrDefault(BOT, 0L);
+                    if (sellerBefore + payout > EconomyManager.MAX || botBefore + refund > EconomyManager.MAX) return false;
+                    balances.put(fulfiller, sellerBefore + payout);
+                    if (refund > 0) balances.put(BOT, botBefore + refund);
+                    try {
+                        commitDocuments();
+                    } catch (RuntimeException e) {
+                        balances.put(fulfiller, sellerBefore);
+                        balances.put(BOT, botBefore);
+                        throw e;
+                    }
+                    return true;
                 });
     }
 
@@ -551,6 +577,32 @@ class OrderEscrowConsistencyTest {
         assertEquals(64, questStock.total(), "the delivered quest stock must survive a restart");
         assertEquals(98_720L, balances.get(BOT));
         assertEquals(result.payout(), balances.get(SELLER));
+    }
+
+    @Test
+    @DisplayName("quest payout and unused tax reserve return in the same commit")
+    void questPayoutAndReserveRefundCommitTogether() throws SQLException {
+        long price = 1_280L;
+        long escrow = 1_700L;
+        OrderRequest order = OrderFulfillment.createEscrowedRequest(eco, BOT,
+                new ItemStack(Items.EMERALD, 1), 64, price, escrow, "Bulk buy",
+                System.currentTimeMillis() + 60_000L, false, true);
+        assertNotNull(order);
+        SellerFixture seller = fulfillerWithEmeralds(64);
+
+        OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64);
+
+        assertEquals(OrderFulfillment.Status.OK, result.status());
+        assertEquals(price, result.payout());
+        assertEquals(98_592L, balances.get(BOT), "unused tax reserve returns after tax and reward are settled");
+        assertEquals(price, balances.get(SELLER));
+        assertNull(requestJson(ordersJsonAtCommit, order.id), "the order removal shares the payout commit");
+
+        restart();
+        assertNull(orders.getRequest(order.id));
+        assertEquals(98_592L, balances.get(BOT));
+        assertEquals(price, balances.get(SELLER));
+        assertEquals(64, questStock.total());
     }
 
     @Test

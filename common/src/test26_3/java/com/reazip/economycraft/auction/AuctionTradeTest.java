@@ -2,6 +2,8 @@ package com.reazip.economycraft.auction;
 
 import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyManager;
+import com.reazip.economycraft.EconomySources;
+import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.api.v1.BalanceMutationStatus;
 import com.reazip.economycraft.api.v1.MutationSource;
 import com.reazip.economycraft.api.v1.PaymentResult;
@@ -36,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -62,6 +65,7 @@ class AuctionTradeTest {
     private MinecraftServer server;
     private PlayerList players;
     private EconomyManager eco;
+    private PriceRegistry prices;
     private AuctionManager auctions;
     private AuctionListing listing;
 
@@ -97,13 +101,17 @@ class AuctionTradeTest {
         when(auctions.getServer()).thenReturn(server);
 
         eco = mock(EconomyManager.class);
+        prices = mock(PriceRegistry.class);
+        when(prices.resolve(any(ItemStack.class))).thenReturn(
+                new PriceRegistry.PriceEntry("minecraft:diamond", null, "materials", 64, 100L, 50L, null, false));
+        when(eco.getPrices()).thenReturn(prices);
         when(eco.getAuctions()).thenReturn(auctions);
         when(eco.getServer()).thenReturn(server);
         when(eco.getNegotiations()).thenReturn(mock(NegotiationStore.class));
         when(eco.getBestName(any(UUID.class)))
                 .thenAnswer(call -> "Player-" + call.getArgument(0, UUID.class).toString().substring(0, 8));
         when(eco.transferMoney(any(UUID.class), any(UUID.class), anyLong(), anyLong(),
-                any(MutationSource.class), anyString()))
+                any(MutationSource.class), anyString(), nullable(String.class), anyInt(), nullable(String.class)))
                 .thenAnswer(call -> transfer(call.getArgument(0), call.getArgument(1),
                         call.getArgument(2), call.getArgument(3), call.getArgument(4)));
 
@@ -185,7 +193,7 @@ class AuctionTradeTest {
     @DisplayName("a seller who cannot receive the money is reported as that, not as a broke buyer")
     void sellerPastTheBalanceCeiling() {
         when(eco.transferMoney(any(UUID.class), any(UUID.class), anyLong(), anyLong(),
-                any(MutationSource.class), anyString()))
+                any(MutationSource.class), anyString(), nullable(String.class), anyInt(), nullable(String.class)))
                 .thenAnswer(call -> new PaymentResult(BalanceMutationStatus.MAX_BALANCE_EXCEEDED,
                         call.getArgument(0), call.getArgument(1), call.getArgument(2),
                         100_000L, 100_000L, EconomyManager.MAX, EconomyManager.MAX,
@@ -237,6 +245,24 @@ class AuctionTradeTest {
         verify(auctions).addDelivery(eq(BUYER), stored.capture());
         assertEquals(Items.DIAMOND, stored.getValue().getItem());
         assertEquals(3, stored.getValue().getCount());
+        verify(eco).transferMoney(eq(BUYER), eq(SELLER), eq(550L), eq(500L),
+                eq(EconomySources.AUCTION_PURCHASE), anyString(), eq("minecraft:diamond"), eq(3),
+                eq("minecraft:diamond"));
+    }
+
+    @Test
+    @DisplayName("auction history keeps the resolved catalog variant as well as the base item")
+    void recordsResolvedVariantForAuctionHistory() {
+        when(prices.resolve(any(ItemStack.class))).thenReturn(
+                new PriceRegistry.PriceEntry("minecraft:potion_of_healing_1", null, "potions", 1, 100L, 50L, null, false));
+        listing.item = new ItemStack(Items.POTION, 1);
+        listedForSale();
+
+        AuctionTrade.purchaseFor(eco, BUYER, listing.id);
+
+        verify(eco).transferMoney(eq(BUYER), eq(SELLER), eq(550L), eq(500L),
+                eq(EconomySources.AUCTION_PURCHASE), anyString(), eq("minecraft:potion"), eq(1),
+                eq("minecraft:potion_of_healing_1"));
     }
 
     @Test

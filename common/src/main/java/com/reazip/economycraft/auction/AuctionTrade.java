@@ -11,6 +11,7 @@ import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.tax.TaxPolicy;
 import com.reazip.economycraft.tax.TaxQuote;
 import com.reazip.economycraft.tax.TaxScope;
+import com.reazip.economycraft.util.TransactionItems;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
@@ -92,7 +93,8 @@ public final class AuctionTrade {
 
         String detail = EconomyCraft.describeItem(claimed.item.getCount(), claimed.item.getHoverName().getString());
         PaymentResult payment = eco.transferMoney(buyerId, claimed.seller, total, cost,
-                buyback ? EconomySources.QUEST_BUYBACK : EconomySources.AUCTION_PURCHASE, detail);
+                buyback ? EconomySources.QUEST_BUYBACK : EconomySources.AUCTION_PURCHASE, detail,
+                TransactionItems.keyOf(claimed.item), claimed.item.getCount(), marketKeyOf(eco, claimed.item));
         if (!payment.successful()) {
             auctions.restoreListing(claimed);
             PurchaseStatus status = payment.status() == com.reazip.economycraft.api.v1.BalanceMutationStatus.MAX_BALANCE_EXCEEDED
@@ -182,6 +184,11 @@ public final class AuctionTrade {
 
     private record Execution(PurchaseStatus status, long totalPaid, boolean stored) {}
 
+    private static @Nullable String marketKeyOf(EconomyManager eco, ItemStack stack) {
+        com.reazip.economycraft.PriceRegistry.PriceEntry entry = eco.getPrices().resolve(stack);
+        return entry == null || entry.customItem() != null ? null : entry.key();
+    }
+
     /**
      * The money-and-delivery half of a <em>binding offer acceptance</em>, which is the only caller:
      * {@link #purchaseFor} is the full purchase path and does its own quoting, because a buyback
@@ -199,7 +206,8 @@ public final class AuctionTrade {
 
         String detail = EconomyCraft.describeItem(claimed.item.getCount(), claimed.item.getHoverName().getString());
         PaymentResult payment = eco.transferMoney(buyerId, claimed.seller, total, claimed.price,
-                EconomySources.AUCTION_PURCHASE, detail);
+                EconomySources.AUCTION_PURCHASE, detail, TransactionItems.keyOf(claimed.item),
+                claimed.item.getCount(), marketKeyOf(eco, claimed.item));
         if (!payment.successful()) {
             // The sale failed but the offer stands: the listing goes back at the seller's
             // original ask, never at the price that just bounced.

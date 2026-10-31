@@ -202,7 +202,7 @@ public class EconomyManager {
 
         this.logsDir = EconomyPaths.logsDir(server);
         TransactionLogWriter.cleanup(logsDir, EconomyConfig.get().transactionLog.retentionDays);
-        TransactionLogger transactionLogger = new TransactionLogger(logsDir, this::getBestName);
+        TransactionLogger transactionLogger = new TransactionLogger(logsDir, this::getBestName, this::onLoggedTransaction);
 
         this.balanceMutations = new BalanceMutationEngine(
                 balances,
@@ -213,7 +213,8 @@ public class EconomyManager {
                     save();
                 },
                 balanceEvents,
-                transactionLogger::onTransfer
+                transactionLogger::onTransfer,
+                action -> Documents.afterCommit(database, action)
         );
 
         this.deliveries = new DeliveryManager(server, database);
@@ -260,6 +261,7 @@ public class EconomyManager {
         });
 
         balanceEvents.registerInternal(transactionLogger::onBalanceChanged);
+        quests.loadMarketHistory(this);
         balanceEvents.register(this::recordStats);
 
         scheduleProfileLookups(balances.keySet());
@@ -551,8 +553,34 @@ public class EconomyManager {
 
     public PaymentResult transferMoney(UUID from, UUID to, long debitAmount, long creditAmount,
                                        MutationSource source, @Nullable String detail, @Nullable String item) {
+        return transferMoney(from, to, debitAmount, creditAmount, source, detail, item, 0);
+    }
+
+    public PaymentResult transferMoney(UUID from, UUID to, long debitAmount, long creditAmount,
+                                       MutationSource source, @Nullable String detail, @Nullable String item,
+                                       int quantity) {
+        return transferMoney(from, to, debitAmount, creditAmount, source, detail, item, quantity, null);
+    }
+
+    public PaymentResult transferMoney(UUID from, UUID to, long debitAmount, long creditAmount,
+                                       MutationSource source, @Nullable String detail, @Nullable String item,
+                                       int quantity, @Nullable String marketKey) {
         requireServerThread();
-        return balanceMutations.transfer(from, to, debitAmount, creditAmount, source, detail, item);
+        return balanceMutations.transfer(from, to, debitAmount, creditAmount, source, detail, item, quantity, marketKey);
+    }
+
+    /** Commits a quest fulfiller payout and any returned escrow reserve with one balance save. */
+    public boolean settleQuestOrderPayout(UUID fulfiller, long payout, String payoutDetail,
+                                          long reserveRefund, String refundDetail) {
+        requireServerThread();
+        Map<UUID, BalanceMutationEngine.Credit> credits = new LinkedHashMap<>();
+        credits.put(fulfiller, new BalanceMutationEngine.Credit(payout,
+                EconomySources.ORDER_FULFILLMENT, payoutDetail));
+        if (reserveRefund > 0) {
+            credits.put(QuestManager.BOT_UUID, new BalanceMutationEngine.Credit(reserveRefund,
+                    EconomySources.ORDER_ESCROW_REFUND, refundDetail));
+        }
+        return balanceMutations.addMany(credits);
     }
 
     PaymentResult transferMoneyMany(UUID from, Map<UUID, Long> credits, long debitAmount,
@@ -890,7 +918,11 @@ public class EconomyManager {
         return quests;
     }
 
-    /** Where filled quest goods accumulate until the buyback market spends them down. */
+    private void onLoggedTransaction(com.reazip.economycraft.util.TransactionEntry entry) {
+        quests.observeTransaction(entry, this);
+    }
+
+    /** Finite stock received from completed quest bounties and sold through the shop. */
     public QuestStock getQuestStock() {
         return questStock;
     }
@@ -1108,6 +1140,14 @@ public class EconomyManager {
     public Map<UUID, Long> getBalancesSnapshot() {
         requireServerThread();
         return Map.copyOf(balances);
+    }
+
+    /** Restores the in-memory ledger after an enclosing SQLite transaction rolls back. */
+    public void restoreBalancesSnapshot(Map<UUID, Long> snapshot) {
+        requireServerThread();
+        balances.clear();
+        balances.putAll(snapshot);
+        updateLeaderboard();
     }
 
     /** Cached UUID-to-name map used by the market snapshot roster. */

@@ -17,8 +17,8 @@ import java.util.Map;
  * Where filled quest goods accumulate.
  *
  * <p>A bot-requested fulfillment never touches the deliveries mailbox — there is nobody to claim it —
- * so the items are booked here, keyed by price key, instead. Phase 1 only books: the Phase 2 buyback
- * market will spend this ledger down. Until then it is an audit trail with a total.
+ * so the items are booked here, keyed by price key. The stock shop spends this finite ledger down
+ * when players purchase quest goods.
  */
 public class QuestStock {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -50,8 +50,8 @@ public class QuestStock {
     }
 
     /**
-     * Takes up to {@code amount} units off the ledger for a buyback listing, returning what was
-     * actually taken. Clamped, never negative: the listing owns its items once taken.
+     * Takes up to {@code amount} units off the ledger for a stock purchase, returning what was
+     * actually taken. Clamped, never negative.
      */
     public synchronized long withdraw(String key, long amount) {
         return withdraw(key, amount, true);
@@ -84,11 +84,7 @@ public class QuestStock {
         return total;
     }
 
-    /**
-     * Drops the ledger and re-reads it from disk. A stock-to-listing move mutates memory as it runs
-     * and writes as it goes; when its transaction rolls back, the documents revert and this brings
-     * the ledger back in step with them.
-     */
+    /** Drops the ledger and re-reads it after a stock purchase or legacy listing migration rolls back. */
     public synchronized void reload() {
         stock.clear();
         load();

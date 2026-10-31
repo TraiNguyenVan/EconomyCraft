@@ -12,6 +12,7 @@ import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -52,15 +53,67 @@ class QuestLogicTest {
     }
 
     @Test
-    void buybackChargesFourFifthsOfEffectiveBuy() {
-        // The buyback discount: 100 * 0.8 = 80.
+    void fallbackPriceUsesConfiguredFractionOfEffectiveBuy() {
+        // The fallback fraction: 100 * 0.8 = 80.
         assertEquals(80L, QuestLogic.questUnit(100L, 0L, 0.8, 3.3));
     }
 
     @Test
-    void buybackSellOnlyUsesTheSameFallback() {
+    void fallbackSellOnlyUsesTheSamePriceConvention() {
         // 6 * 3.3 * 0.8 = 15.84 -> 16.
         assertEquals(16L, QuestLogic.questUnit(0L, 6L, 0.8, 3.3));
+    }
+
+    @Test
+    void marketUnitNormalizesEachSaleAndUsesAnUnweightedMedian() {
+        long now = 100L * 86_400_000L;
+        List<QuestLogic.MarketSale> sales = List.of(
+                new QuestLogic.MarketSale(1_000L, 100, now),
+                new QuestLogic.MarketSale(300L, 1, now),
+                new QuestLogic.MarketSale(1_000L, 1, now));
+
+        assertEquals(300L, QuestLogic.marketUnit(sales, now, 90, 3, 500L));
+    }
+
+    @Test
+    void marketUnitBlendsUntilFiveSalesThenUsesTheMedian() {
+        long now = 100L * 86_400_000L;
+        List<QuestLogic.MarketSale> four = List.of(
+                new QuestLogic.MarketSale(10L, 1, now),
+                new QuestLogic.MarketSale(20L, 1, now),
+                new QuestLogic.MarketSale(30L, 1, now),
+                new QuestLogic.MarketSale(40L, 1, now));
+        List<QuestLogic.MarketSale> five = new java.util.ArrayList<>(four);
+        five.add(new QuestLogic.MarketSale(1_000L, 1, now));
+
+        assertEquals(40L, QuestLogic.marketUnit(four, now, 90, 5, 100L));
+        assertEquals(30L, QuestLogic.marketUnit(five, now, 90, 5, 100L));
+    }
+
+    @Test
+    void marketUnitUsesFallbackWhenNoSaleIsInTheWindow() {
+        long now = 100L * 86_400_000L;
+        List<QuestLogic.MarketSale> sales = List.of(
+                new QuestLogic.MarketSale(100L, 1, now - 91L * 86_400_000L),
+                new QuestLogic.MarketSale(200L, 1, now + 1L));
+
+        assertEquals(42L, QuestLogic.marketUnit(sales, now, 90, 5, 42L));
+    }
+
+    @Test
+    void stockPurchaseClampsToAvailableQuantity() {
+        assertEquals(0, QuestLogic.stockPurchaseAmount(64, 0));
+        assertEquals(0, QuestLogic.stockPurchaseAmount(-1, 10));
+        assertEquals(3, QuestLogic.stockPurchaseAmount(64, 3));
+        assertEquals(16, QuestLogic.stockPurchaseAmount(16, 64));
+    }
+
+    @Test
+    void legacyAuctionDetailsNeedBothQuantityAndName() {
+        assertEquals(new QuestLogic.LegacySale(64, "Iron Ingot"),
+                QuestLogic.parseLegacySaleDetail("64x Iron Ingot"));
+        assertNull(QuestLogic.parseLegacySaleDetail("Iron Ingot"));
+        assertNull(QuestLogic.parseLegacySaleDetail("0x Iron Ingot"));
     }
 
     // --- eligible ---

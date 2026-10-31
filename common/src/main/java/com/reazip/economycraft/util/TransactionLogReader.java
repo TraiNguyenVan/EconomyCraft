@@ -6,6 +6,7 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 import java.io.IOException;
+import java.io.BufferedReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -26,6 +27,30 @@ public final class TransactionLogReader {
 
     public static CompletableFuture<List<TransactionEntry>> readForPlayerAsync(Path dir, UUID player) {
         return CompletableFuture.supplyAsync(() -> readForPlayer(dir, player), EXECUTOR);
+    }
+
+    public static CompletableFuture<List<TransactionEntry>> readAuctionSalesAsync(Path dir, long cutoffMillis) {
+        return CompletableFuture.supplyAsync(() -> readAuctionSales(dir, cutoffMillis), EXECUTOR);
+    }
+
+    private static List<TransactionEntry> readAuctionSales(Path dir, long cutoffMillis) {
+        List<TransactionEntry> sales = new ArrayList<>();
+        for (Path file : sortedLogFilesNewestFirst(dir)) {
+            try (BufferedReader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    TransactionEntry entry = parseLine(line);
+                    if (entry != null && entry.time().toEpochMilli() >= cutoffMillis
+                            && entry.type() == com.reazip.economycraft.api.v1.BalanceMutationType.PAYMENT_RECEIVED
+                            && "economycraft:auction_purchase".equals(entry.source())) {
+                        sales.add(entry);
+                    }
+                }
+            } catch (IOException e) {
+                LOGGER.warn("[EconomyCraft] Failed to read transaction log {}", file, e);
+            }
+        }
+        return sales;
     }
 
     public static CompletableFuture<List<TransactionEntry>> readRecentAsync(Path dir, int maxEntries) {

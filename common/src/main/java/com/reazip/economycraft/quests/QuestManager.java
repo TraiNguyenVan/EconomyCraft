@@ -13,6 +13,10 @@ import com.reazip.economycraft.orders.OrderRequest;
 import com.reazip.economycraft.db.Documents;
 import com.reazip.economycraft.db.EconomyDatabase;
 import com.reazip.economycraft.util.EconomyPaths;
+import com.reazip.economycraft.util.TransactionEntry;
+import com.reazip.economycraft.util.TransactionLogReader;
+import com.reazip.economycraft.tax.TaxPolicy;
+import com.reazip.economycraft.tax.TaxScope;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -20,7 +24,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import org.slf4j.Logger;
 
-import com.reazip.economycraft.auction.AuctionListing;
 import com.reazip.economycraft.config.QuestsSection;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -45,9 +48,9 @@ import java.util.UUID;
  * <p>The first period starts on the first sweep, which is why a fresh boot posts nothing until ticks run.
  * Everything here runs on the server thread, called from the minute-tick gate.
  *
- * <p>Retuning {@code quests.price_factor} mid-period needs no rebuild and no new period: every sweep
- * compares each open order's posted unit against the live factor and cancel-reposts drifters at
- * the current unit, remainders kept, escrow refunded and relocked through the ordinary paths.
+ * <p>Market history drives the posted reward and shop-stock price. Every sweep compares each open
+ * order with the current market unit and cancel-reposts orders after the configured drift, keeping
+ * remainders and reserving enough escrow for the new reward and tax.
  */
 public class QuestManager {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -56,7 +59,9 @@ public class QuestManager {
     /** Reserved requester for every quest order. Nil on purpose: version 0 is never a real player, so no Mojang lookup is ever attempted. */
     public static final UUID BOT_UUID = new UUID(0L, 0L);
 
+    private final MinecraftServer server;
     private final Path file;
+    private final Path logsDir;
     private final EconomyDatabase db;
     private long weekStartMs;
     private long weekSeed;
@@ -70,6 +75,16 @@ public class QuestManager {
     private final Map<String, Integer> unsoldExpiries = new LinkedHashMap<>();
     private final Set<String> autoMarketBlacklist = new LinkedHashSet<>();
     private final Set<String> recentPurchases = new LinkedHashSet<>();
+    private final Map<String, List<QuestLogic.MarketSale>> marketSales = new LinkedHashMap<>();
+    private final Set<String> seenMarketRows = new HashSet<>();
+    private final List<TransactionEntry> pendingMarketRows = new ArrayList<>();
+    private Map<String, PriceRegistry.PriceEntry> marketEntriesByKey;
+    private Map<String, List<PriceRegistry.PriceEntry>> marketEntriesByItemId;
+    private Map<String, String> legacyDisplayNameKeys;
+    private Set<String> ambiguousLegacyDisplayNames;
+    private long marketPriceRevision = -1;
+    private boolean marketHistoryStarted;
+    private boolean marketHistoryLoaded;
     private long mintedThisWeek;
     private boolean postedThisWeek;
 
@@ -79,14 +94,23 @@ public class QuestManager {
 
     /** Production constructor: persists to the shared database document instead of the file. */
     public QuestManager(MinecraftServer server, EconomyDatabase db) {
+        this.server = server;
         this.db = db;
         this.file = EconomyPaths.dataDir(server).resolve("quests.json");
+        this.logsDir = EconomyPaths.logsDir(server);
         load();
     }
 
     public void sweep(EconomyManager eco) {
         var quests = EconomyConfig.get().quests;
-        if (quests == null || !quests.enabled) return;
+        if (quests == null) return;
+
+        ensureMarketHistoryLoaded(eco);
+        QuestBuyback.migrateListingsToStock(eco);
+        if (!quests.enabled) return;
+        // Do not seed/reprice the board from the fallback while its saved market history is still
+        // loading. The first sweep after the asynchronous scan will use the complete price window.
+        if (EconomyConfig.get().transactionLog.enabled && !marketHistoryLoaded) return;
 
         eco.rememberPlayerName(BOT_UUID, quests.botName);
 
@@ -99,11 +123,6 @@ public class QuestManager {
             postedThisWeek = true;
         }
         reconcilePricing(eco);
-        // Persist the board changes before the buyback market opens its own transactions. A failed
-        // listing reloads this manager from quests.json; without this save that reload would forget
-        // orders already written to orders.json and stop repricing or cancelling them.
-        save();
-        QuestBuyback.sweep(eco);
         save();
     }
 
@@ -116,7 +135,6 @@ public class QuestManager {
     private void rollover(EconomyManager eco, long now) {
         cancelLeftovers(eco);
         burnBotBalance(eco);
-        QuestBuyback.repriceAll(eco);
         postedUnits.clear();
 
         var quests = EconomyConfig.get().quests;
@@ -142,10 +160,9 @@ public class QuestManager {
     }
 
     /**
-     * Converges open quest orders to the live price factor: any order posted at a different
-     * per-unit price is cancelled (escrow refunds to the bot) and its remainder reposted at the
-     * current unit. Retuning {@code quests.price_factor} is therefore a config edit that lands
-     * within minutes — no rebuild, no week wait. Fills never trigger this (remainders keep their
+     * Converges open quest orders to the live market price: an order whose unit drift crosses the
+     * configured threshold is cancelled (escrow refunds to the bot) and its remainder reposted at
+     * the current unit. Fills never trigger this (remainders keep their
      * posted unit in {@link #postedUnits}), and an order whose entry left the catalog is left alone.
      *
      * <p>An order that fails the <em>current</em> eligibility — its buy price was removed mid-week,
@@ -157,21 +174,20 @@ public class QuestManager {
         Set<String> blacklist = combinedBlacklist(quests);
         int repriced = 0;
         int removed = 0;
-        for (int id : new ArrayList<>(questOrderIds)) {
+        for (int id : openQuestOrderIds(eco)) {
             OrderRequest order = eco.getOrders().getRequest(id);
             if (order == null || order.item == null || order.item.isEmpty() || order.amount <= 0) {
                 questOrderIds.remove(id);
                 postedUnits.remove(String.valueOf(id));
                 continue;
             }
+            questOrderIds.add(id);
             PriceRegistry.PriceEntry entry = eco.getPrices().resolve(order.item);
             if (entry == null || entry.customItem() != null) continue;
-            long effectiveBuy = eco.getEffectiveBuyPrice(entry);
-            long unit = QuestLogic.questUnit(effectiveBuy, entry.unitSell(),
-                    quests.priceFactor, quests.sellFallbackMultiplier);
+            long now = System.currentTimeMillis();
+            long unit = marketUnit(eco, entry, now);
             if (unit <= 0) continue;
-            if (!QuestLogic.eligible(entry.key(), unit, quests.minQuestUnit, quests.maxQuestUnit, blacklist,
-                    effectiveBuy > 0, quests.requireShopPrice)) {
+            if (!eligible(eco, entry, unit, quests, blacklist, now)) {
                 OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(eco, BOT_UUID, order.id);
                 questOrderIds.remove(order.id);
                 postedUnits.remove(String.valueOf(order.id));
@@ -187,7 +203,10 @@ public class QuestManager {
                 continue;
             }
             Long posted = postedUnits.get(String.valueOf(id));
-            if (posted != null && !QuestLogic.shouldReprice(posted, unit, quests.repriceThresholdPercent)) continue;
+            long requiredEscrow = escrowFor(order.price, order.amount);
+            boolean reserveShort = requiredEscrow <= 0 || order.escrow < requiredEscrow;
+            if (!reserveShort && posted != null
+                    && !QuestLogic.shouldReprice(posted, unit, quests.repriceThresholdPercent)) continue;
 
             if (repostRemainder(eco, order, entry.key(), unit)) repriced++;
         }
@@ -198,7 +217,7 @@ public class QuestManager {
             for (ServerPlayer online : eco.getServer().getPlayerList().getPlayers()) {
                 online.sendSystemMessage(message);
             }
-            LOGGER.info("[EconomyCraft] Repriced {} quest order(s) to the live price factor.", repriced);
+            LOGGER.info("[EconomyCraft] Repriced {} quest order(s) to the current market unit.", repriced);
         }
         if (removed > 0) {
             Component message = Component.literal("[Quests] " + removed + " order(s) left the board: "
@@ -218,7 +237,9 @@ public class QuestManager {
     private boolean repostRemainder(EconomyManager eco, OrderRequest order, String key, long unit) {
         int remainder = order.amount;
         ItemStack proto = order.item.copy();
-        long price = (long) remainder * unit;
+        long price = multiplyPrice(remainder, unit);
+        long escrow = escrowFor(price, remainder);
+        if (price <= 0 || escrow <= 0) return false;
 
         OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(eco, BOT_UUID, order.id);
         questOrderIds.remove(order.id);
@@ -231,11 +252,11 @@ public class QuestManager {
         }
 
         var quests = EconomyConfig.get().quests;
-        if (!fund(eco, price, quests.weeklyBudget, key)) {
+        if (!fund(eco, escrow, quests.weeklyBudget, key)) {
             LOGGER.warn("[EconomyCraft] Bot could not fund the repriced quest for {}; it stays off the board this week.", key);
             return false;
         }
-        post(eco, proto, key, remainder, price, unit,
+        post(eco, proto, key, remainder, price, escrow, unit,
                 weekStartMs + QuestLogic.periodMillis(quests.periodDays), false);
         return true;
     }
@@ -246,7 +267,7 @@ public class QuestManager {
      * a new period is drawn and posted immediately — same clock, same cap, no waiting for a sweep.
      *
      * <p>The period's mint cap stays consumed and the bot balance carries (it still burns at the next
-     * rollover), so a re-draw can never re-farm the budget. Buyback listings are untouched.
+     * rollover), so a re-draw can never re-farm the budget. Existing shop stock is untouched.
      *
      * @return how many fresh quests posted
      */
@@ -293,7 +314,7 @@ public class QuestManager {
     }
 
     private void cancelLeftovers(EconomyManager eco) {
-        for (int id : new ArrayList<>(questOrderIds)) {
+        for (int id : openQuestOrderIds(eco)) {
             OrderFulfillment.CancelStatus status = OrderFulfillment.cancel(eco, BOT_UUID, id);
             // GONE means it was filled or already expired mid-week: the normal outcome, not an error.
             // Anything else is kept: the id stays recognised as a quest order next week.
@@ -332,18 +353,14 @@ public class QuestManager {
             if (entry.customItem() != null) continue;
             String key = entry.key();
 
-            // Hard filter: Do not draw if bot already holds stock or active listing on AH
+            // Keep the stock shop finite: do not request more of an item while any remains in stock.
             if (eco.getQuestStock().get(key) > 0) continue;
-            if (hasActiveBuyback(eco, key)) continue;
 
             // Hard filter: Do not draw what was drawn last period (deduplication)
             if (lastPeriodKeys.contains(key)) continue;
 
-            long effectiveBuy = eco.getEffectiveBuyPrice(entry);
-            long unit = QuestLogic.questUnit(effectiveBuy, entry.unitSell(),
-                    quests.priceFactor, quests.sellFallbackMultiplier);
-            if (!QuestLogic.eligible(key, unit, quests.minQuestUnit, quests.maxQuestUnit, blacklist,
-                    effectiveBuy > 0, quests.requireShopPrice)) {
+            long unit = marketUnit(eco, entry, System.currentTimeMillis());
+            if (!eligible(eco, entry, unit, quests, blacklist, System.currentTimeMillis())) {
                 continue;
             }
 
@@ -357,14 +374,134 @@ public class QuestManager {
         return out;
     }
 
-    private boolean hasActiveBuyback(EconomyManager eco, String key) {
-        for (AuctionListing listing : eco.getAuctions().getListings()) {
-            if (!BOT_UUID.equals(listing.seller)) continue;
-            if (listing.item == null || listing.item.isEmpty()) continue;
-            PriceRegistry.PriceEntry pe = eco.getPrices().resolve(listing.item);
-            if (pe != null && key.equals(pe.key())) return true;
+    private boolean eligible(EconomyManager eco, PriceRegistry.PriceEntry entry, long unit,
+                             QuestsSection quests, Set<String> blacklist, long now) {
+        boolean marketDerived = EconomyConfig.get().transactionLog.enabled
+                && !marketSales(entry.key(), now, quests.marketLookbackDays).isEmpty();
+        long min = marketDerived ? 0L : quests.minQuestUnit;
+        long max = marketDerived ? Long.MAX_VALUE : quests.maxQuestUnit;
+        return QuestLogic.eligible(entry.key(), unit, min, max, blacklist,
+                eco.getEffectiveBuyPrice(entry) > 0, quests.requireShopPrice);
+    }
+
+    /** The current market-derived unit, or the existing shop formula when logs are unavailable. */
+    public long marketUnit(EconomyManager eco, PriceRegistry.PriceEntry entry, long now) {
+        var quests = EconomyConfig.get().quests;
+        long fallback = QuestLogic.questUnit(eco.getEffectiveBuyPrice(entry), entry.unitSell(),
+                quests.priceFactor, quests.sellFallbackMultiplier);
+        if (!EconomyConfig.get().transactionLog.enabled) return fallback;
+        return QuestLogic.marketUnit(marketSales(entry.key(), now, quests.marketLookbackDays), now,
+                quests.marketLookbackDays, quests.marketMinimumSales, fallback);
+    }
+
+    private List<QuestLogic.MarketSale> marketSales(String key, long now, int days) {
+        List<QuestLogic.MarketSale> sales = marketSales.get(key);
+        if (sales == null) return List.of();
+        long cutoff = now - Math.max(1, days) * 24L * 60L * 60L * 1000L;
+        return sales.stream().filter(s -> s.timeMillis() >= cutoff && s.timeMillis() <= now).toList();
+    }
+
+    public void loadMarketHistory(EconomyManager eco) {
+        ensureMarketHistoryLoaded(eco);
+    }
+
+    private void ensureMarketHistoryLoaded(EconomyManager eco) {
+        if (marketHistoryStarted || !EconomyConfig.get().transactionLog.enabled) return;
+        marketHistoryStarted = true;
+        int days = EconomyConfig.get().quests.marketLookbackDays;
+        long cutoff = System.currentTimeMillis() - days * 24L * 60L * 60L * 1000L;
+        TransactionLogReader.readAuctionSalesAsync(logsDir, cutoff).whenComplete((entries, error) -> {
+            try {
+                server.execute(() -> {
+                    if (error != null) {
+                        LOGGER.warn("[EconomyCraft] Could not load auction price history; using shop fallback.", error);
+                    } else if (entries != null) {
+                        entries.forEach(entry -> recordMarketRow(entry, eco));
+                    }
+                    pendingMarketRows.forEach(entry -> recordMarketRow(entry, eco));
+                    pendingMarketRows.clear();
+                    marketHistoryLoaded = true;
+                    seenMarketRows.clear();
+                });
+            } catch (RuntimeException ignored) {
+                // Server is shutting down.
+            }
+        });
+    }
+
+    public void observeTransaction(TransactionEntry entry, EconomyManager eco) {
+        if (!EconomyConfig.get().transactionLog.enabled) return;
+        if (entry == null || entry.type() != com.reazip.economycraft.api.v1.BalanceMutationType.PAYMENT_RECEIVED
+                || !EconomySources.AUCTION_PURCHASE.asString().equals(entry.source())) return;
+        if (!marketHistoryLoaded) pendingMarketRows.add(entry);
+        else recordMarketRow(entry, eco);
+    }
+
+    private void recordMarketRow(TransactionEntry entry, EconomyManager eco) {
+        if (entry == null || entry.type() != com.reazip.economycraft.api.v1.BalanceMutationType.PAYMENT_RECEIVED
+                || !EconomySources.AUCTION_PURCHASE.asString().equals(entry.source())
+                || BOT_UUID.equals(entry.player()) || entry.amount() <= 0) return;
+        long now = System.currentTimeMillis();
+        long cutoff = now - Math.max(1, EconomyConfig.get().quests.marketLookbackDays) * 24L * 60L * 60L * 1000L;
+        long saleTime = entry.time().toEpochMilli();
+        if (saleTime < cutoff || saleTime > now) return;
+        int quantity = entry.quantity();
+        String key = resolveMarketKey(entry, eco);
+        if ((quantity <= 0 || key == null) && entry.detail() != null) {
+            QuestLogic.LegacySale legacySale = QuestLogic.parseLegacySaleDetail(entry.detail());
+            if (legacySale == null) return;
+            if (quantity <= 0) quantity = legacySale.quantity();
+            if (key == null) key = resolveLegacyName(legacySale.displayName(), eco);
         }
-        return false;
+        if (key == null || quantity <= 0) return;
+        String fingerprint = entry.time() + "|" + entry.player() + "|" + entry.counterparty() + "|"
+                + entry.amount() + "|" + key + "|" + quantity;
+        if (!marketHistoryLoaded && !seenMarketRows.add(fingerprint)) return;
+        List<QuestLogic.MarketSale> sales = marketSales.computeIfAbsent(key, ignored -> new ArrayList<>());
+        sales.removeIf(sale -> sale.timeMillis() < cutoff);
+        sales.add(new QuestLogic.MarketSale(entry.amount(), quantity, saleTime));
+    }
+
+    private String resolveMarketKey(TransactionEntry entry, EconomyManager eco) {
+        ensureMarketPriceIndexes(eco);
+        if (entry.marketKey() != null && !entry.marketKey().isBlank()) {
+            PriceRegistry.PriceEntry marketEntry = marketEntriesByKey.get(entry.marketKey());
+            return marketEntry != null && marketEntry.customItem() == null ? marketEntry.key() : null;
+        }
+        if (entry.item() == null) return null;
+        List<PriceRegistry.PriceEntry> matches = marketEntriesByItemId.get(entry.item());
+        return matches != null && matches.size() == 1 ? matches.getFirst().key() : null;
+    }
+
+    private String resolveLegacyName(String name, EconomyManager eco) {
+        ensureMarketPriceIndexes(eco);
+        if (ambiguousLegacyDisplayNames.contains(name)) return null;
+        return legacyDisplayNameKeys.get(name);
+    }
+
+    private void ensureMarketPriceIndexes(EconomyManager eco) {
+        PriceRegistry prices = eco.getPrices();
+        long revision = prices.revision();
+        if (marketEntriesByKey != null && marketPriceRevision == revision) return;
+        Map<String, PriceRegistry.PriceEntry> byKey = new LinkedHashMap<>();
+        Map<String, List<PriceRegistry.PriceEntry>> byItemId = new LinkedHashMap<>();
+        Map<String, String> keysByName = new LinkedHashMap<>();
+        Set<String> ambiguous = new HashSet<>();
+        for (PriceRegistry.PriceEntry candidate : prices.allEntries()) {
+            if (candidate.customItem() != null) continue;
+            byKey.put(candidate.key(), candidate);
+            byItemId.computeIfAbsent(candidate.id().asString(), ignored -> new ArrayList<>()).add(candidate);
+            ItemStack prototype = prices.createPrototype(candidate);
+            if (prototype.isEmpty()) continue;
+            String displayName = prototype.getHoverName().getString();
+            String previous = keysByName.putIfAbsent(displayName, candidate.key());
+            if (previous != null && !previous.equals(candidate.key())) ambiguous.add(displayName);
+        }
+        marketEntriesByKey = byKey;
+        marketEntriesByItemId = byItemId;
+        legacyDisplayNameKeys = keysByName;
+        ambiguousLegacyDisplayNames = ambiguous;
+        marketPriceRevision = revision;
     }
 
     private boolean hasPlayerOrder(EconomyManager eco, String key) {
@@ -411,10 +548,9 @@ public class QuestManager {
                 }
                 continue;
             }
-            long unit = QuestLogic.questUnit(eco.getEffectiveBuyPrice(entry), entry.unitSell(),
-                    quests.priceFactor, quests.sellFallbackMultiplier);
-            if (!QuestLogic.eligible(key, unit, quests.minQuestUnit, quests.maxQuestUnit, combinedBlacklist(quests),
-                    eco.getEffectiveBuyPrice(entry) > 0, quests.requireShopPrice)) {
+            long now = System.currentTimeMillis();
+            long unit = marketUnit(eco, entry, now);
+            if (!eligible(eco, entry, unit, quests, combinedBlacklist(quests), now)) {
                 postedKeys.add(key);
                 if (pool.size() < targetCount + backfillIndex && backfillIndex < backfillKeys.size()) {
                     pool.add(backfillKeys.get(backfillIndex++));
@@ -426,9 +562,10 @@ public class QuestManager {
             Long currentBalance = eco.getBalance(BOT_UUID, false);
             long balance = currentBalance == null ? 0L : currentBalance;
             long mintRemaining = Math.max(0L, quests.weeklyBudget - mintedThisWeek);
-            long availableFunding = balance + mintRemaining;
+            long availableFunding = saturatedAdd(balance, mintRemaining);
 
-            int amount = QuestLogic.balancedAmount(availableFunding, remainingSlots, unit);
+            long grossUnit = saturatedAdd(unit, TaxPolicy.maximumTaxReserve(TaxScope.TRANSACTION_ORDER, unit, 1));
+            int amount = QuestLogic.balancedAmount(availableFunding, remainingSlots, grossUnit);
             if (amount <= 0) {
                 postedKeys.add(key);
                 if (pool.size() < targetCount + backfillIndex && backfillIndex < backfillKeys.size()) {
@@ -437,23 +574,37 @@ public class QuestManager {
                 continue;
             }
 
-            long price = amount * unit;
-            if (!fund(eco, price, quests.weeklyBudget, key)) {
+            long price = multiplyPrice(amount, unit);
+            long escrow = escrowFor(price, amount);
+            while (amount > 1 && (price <= 0 || escrow <= 0 || escrow > availableFunding)) {
+                amount--;
+                price = multiplyPrice(amount, unit);
+                escrow = escrowFor(price, amount);
+            }
+            if (price <= 0 || escrow <= 0 || escrow > availableFunding || !fund(eco, escrow, quests.weeklyBudget, key)) {
                 if (pool.size() < targetCount + backfillIndex && backfillIndex < backfillKeys.size()) {
                     pool.add(backfillKeys.get(backfillIndex++));
                 }
                 continue;
             }
-            post(eco, proto, key, amount, price, unit, weekEnd, true);
+            post(eco, proto, key, amount, price, escrow, unit, weekEnd, true);
         }
     }
 
     private int openQuestCount(EconomyManager eco) {
         int count = 0;
-        for (int id : questOrderIds) {
+        for (int id : openQuestOrderIds(eco)) {
             if (eco.getOrders().getRequest(id) != null) count++;
         }
         return count;
+    }
+
+    private List<Integer> openQuestOrderIds(EconomyManager eco) {
+        Set<Integer> ids = new LinkedHashSet<>(questOrderIds);
+        for (OrderRequest order : eco.getOrders().getRequests()) {
+            if (BOT_UUID.equals(order.requester)) ids.add(order.id);
+        }
+        return new ArrayList<>(ids);
     }
 
     /**
@@ -463,9 +614,9 @@ public class QuestManager {
      * <p>Reads the balance without creating it: a create-on-read would grant the bot the universal
      * new-player starting balance, and that grant would fund escrow outside the mint cap.
      */
-    private boolean fund(EconomyManager eco, long price, long budget, String key) {
+    private boolean fund(EconomyManager eco, long escrow, long budget, String key) {
         Long balance = eco.getBalance(BOT_UUID, false);
-        long mint = QuestLogic.mintNeeded(balance == null ? 0 : balance, price, mintedThisWeek, budget);
+        long mint = QuestLogic.mintNeeded(balance == null ? 0 : balance, escrow, mintedThisWeek, budget);
         if (mint > 0) {
             String detail = "quest funding for " + key;
             var result = eco.addMoney(BOT_UUID, mint, EconomySources.QUEST_FUNDING, detail);
@@ -476,18 +627,18 @@ public class QuestManager {
             mintedThisWeek += mint;
         }
         Long funded = eco.getBalance(BOT_UUID, false);
-        return funded != null && funded >= price;
+        return funded != null && funded >= escrow;
     }
 
-    private void post(EconomyManager eco, ItemStack proto, String key, int amount, long price, long unit,
+    private void post(EconomyManager eco, ItemStack proto, String key, int amount, long price, long escrow, long unit,
                       long weekEnd, boolean announce) {
         // Quests live exactly one board week, not the global order expiry: the rollover owns their
         // end of life. The escrow debit and the funded order commit in one transactional save, so
         // a crash can leave neither a debited bot without an order nor an unfunded quest.
-        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, BOT_UUID, proto, amount, price,
-                null, weekEnd, false);
+        OrderRequest request = OrderFulfillment.createEscrowedRequest(eco, BOT_UUID, proto, amount, price, escrow,
+                null, weekEnd, false, true);
         if (request == null) {
-            LOGGER.warn("[EconomyCraft] Bot could not lock {} in quest escrow for {}; skipping the quest.", price, key);
+            LOGGER.warn("[EconomyCraft] Bot could not lock {} in quest escrow for {}; skipping the quest.", escrow, key);
             return;
         }
 
@@ -499,6 +650,33 @@ public class QuestManager {
         }
         LOGGER.info("[EconomyCraft] Posted quest #{}: {}x {} for {} ({} each).", request.id, amount,
                 key, price, unit);
+    }
+
+    private static long multiplyPrice(int amount, long unit) {
+        if (amount <= 0 || unit <= 0) return 0L;
+        try {
+            return Math.multiplyExact((long) amount, unit);
+        } catch (ArithmeticException ignored) {
+            return 0L;
+        }
+    }
+
+    private static long escrowFor(long price, int amount) {
+        if (price <= 0 || amount <= 0) return 0L;
+        long reserve = TaxPolicy.maximumTaxReserve(TaxScope.TRANSACTION_ORDER, price, amount);
+        try {
+            return Math.addExact(price, reserve);
+        } catch (ArithmeticException ignored) {
+            return 0L;
+        }
+    }
+
+    private static long saturatedAdd(long left, long right) {
+        try {
+            return Math.addExact(left, right);
+        } catch (ArithmeticException ignored) {
+            return Long.MAX_VALUE;
+        }
     }
 
     private void broadcast(EconomyManager eco, int amount, String itemName, long price, long unit) {

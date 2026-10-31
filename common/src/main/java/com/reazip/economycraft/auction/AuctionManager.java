@@ -99,8 +99,7 @@ public class AuctionManager {
     }
 
     /**
-     * @param announce false for a listing nobody asked to be told about — the quest board's buyback lots,
-     *                 which post on their own schedule and would otherwise advertise themselves weekly
+     * @param announce false when a system-created listing should not notify players
      */
     public void addListing(AuctionListing listing, boolean announce) {
         requireServerThread();
