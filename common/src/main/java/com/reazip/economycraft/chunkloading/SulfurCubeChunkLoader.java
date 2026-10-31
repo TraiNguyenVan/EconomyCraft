@@ -176,6 +176,8 @@ public final class SulfurCubeChunkLoader {
         long lastTickCount;
         /** Position the cube was last seen at, used to decide whether it still moves. */
         Vec3 lastPosition;
+        /** Position from the immediate previous tick, used exclusively to compute per-tick displacement speed. */
+        Vec3 previousTickPosition;
         long lastMoveTick;
         /** False while an idle cube has released its tickets and waits to move again. */
         boolean loading = true;
@@ -184,6 +186,7 @@ public final class SulfurCubeChunkLoader {
             this.entityUuid = entityUuid;
             this.level = level;
             this.lastPosition = position;
+            this.previousTickPosition = position;
             this.lastMoveTick = gameTime;
         }
 
@@ -362,7 +365,10 @@ public final class SulfurCubeChunkLoader {
             }
         }
 
-        Vec3 effectiveVelocity = resolveEffectiveVelocity(cube, position, tracker != null ? tracker.lastPosition : null);
+        Vec3 effectiveVelocity = resolveEffectiveVelocity(cube, position, tracker != null ? tracker.previousTickPosition : null);
+        if (tracker != null) {
+            tracker.previousTickPosition = position;
+        }
 
         tracker.lastTickCount = gameTime;
         if (moved) {
