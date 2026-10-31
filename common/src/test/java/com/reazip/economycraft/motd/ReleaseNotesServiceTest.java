@@ -22,7 +22,7 @@ class ReleaseNotesServiceTest {
 
         assertEquals("EconomyCraft v1.12.1", messages.get(0).getString());
         Style titleStyle = messages.get(0).getStyle();
-        assertEquals(ChatFormatting.GOLD, titleStyle.getColor().getLegacyFormat());
+        assertEquals(ChatFormatting.GOLD.getColor(), titleStyle.getColor().getValue());
         assertTrue(titleStyle.isBold());
         assertTrue(titleStyle.isUnderlined());
         assertOpenUrl(titleStyle.getClickEvent(), REPOSITORY_URL);
