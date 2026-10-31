@@ -41,6 +41,26 @@ public final class Documents {
         return null;
     }
 
+    /** Reads a document without treating a failed database or file read as an empty document. */
+    public static ReadResult readWithStatus(EconomyDatabase db, Path legacyFile, String key) {
+        if (db != null) {
+            EconomyDatabase.DocumentRead result = db.readDocumentWithStatus(key);
+            if (!result.successful()) return new ReadResult(false, null);
+            if (result.content() != null) return new ReadResult(true, result.content());
+        }
+        if (legacyFile != null && Files.exists(legacyFile)) {
+            try {
+                return new ReadResult(true, Files.readString(legacyFile, StandardCharsets.UTF_8));
+            } catch (Exception ex) {
+                LOGGER.error("[EconomyCraft] Failed to read {}", legacyFile, ex);
+                return new ReadResult(false, null);
+            }
+        }
+        return new ReadResult(true, null);
+    }
+
+    public record ReadResult(boolean successful, String content) {}
+
     /** Writes a whole document: database row in production, legacy async file write in tests. */
     public static void write(EconomyDatabase db, Path legacyFile, String key, String content) {
         if (db != null) {

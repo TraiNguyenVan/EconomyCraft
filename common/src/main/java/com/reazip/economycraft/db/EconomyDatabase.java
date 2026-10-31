@@ -225,6 +225,24 @@ public final class EconomyDatabase implements AutoCloseable {
         return null;
     }
 
+    /** Reads one document while distinguishing a missing row from a failed read. */
+    public synchronized DocumentRead readDocumentWithStatus(String key) {
+        try {
+            ensureOpen();
+            try (PreparedStatement ps = connection.prepareStatement("SELECT content FROM documents WHERE name = ?")) {
+                ps.setString(1, key);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return new DocumentRead(true, rs.next() ? rs.getString(1) : null);
+                }
+            }
+        } catch (SQLException | RuntimeException e) {
+            LOGGER.error("[EconomyCraft-DB] Failed to read document {}", key, e);
+            return new DocumentRead(false, null);
+        }
+    }
+
+    public record DocumentRead(boolean successful, String content) {}
+
     /** Whether the document has a row at all (used as the already-migrated guard). */
     public synchronized boolean hasDocument(String key) {
         ensureOpen();
