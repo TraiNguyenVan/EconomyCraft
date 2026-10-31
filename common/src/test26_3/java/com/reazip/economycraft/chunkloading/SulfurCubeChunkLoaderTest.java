@@ -203,6 +203,45 @@ class SulfurCubeChunkLoaderTest {
     }
 
     @Test
+    @DisplayName("Fast movement at 30 blocks/sec preloads upcoming chunks along the path")
+    void fastMovementAt30BlocksPerSecPreloadsPath() {
+        // x=100 at 1.5 blocks/tick (= 30 blocks/sec).
+        // 25 tick look-ahead lands 37.5 blocks away at x=137.5 (Chunk 8).
+        // Chunk 6 has entity-ticking radius 1 (covers Chunk 5..7).
+        // Chunk 8 is at distance 2 (> 1), so it must be preloaded with a ticket.
+        moveTo(new ChunkPos(6, 6), 100.0, 100.0);
+        when(cube.getY()).thenReturn(64.0);
+        when(cube.getDeltaMovement()).thenReturn(new Vec3(1.5, 0.0, 0.0));
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
+        assertTrue(held.contains(new ChunkPos(6, 6)), "current chunk must be held");
+        assertTrue(held.contains(new ChunkPos(8, 6)), "chunk 8 at 30 blocks/sec must be preloaded");
+        verify(chunkSource).addTicketAndLoadWithRadius(
+                eq(SulfurCubeChunkLoader.TICKET_TYPE), eq(new ChunkPos(8, 6)), eq(SulfurCubeChunkLoader.DEFAULT_RADIUS));
+    }
+
+    @Test
+    @DisplayName("Fast moving cube riding a vehicle uses vehicle velocity for preloading")
+    void vehiclePassengerUsesVehicleVelocity() {
+        moveTo(new ChunkPos(6, 6), 100.0, 100.0);
+        when(cube.getY()).thenReturn(64.0);
+        when(cube.getDeltaMovement()).thenReturn(Vec3.ZERO);
+        when(cube.isPassenger()).thenReturn(true);
+
+        net.minecraft.world.entity.Entity vehicle = mock(net.minecraft.world.entity.Entity.class);
+        when(cube.getRootVehicle()).thenReturn(vehicle);
+        when(vehicle.getDeltaMovement()).thenReturn(new Vec3(1.5, 0.0, 0.0));
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
+        assertTrue(held.contains(new ChunkPos(6, 6)));
+        assertTrue(held.contains(new ChunkPos(8, 6)), "vehicle speed of 30 blocks/sec triggers preloading");
+    }
+
+    @Test
     @DisplayName("Shearing sulfur cube immediately releases all held chunk tickets")
     void shearingReleasesTickets() {
         moveTo(new ChunkPos(5, 5), 88.0, 88.0);

@@ -206,19 +206,23 @@ public final class SulfurCubeChunkLoader {
             refreshTicket(chunkCache, pos, radius);
         }
 
-        void prune(ServerChunkCache chunkCache, ChunkPos current, @Nullable ChunkPos lookAhead) {
+        void prune(ServerChunkCache chunkCache, ChunkPos current, List<ChunkPos> lookAhead) {
             Iterator<Map.Entry<ChunkPos, Integer>> iter = heldChunks.entrySet().iterator();
             while (iter.hasNext()) {
                 Map.Entry<ChunkPos, Integer> entry = iter.next();
                 ChunkPos pos = entry.getKey();
-                if (pos.equals(current) || pos.equals(lookAhead)) {
+                if (pos.equals(current) || lookAhead.contains(pos)) {
                     continue;
                 }
                 int distToCurrent = pos.getChessboardDistance(current);
-                int distToLookAhead = lookAhead != null
-                        ? pos.getChessboardDistance(lookAhead)
-                        : Integer.MAX_VALUE;
-                if (distToCurrent > 1 && distToLookAhead > 1) {
+                boolean nearLookAhead = false;
+                for (ChunkPos ahead : lookAhead) {
+                    if (pos.getChessboardDistance(ahead) <= 1) {
+                        nearLookAhead = true;
+                        break;
+                    }
+                }
+                if (distToCurrent > 1 && !nearLookAhead) {
                     releaseTicket(chunkCache, level, pos, entry.getValue());
                     iter.remove();
                 }
@@ -378,54 +382,84 @@ public final class SulfurCubeChunkLoader {
             return;
         }
 
-        ChunkPos lookAheadChunk = lookAheadChunk(cube, position, currentChunk, radius);
+        List<ChunkPos> lookAhead = lookAheadChunks(cube, position, currentChunk, radius, tracker);
         ServerChunkCache chunkCache = serverLevel.getChunkSource();
 
         tracker.hold(chunkCache, currentChunk, radius);
-        if (lookAheadChunk != null) {
-            tracker.hold(chunkCache, lookAheadChunk, radius);
+        for (ChunkPos ahead : lookAhead) {
+            tracker.hold(chunkCache, ahead, radius);
         }
-        tracker.prune(chunkCache, currentChunk, lookAheadChunk);
+        tracker.prune(chunkCache, currentChunk, lookAhead);
+    }
+
+    private static Vec3 resolveEffectiveVelocity(SulfurCube cube, Vec3 position, @Nullable CubeTracker tracker) {
+        Vec3 velocity = cube.getDeltaMovement();
+        if (cube.isPassenger()) {
+            Entity root = cube.getRootVehicle();
+            if (root != null) {
+                Vec3 vehicleVel = root.getDeltaMovement();
+                if (vehicleVel.horizontalDistanceSqr() > velocity.horizontalDistanceSqr()) {
+                    velocity = vehicleVel;
+                }
+            }
+        }
+        if (tracker != null && tracker.lastPosition != null) {
+            Vec3 displacement = position.subtract(tracker.lastPosition);
+            if (displacement.horizontalDistanceSqr() > velocity.horizontalDistanceSqr()) {
+                velocity = displacement;
+            }
+        }
+        return velocity;
     }
 
     /**
-     * Chunk the cube is about to enter, or {@code null} when no extra ticket is useful.
+     * Chunks along the cube's forward movement vector that are outside the current chunk's
+     * entity-ticking coverage (entity-ticking radius is {@code radius - 2}, because a ticket of
+     * radius {@code r} only provides level 31 or lower up to distance {@code r - 2}).
      *
-     * <p>Returns {@code null} when the cube is slow, when the prediction stays inside the area the
-     * current ticket already covers, and clamps the prediction to twice the radius. An unclamped
-     * prediction turns one fast cube into a chunk generation request every tick, far away from where
-     * the cube actually is.
+     * <p>Preloading tickets are placed along the path so that fast movement up to 30 blocks/sec
+     * or higher always encounters chunks that are already in the {@code ENTITY_TICKING} state.
      */
-    @Nullable
-    private static ChunkPos lookAheadChunk(SulfurCube cube, Vec3 position, ChunkPos currentChunk, int radius) {
+    private static List<ChunkPos> lookAheadChunks(SulfurCube cube, Vec3 position, ChunkPos currentChunk, int radius, @Nullable CubeTracker tracker) {
         int lookAheadTicks = configuredLookAheadTicks();
         if (lookAheadTicks <= 0) {
-            return null;
+            return Collections.emptyList();
         }
 
-        Vec3 velocity = cube.getDeltaMovement();
+        Vec3 velocity = resolveEffectiveVelocity(cube, position, tracker);
         double horizontalSpeedSqr = velocity.x * velocity.x + velocity.z * velocity.z;
         double minSpeedPerTick = configuredLookAheadMinSpeed() / TICKS_PER_SECOND;
         if (horizontalSpeedSqr < minSpeedPerTick * minSpeedPerTick) {
-            return null;
+            return Collections.emptyList();
         }
 
+        double horizontalSpeed = Math.sqrt(horizontalSpeedSqr);
         double maxAheadBlocks = radius * 2.0 * 16.0;
-        double offsetX = velocity.x * lookAheadTicks;
-        double offsetZ = velocity.z * lookAheadTicks;
-        double longestAxis = Math.max(Math.abs(offsetX), Math.abs(offsetZ));
-        if (longestAxis > maxAheadBlocks) {
-            double scale = maxAheadBlocks / longestAxis;
-            offsetX *= scale;
-            offsetZ *= scale;
+        double aheadBlocks = Math.min(horizontalSpeed * lookAheadTicks, maxAheadBlocks);
+
+        int entityTickingRadius = Math.max(1, radius - 2);
+        List<ChunkPos> chunks = new ArrayList<>();
+
+        double unitX = velocity.x / horizontalSpeed;
+        double unitZ = velocity.z / horizontalSpeed;
+
+        for (double dist = 16.0; dist <= aheadBlocks; dist += 16.0) {
+            double sampleX = position.x + unitX * dist;
+            double sampleZ = position.z + unitZ * dist;
+            ChunkPos pos = ChunkPos.containing(BlockPos.containing(sampleX, position.y, sampleZ));
+            if (!pos.equals(currentChunk) && pos.getChessboardDistance(currentChunk) > entityTickingRadius && !chunks.contains(pos)) {
+                chunks.add(pos);
+            }
         }
 
-        ChunkPos predicted = ChunkPos.containing(
-                BlockPos.containing(position.x + offsetX, position.y, position.z + offsetZ));
-        if (predicted.equals(currentChunk) || predicted.getChessboardDistance(currentChunk) <= radius) {
-            return null; // already inside the loaded / ticking area
+        double endX = position.x + unitX * aheadBlocks;
+        double endZ = position.z + unitZ * aheadBlocks;
+        ChunkPos endPos = ChunkPos.containing(BlockPos.containing(endX, position.y, endZ));
+        if (!endPos.equals(currentChunk) && endPos.getChessboardDistance(currentChunk) > entityTickingRadius && !chunks.contains(endPos)) {
+            chunks.add(endPos);
         }
-        return predicted;
+
+        return chunks;
     }
 
     private static void warnCapReached(ServerLevel level, int maxLoaders) {

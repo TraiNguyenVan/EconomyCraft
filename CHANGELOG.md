@@ -8,7 +8,9 @@ All notable changes to EconomyCraft are documented here. This file is the `chang
 ### Sulfur cubes that swallowed a block can keep their area loaded
 
 A sulfur cube holding a block in its body slot now tickets the chunks around itself, so the area
-stays entity-ticking while the cube moves. Natural cubes with an empty body never load anything, and
+stays entity-ticking while the cube moves. Upcoming chunks along the forward trajectory outside the
+entity-ticking coverage are preloaded so fast movement up to 30 blocks/sec or higher maintains a continuous
+ticking corridor without boundary stalls. Natural cubes with an empty body never load anything, and
 shearing, death, a dimension change or a bucket pickup releases the tickets again. Radius, preload
 distance, minimum preload speed and a server-wide cap on how many cubes may load chunks are
 configurable with `sulfur_cube_chunk_*` keys, and `sulfur_cube_chunk_loading` turns the feature off
