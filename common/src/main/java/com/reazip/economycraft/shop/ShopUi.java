@@ -88,9 +88,14 @@ public final class ShopUi {
 
     private static void openSearchResults(ServerPlayer player, EconomyManager eco, @Nullable String category,
                                           String query, int page, SortMode sort) {
+        openSearchResults(player, eco, category, query, page, sort, false);
+    }
+
+    private static void openSearchResults(ServerPlayer player, EconomyManager eco, @Nullable String category,
+                                          String query, int page, SortMode sort, boolean backToSubcategories) {
         eco.getQuestStock().reload();
         MenuUiSupport.openMenu(player, "Search: " + query, (id, inv) ->
-                new ItemMenu(id, inv, eco, category, null, query, page, player, sort));
+                new ItemMenu(id, inv, eco, category, null, query, page, player, sort, backToSubcategories));
     }
 
     private static void openRoot(ServerPlayer player, EconomyManager eco) {
@@ -116,6 +121,11 @@ public final class ShopUi {
                 displayTitle != null ? displayTitle : category);
         MenuUiSupport.openMenu(player, title, (id, inv) ->
                 new ItemMenu(id, inv, eco, category, displayTitle, null, page, player, sort));
+    }
+
+    private static void openDirectCategoryItems(ServerPlayer player, EconomyManager eco, String category, String title) {
+        MenuUiSupport.openMenu(player, title, (id, inv) ->
+                new ItemMenu(id, inv, eco, category, title, null, 0, player, SortMode.DEFAULT, true));
     }
 
     private static boolean stockShopEnabled(EconomyManager eco) {
@@ -371,7 +381,8 @@ public final class ShopUi {
                     String category = directItems ? topCategory : topCategory + "." + sub;
                     String title = directItems
                             ? ShopDisplay.getCategoryName(prices, topCategory, topCategory) + " items" : sub;
-                    openItems(viewer, eco, category, title);
+                    if (directItems) openDirectCategoryItems(viewer, eco, category, title);
+                    else openItems(viewer, eco, category, title);
                     return true;
                 }
             }
@@ -389,6 +400,7 @@ public final class ShopUi {
         @Nullable private final String category;
         @Nullable private final String displayTitle;
         @Nullable private final String searchQuery;
+        private final boolean backToSubcategories;
         private SortMode sort;
         private List<PriceRegistry.PriceEntry> entries;
         private final SimpleContainer container;
@@ -399,19 +411,26 @@ public final class ShopUi {
 
         ItemMenu(int id, Inventory inv, EconomyManager eco, @Nullable String category, @Nullable String displayTitle,
                  @Nullable String searchQuery, int page, ServerPlayer viewer, SortMode sort) {
+            this(id, inv, eco, category, displayTitle, searchQuery, page, viewer, sort, false);
+        }
+
+        ItemMenu(int id, Inventory inv, EconomyManager eco, @Nullable String category, @Nullable String displayTitle,
+                 @Nullable String searchQuery, int page, ServerPlayer viewer, SortMode sort,
+                 boolean backToSubcategories) {
             this(id, inv, eco, category, displayTitle, searchQuery, page, viewer, sort,
-                    applySort(eco, resolveEntries(eco, category, searchQuery), sort));
+                    applySort(eco, resolveEntries(eco, category, searchQuery), sort), backToSubcategories);
         }
 
         private ItemMenu(int id, Inventory inv, EconomyManager eco, @Nullable String category, @Nullable String displayTitle,
                          @Nullable String searchQuery, int page, ServerPlayer viewer, SortMode sort,
-                         List<PriceRegistry.PriceEntry> resolved) {
+                         List<PriceRegistry.PriceEntry> resolved, boolean backToSubcategories) {
             super(MenuUiSupport.getMenuType(MenuUiSupport.requiredRows(resolved.size())), id);
             this.eco = eco;
             this.viewer = viewer;
             this.category = category;
             this.displayTitle = displayTitle;
             this.searchQuery = searchQuery;
+            this.backToSubcategories = backToSubcategories;
             this.sort = sort;
             this.prices = eco.getPrices();
 
@@ -544,7 +563,9 @@ public final class ShopUi {
                     if (MenuUiSupport.hasContainerContents(display)) {
                         ContainerPreviewUi.open(viewer, display, () -> {
                             if (searchQuery != null) {
-                                openSearchResults(viewer, eco, category, searchQuery, page, sort);
+                                openSearchResults(viewer, eco, category, searchQuery, page, sort, backToSubcategories);
+                            } else if (backToSubcategories) {
+                                openDirectCategoryItems(viewer, eco, category, displayTitle);
                             } else {
                                 openItems(viewer, eco, category, displayTitle, page, sort);
                             }
@@ -578,7 +599,8 @@ public final class ShopUi {
             if (slot == navRowStart + 5 && (page + 1) * itemsPerPage < entries.size()) { EconomySounds.page(viewer); page++; updatePage(); return true; }
             if (slot == navRowStart + 7 && !searching()) {
                 EconomySounds.click(viewer);
-                TextInputUi.openSearch(viewer, "Search Shop", (p, q) -> ShopUi.openSearchResults(p, eco, category, q, 0, sort));
+                TextInputUi.openSearch(viewer, "Search Shop", (p, q) ->
+                        ShopUi.openSearchResults(p, eco, category, q, 0, sort, backToSubcategories));
                 return true;
             }
             if (slot == navRowStart + 1) {
@@ -591,7 +613,9 @@ public final class ShopUi {
             }
             if (slot == navRowStart + 8) {
                 EconomySounds.click(viewer);
-                if (category != null && category.contains(".")) {
+                if (backToSubcategories && category != null) {
+                    openSubcategories(viewer, eco, category);
+                } else if (category != null && category.contains(".")) {
                     openSubcategories(viewer, eco, category.substring(0, category.indexOf('.')));
                 } else {
                     openRoot(viewer, eco);
