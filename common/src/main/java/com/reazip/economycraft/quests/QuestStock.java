@@ -78,6 +78,11 @@ public class QuestStock {
         return Map.copyOf(stock);
     }
 
+    synchronized void restoreSnapshot(Map<String, Long> snapshot) {
+        stock.clear();
+        stock.putAll(snapshot);
+    }
+
     public synchronized long total() {
         long total = 0;
         for (long count : stock.values()) total += count;

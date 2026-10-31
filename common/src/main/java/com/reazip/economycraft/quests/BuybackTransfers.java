@@ -26,9 +26,12 @@ public final class BuybackTransfers {
 
     public static void run(EconomyManager eco, Runnable transfer) {
         Map<UUID, Long> balanceSnapshot = eco.getBalancesSnapshot();
+        Map<String, Long> stockSnapshot = eco.getQuestStock().snapshot();
         try {
             Documents.atomic(eco.getDatabase(), transfer);
         } catch (RuntimeException failure) {
+            // A failed persistence read must not leave a staged transfer in the live stock ledger.
+            eco.getQuestStock().restoreSnapshot(stockSnapshot);
             try {
                 eco.getQuestStock().reload();
                 eco.getAuctions().reload();
