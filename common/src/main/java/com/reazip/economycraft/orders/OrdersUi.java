@@ -577,13 +577,9 @@ public final class OrdersUi {
             this.request = req;
             this.parent = parent;
 
-            int give = Math.min(OrderFulfillment.countHeld(parent.viewer(), req.item), req.amount);
-            boolean complete = give >= req.amount;
-            long payout = OrderFulfillment.payoutFor(req, give);
-
-            container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton(complete ? "Fulfill completely" : "Fulfill partially",
-                    MenuUiSupport.labeledValue("Give", give + " of " + req.amount, MenuUiSupport.LABEL_PRIMARY_COLOR),
-                    MenuUiSupport.labeledValue("Earn", EconomyCraft.formatMoney(payout), MenuUiSupport.LABEL_PRIMARY_COLOR)));
+            container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Choose amount",
+                    MenuUiSupport.hint("Select the items and quantity to deliver."),
+                    MenuUiSupport.hint("Your reward is shown before you confirm.")));
 
             ItemStack item = req.item.copy();
             var server = parent.viewer().level().getServer();
@@ -637,51 +633,17 @@ public final class OrdersUi {
                 if (!EconomyConfig.get().orders.enabled) {
                     EconomySounds.failure(serverPlayer);
                     serverPlayer.sendSystemMessage(Component.literal("Orders are disabled.").withStyle(ChatFormatting.RED));
-                    serverPlayer.closeContainer();
                     return true;
                 }
-                var server = serverPlayer.level().getServer();
-
                 OrderRequest current = parent.orders().getRequest(request.id);
-                int give = current == null ? 0 : Math.min(OrderFulfillment.countHeld(serverPlayer, current.item), current.amount);
                 if (current == null) {
-                    EconomySounds.failure(serverPlayer);
-                    serverPlayer.sendSystemMessage(Component.literal("Request no longer available").withStyle(ChatFormatting.RED));
-                } else if (give <= 0) {
-                    EconomySounds.failure(serverPlayer);
-                    serverPlayer.sendSystemMessage(Component.literal("You have none to give").withStyle(ChatFormatting.RED));
-                } else {
-                    OrderFulfillment.Result result = OrderFulfillment.fulfill(parent.eco(), serverPlayer, current.id, give);
-                    switch (result.status()) {
-                        case OK -> {
-                            EconomySounds.success(serverPlayer);
-                            String requesterName = MenuUiSupport.resolvePlayerName(server, result.requester());
-                            String extra = result.remaining() > 0 ? " (" + result.remaining() + " still wanted)" : "";
-                            serverPlayer.sendSystemMessage(
-                                    Component.literal("Fulfilled " + result.given() + "x " +
-                                                    result.item().getHoverName().getString() + " (" + requesterName + ") and earned " +
-                                                    EconomyCraft.formatMoney(result.payout()) + extra)
-                                            .withStyle(ChatFormatting.GREEN));
-                        }
-                        case REQUESTER_CANT_PAY -> fail(serverPlayer, "Requester can't pay");
-                        case FULFILLER_CANT_RECEIVE -> fail(serverPlayer, "Your balance is too high to receive this payout");
-                        case OWN_ORDER -> fail(serverPlayer, "You cannot fulfill your own request");
-                        case FULL_AMOUNT_REQUIRED -> fail(serverPlayer, "This request must be fulfilled all at once.");
-                        default -> fail(serverPlayer, "Request no longer available");
-                    }
-                    if (result.taken() > 0) {
-                        // The goods could not go back to the seller and are waiting in their
-                        // mailbox instead: say so, or they would look like they vanished.
-                        serverPlayer.sendSystemMessage(Component.literal(result.taken() + "x " +
-                                        result.item().getHoverName().getString() +
-                                        " is waiting in your deliveries mailbox (/eco deliveries).")
-                                .withStyle(ChatFormatting.YELLOW));
-                    }
+                    fail(serverPlayer, "Request no longer available");
+                    serverPlayer.closeContainer();
+                    parent.backToList(serverPlayer);
+                    return true;
                 }
-
-                parent.updatePage();
-                ((ServerPlayer) player).closeContainer();
-                parent.backToList(serverPlayer);
+                MenuUiSupport.openMenu(serverPlayer, "Deliver",
+                        (id, inv) -> new DeliveryMenu(id, inv, current, parent));
                 return true;
             }
 
@@ -755,6 +717,255 @@ public final class OrdersUi {
                     .withStyle(ChatFormatting.GREEN));
             ((ServerPlayer) player).closeContainer();
             parent.backToList(player);
+        }
+    }
+
+    private static class DeliveryMenu extends CompatMenu {
+        private static final int DEPOSIT_ROWS = 5;
+        private static final int DEPOSIT_SLOTS = DEPOSIT_ROWS * 9;
+        private static final int NAV_ROW_START = DEPOSIT_SLOTS;
+        private static final int NAV_ROW_END = NAV_ROW_START + 9;
+        private static final int NAV_CANCEL = 1;
+        private static final int NAV_CLEAR = 2;
+        private static final int NAV_REQUEST = 4;
+        private static final int NAV_CONFIRM = 8;
+
+        private final OrderRequest request;
+        private final RequestContext parent;
+        private final ServerPlayer viewer;
+        private final SimpleContainer depositContainer = new SimpleContainer(DEPOSIT_SLOTS);
+        private final SimpleContainer navContainer = new SimpleContainer(9);
+
+        DeliveryMenu(int id, Inventory inv, OrderRequest request, RequestContext parent) {
+            super(MenuType.GENERIC_9x6, id);
+            this.request = request;
+            this.parent = parent;
+            this.viewer = parent.viewer();
+
+            for (Slot slot : MenuUiSupport.openGridSlots(depositContainer, DEPOSIT_SLOTS, this::matchesRequest)) {
+                this.addSlot(slot);
+            }
+            for (Slot slot : MenuUiSupport.lockedRowSlots(navContainer, 18 + DEPOSIT_ROWS * 18)) {
+                this.addSlot(slot);
+            }
+            for (Slot slot : MenuUiSupport.playerInventorySlots(inv, 18 + 6 * 18 + 14)) {
+                this.addSlot(slot);
+            }
+            renderNavRow();
+        }
+
+        private OrderRequest currentRequest() {
+            return parent.orders().getRequest(request.id);
+        }
+
+        private boolean matchesRequest(ItemStack stack) {
+            return !stack.isEmpty() && ItemStack.isSameItemSameComponents(stack, request.item);
+        }
+
+        private int selectedCount() {
+            int count = 0;
+            for (int i = 0; i < DEPOSIT_SLOTS; i++) {
+                ItemStack stack = depositContainer.getItem(i);
+                if (stack.isEmpty()) continue;
+                try {
+                    count = Math.addExact(count, stack.getCount());
+                } catch (ArithmeticException overflow) {
+                    return Integer.MAX_VALUE;
+                }
+            }
+            return count;
+        }
+
+        private List<ItemStack> selectedStacks() {
+            List<ItemStack> stacks = new ArrayList<>();
+            for (int i = 0; i < DEPOSIT_SLOTS; i++) {
+                ItemStack stack = depositContainer.getItem(i);
+                if (!stack.isEmpty()) stacks.add(stack);
+            }
+            return stacks;
+        }
+
+        private void renderNavRow() {
+            navContainer.clearContent();
+            navContainer.setItem(0, MenuUiSupport.createBalanceItem(viewer));
+            navContainer.setItem(NAV_CANCEL, MenuUiSupport.button(Items.BARRIER, "Back",
+                    ChatFormatting.RED, MenuUiSupport.hint("Return to the request details")));
+            navContainer.setItem(NAV_CLEAR, MenuUiSupport.button(Items.BUCKET, "Clear selection",
+                    ChatFormatting.YELLOW, MenuUiSupport.hint("Return the deposited items to your inventory")));
+
+            OrderRequest current = currentRequest();
+            OrderRequest displayRequest = current == null ? request : current;
+            ItemStack requestedItem = displayRequest.item.copy();
+            requestedItem.setCount(1);
+            int selected = selectedCount();
+            List<Component> itemLore = new ArrayList<>();
+            addBountyRewardLore(itemLore, displayRequest, displayRequest.price, displayRequest.amount);
+            addBountyLore(itemLore, displayRequest);
+            addNoteLore(itemLore, displayRequest);
+            itemLore.add(MenuUiSupport.labeledValue("Remaining", String.valueOf(displayRequest.amount),
+                    MenuUiSupport.LABEL_PRIMARY_COLOR));
+            itemLore.add(MenuUiSupport.labeledValue("Selected", String.valueOf(selected),
+                    MenuUiSupport.LABEL_PRIMARY_COLOR));
+            if (current == null) itemLore.add(MenuUiSupport.line("Request no longer available", ChatFormatting.RED));
+            requestedItem.set(DataComponents.LORE, new ItemLore(itemLore));
+            navContainer.setItem(NAV_REQUEST, requestedItem);
+
+            if (current == null) {
+                navContainer.setItem(NAV_CONFIRM, MenuUiSupport.button(Items.BARRIER, "Request unavailable",
+                        ChatFormatting.RED));
+            } else {
+                long payout = selected > 0 && selected <= current.amount
+                        ? OrderFulfillment.payoutFor(current, selected)
+                        : 0;
+                navContainer.setItem(NAV_CONFIRM, MenuUiSupport.confirmButton("Deliver selected items",
+                        MenuUiSupport.labeledValue("Quantity", selected + " of " + current.amount,
+                                MenuUiSupport.LABEL_PRIMARY_COLOR),
+                        MenuUiSupport.labeledValue("Estimated reward", EconomyCraft.formatMoney(payout),
+                                MenuUiSupport.LABEL_PRIMARY_COLOR)));
+            }
+            MenuUiSupport.fillFooter(navContainer);
+        }
+
+        private void deliver(ServerPlayer player) {
+            renderNavRow();
+            if (!EconomyConfig.get().orders.enabled) {
+                ConfirmMenu.fail(player, "Orders are disabled.");
+                return;
+            }
+            OrderRequest current = currentRequest();
+            if (current == null || current.item == null || current.item.isEmpty()) {
+                ConfirmMenu.fail(player, "Request no longer available");
+                player.closeContainer();
+                parent.backToList(player);
+                return;
+            }
+            if (current.requester.equals(player.getUUID())) {
+                ConfirmMenu.fail(player, "You cannot fulfill your own request");
+                return;
+            }
+
+            int selected = selectedCount();
+            if (selected <= 0) {
+                ConfirmMenu.fail(player, "Place the items you want to deliver in the slots above.");
+                return;
+            }
+            if (selected > current.amount) {
+                ConfirmMenu.fail(player, "This request only needs " + current.amount + " more.");
+                renderNavRow();
+                return;
+            }
+
+            OrderFulfillment.Result result = OrderFulfillment.fulfillExact(parent.eco(), player, current.id,
+                    selected, selectedStacks());
+            if (result.success()) {
+                EconomySounds.success(player);
+                String requesterName = QuestManager.BOT_UUID.equals(result.requester())
+                        ? "Quest Board"
+                        : MenuUiSupport.resolvePlayerName(player.level().getServer(), result.requester());
+                if (requesterName == null) requesterName = "the requester";
+                String extra = result.remaining() > 0 ? " (" + result.remaining() + " still wanted)" : "";
+                player.sendSystemMessage(Component.literal("Delivered " + result.given() + "x "
+                                + result.item().getHoverName().getString() + " to " + requesterName + " and earned "
+                                + EconomyCraft.formatMoney(result.payout()) + extra)
+                        .withStyle(ChatFormatting.GREEN));
+                if (result.taken() > 0) {
+                    player.sendSystemMessage(Component.literal(result.taken() + "x "
+                                    + result.item().getHoverName().getString()
+                                    + " is waiting in your deliveries mailbox (/eco deliveries).")
+                            .withStyle(ChatFormatting.YELLOW));
+                }
+                parent.updatePage();
+                player.closeContainer();
+                parent.backToList(player);
+                return;
+            }
+
+            switch (result.status()) {
+                case REQUESTER_CANT_PAY -> ConfirmMenu.fail(player, "Requester can't pay");
+                case FULFILLER_CANT_RECEIVE -> ConfirmMenu.fail(player, "Your balance is too high to receive this payout");
+                case OWN_ORDER -> ConfirmMenu.fail(player, "You cannot fulfill your own request");
+                case FULL_AMOUNT_REQUIRED -> ConfirmMenu.fail(player, "This request must be fulfilled all at once.");
+                case INVALID_AMOUNT -> ConfirmMenu.fail(player, "The request changed; adjust your selected quantity.");
+                case NOT_ENOUGH_ITEMS -> ConfirmMenu.fail(player, "The selected items no longer match this request.");
+                default -> ConfirmMenu.fail(player, "Request no longer available");
+            }
+            if (result.taken() > 0) {
+                player.sendSystemMessage(Component.literal(result.taken() + "x "
+                                + result.item().getHoverName().getString()
+                                + " is waiting in your deliveries mailbox (/eco deliveries).")
+                        .withStyle(ChatFormatting.YELLOW));
+            }
+            depositContainer.setChanged();
+            renderNavRow();
+        }
+
+        @Override
+        protected boolean onClick(int slot, int dragType, ClickKind kind, Player player) {
+            if (slot >= DEPOSIT_SLOTS && slot < NAV_ROW_END) {
+                if (kind == ClickKind.PICKUP || kind == ClickKind.QUICK_MOVE) {
+                    ServerPlayer serverPlayer = (ServerPlayer) player;
+                    int navSlot = slot - DEPOSIT_SLOTS;
+                    if (navSlot == NAV_CONFIRM) {
+                        deliver(serverPlayer);
+                    } else if (navSlot == NAV_CANCEL) {
+                        EconomySounds.click(serverPlayer);
+                        parent.openConfirm(serverPlayer, request);
+                    } else if (navSlot == NAV_CLEAR) {
+                        clearContainer(player, depositContainer);
+                        EconomySounds.itemsStored(serverPlayer);
+                        renderNavRow();
+                    }
+                }
+                return true;
+            }
+            if (slot >= 0 && slot < DEPOSIT_SLOTS) {
+                ItemStack carried = getCarried();
+                if (!carried.isEmpty() && !matchesRequest(carried)) {
+                    ConfirmMenu.fail((ServerPlayer) player, carried.getHoverName().getString()
+                            + " is not the requested item.");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        protected void afterClick(int slot, int dragType, ClickKind kind, Player player) {
+            renderNavRow();
+        }
+
+        @Override
+        public void removed(Player player) {
+            super.removed(player);
+            clearContainer(player, depositContainer);
+        }
+
+        @Override
+        public ItemStack quickMoveStack(Player player, int index) {
+            Slot slot = getSlot(index);
+            if (slot == null || !slot.hasItem()) return ItemStack.EMPTY;
+            ItemStack original = slot.getItem();
+            ItemStack copy = original.copy();
+
+            boolean moved;
+            if (index < DEPOSIT_SLOTS) {
+                moved = moveItemStackTo(original, NAV_ROW_END, slots.size(), true);
+            } else if (index >= NAV_ROW_END) {
+                if (!matchesRequest(original)) {
+                    ConfirmMenu.fail((ServerPlayer) player, original.getHoverName().getString()
+                            + " is not the requested item.");
+                    return ItemStack.EMPTY;
+                }
+                moved = moveItemStackTo(original, 0, DEPOSIT_SLOTS, false);
+            } else {
+                return ItemStack.EMPTY;
+            }
+
+            if (!moved) return ItemStack.EMPTY;
+            if (original.isEmpty()) slot.set(ItemStack.EMPTY);
+            else slot.setChanged();
+            renderNavRow();
+            return copy;
         }
     }
 
