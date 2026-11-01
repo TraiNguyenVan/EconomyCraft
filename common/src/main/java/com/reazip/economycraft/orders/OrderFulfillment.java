@@ -284,6 +284,46 @@ public final class OrderFulfillment {
                 stackSource(sourceStack));
     }
 
+    /** Fulfills from the exact matching stacks staged in a player menu as one claim and settlement. */
+    static Result fulfillExact(EconomyManager eco, ServerPlayer fulfiller, int orderId, int requestedAmount,
+                               List<ItemStack> sourceStacks) {
+        OrderManager orders = eco.getOrders();
+        OrderRequest peek = orders.getRequest(orderId);
+        if (peek == null || peek.item == null || peek.item.isEmpty()) {
+            return new Result(Status.ORDER_GONE, 0, 0, 0, 0, 0, ItemStack.EMPTY, null);
+        }
+        if (fulfiller.getUUID().equals(peek.requester)) {
+            return new Result(Status.OWN_ORDER, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+        }
+        if (requestedAmount <= 0) {
+            return new Result(Status.INVALID_AMOUNT, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+        }
+
+        int held = 0;
+        for (ItemStack stack : sourceStacks) {
+            if (stack == null || stack.isEmpty()) continue;
+            if (!ItemStack.isSameItemSameComponents(stack, peek.item)) {
+                return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+            }
+            try {
+                held = Math.addExact(held, stack.getCount());
+            } catch (ArithmeticException overflow) {
+                return new Result(Status.INVALID_AMOUNT, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+            }
+        }
+        if (requestedAmount > held) {
+            return new Result(Status.NOT_ENOUGH_ITEMS, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+        }
+        if (requestedAmount > peek.amount) {
+            return new Result(Status.INVALID_AMOUNT, 0, 0, 0, 0, peek.amount, peek.item.copy(), peek.requester);
+        }
+
+        ItemStack itemProto = peek.item.copy();
+        OrderManager.ClaimResult claim = orders.claim(orderId, requestedAmount, held, true);
+        return applyFulfillment(eco, orders, claim, peek.requester, fulfiller.getUUID(), itemProto,
+                stackSource(sourceStacks));
+    }
+
     /**
      * Where a fulfilment takes the seller's goods from, and how it puts them back when the
      * settlement does not commit.
@@ -291,7 +331,7 @@ public final class OrderFulfillment {
      * <p>The goods leave before any money moves, so a crash in between can never duplicate them.
      * The restore side is what makes a settlement that refused to happen give them back.
      */
-    private interface ItemSource {
+    interface ItemSource {
         /** Removes up to {@code amount} goods; returns how many were actually removed. */
         int take(int amount);
 
@@ -317,6 +357,40 @@ public final class OrderFulfillment {
                 // The stack still exists and still holds the goods' place: give them back to it.
                 stack.setCount(stack.getCount() + amount);
                 return 0;
+            }
+        };
+    }
+
+    /** Goods staged across several matching menu slots. */
+    static ItemSource stackSource(List<ItemStack> stacks) {
+        int[] taken = new int[stacks.size()];
+        return new ItemSource() {
+            @Override
+            public int take(int amount) {
+                int remaining = amount;
+                for (int i = 0; i < stacks.size() && remaining > 0; i++) {
+                    ItemStack stack = stacks.get(i);
+                    int count = stack == null || stack.isEmpty() ? 0 : Math.min(remaining, stack.getCount());
+                    if (count <= 0) continue;
+                    stack.shrink(count);
+                    taken[i] += count;
+                    remaining -= count;
+                }
+                return amount - remaining;
+            }
+
+            @Override
+            public int restore(int amount) {
+                int remaining = amount;
+                for (int i = 0; i < stacks.size() && remaining > 0; i++) {
+                    int count = Math.min(remaining, taken[i]);
+                    if (count <= 0) continue;
+                    ItemStack stack = stacks.get(i);
+                    stack.setCount(stack.getCount() + count);
+                    taken[i] -= count;
+                    remaining -= count;
+                }
+                return remaining;
             }
         };
     }

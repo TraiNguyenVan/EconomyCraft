@@ -1,6 +1,6 @@
 # Server quests
 
-Server quests are requests funded by the server. Open `/quest` or `/eco quest` to browse and fulfill active bounties. Player-created requests remain in `/orders` or `/eco orders`. The board covers any applicable order tax, so the fulfiller receives the full amount shown.
+Server quests are requests funded by the server. Open `/quest` or `/eco quest` to browse active bounties. Select a bounty, place the quantity you want to deliver in the item slots, and confirm. Player-created requests remain in `/orders` or `/eco orders`. The board covers any applicable order tax, so the fulfiller receives the full amount shown.
 
 When the board refreshes with active bounties, online players receive one chat notice with a clickable button to open `/quest`.
 
