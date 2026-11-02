@@ -129,16 +129,20 @@ public final class ShopUi {
                 new ItemMenu(id, inv, eco, category, title, null, page, player, sort, true));
     }
 
-    private static boolean stockShopEnabled(EconomyManager eco) {
-        if (!EconomyConfig.get().shop.enabled) return false;
-        if (EconomyConfig.get().shop.stock.enabled) return true;
+    private static boolean questStockEnabled() {
         var quests = EconomyConfig.get().quests;
         return quests != null && quests.enabled && quests.buyback != null && quests.buyback.enabled;
     }
 
+    private static boolean stockShopEnabled(EconomyManager eco) {
+        if (!EconomyConfig.get().shop.enabled) return false;
+        return EconomyConfig.get().shop.stock.enabled || questStockEnabled();
+    }
+
     private static long stock(EconomyManager eco, String key) {
         long player = EconomyConfig.get().shop.stock.enabled ? eco.getPlayerShopStock().get(key) : 0L;
-        return QuestLogic.combinedStock(player, eco.getQuestStock().get(key));
+        long quest = questStockEnabled() ? eco.getQuestStock().get(key) : 0L;
+        return QuestLogic.combinedStock(player, quest);
     }
 
     private static boolean hasStockInCategory(EconomyManager eco, String category) {
