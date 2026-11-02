@@ -276,6 +276,39 @@ class SulfurCubeChunkLoaderTest {
     }
 
     @Test
+    @DisplayName("Radius 2 diagonal movement does not skip the corner chunk between samples")
+    void radiusTwoDiagonalDoesNotSkipCornerChunk() {
+        config.sulfurCubeChunkRadius = 2;
+        // 1.5 blocks/tick along the diagonal. From (14, 15.5) the cube enters chunk (0, 1) before (1, 1);
+        // a 16-block sampler only saw (1, 1) and (2, 2), leaving (0, 1) without any entity-ticking ticket.
+        moveTo(new ChunkPos(0, 0), 14.0, 15.5);
+        when(cube.getDeltaMovement()).thenReturn(new Vec3(1.06, 0.0, 1.06));
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
+        assertTrue(held.contains(new ChunkPos(0, 0)), "current chunk held");
+        assertTrue(held.contains(new ChunkPos(0, 1)), "corner chunk entered next must be preloaded");
+        assertTrue(held.contains(new ChunkPos(1, 1)), "diagonal chunk preloaded");
+        assertTrue(held.contains(new ChunkPos(2, 2)), "chunk at the end of the look-ahead preloaded");
+    }
+
+    @Test
+    @DisplayName("Radius 2 diagonal movement towards negative coordinates does not skip the corner chunk")
+    void radiusTwoNegativeDiagonalDoesNotSkipCornerChunk() {
+        config.sulfurCubeChunkRadius = 2;
+        moveTo(new ChunkPos(0, 0), 2.0, 0.5);
+        when(cube.getDeltaMovement()).thenReturn(new Vec3(-1.06, 0.0, -1.06));
+
+        SulfurCubeChunkLoader.onSulfurCubeTick(cube);
+
+        Set<ChunkPos> held = SulfurCubeChunkLoader.getHeldChunks(cubeUuid);
+        assertTrue(held.contains(new ChunkPos(0, 0)), "current chunk held");
+        assertTrue(held.contains(new ChunkPos(0, -1)), "corner chunk entered next must be preloaded");
+        assertTrue(held.contains(new ChunkPos(-1, -1)), "diagonal chunk preloaded");
+    }
+
+    @Test
     @DisplayName("Stationary cube with zero min speed does not ticket origin (0, 0)")
     void zeroMinSpeedStationaryCubeDoesNotLoadOrigin() {
         config.sulfurCubeLookAheadMinSpeed = 0.0;

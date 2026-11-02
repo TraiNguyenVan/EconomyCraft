@@ -2,7 +2,6 @@ package com.reazip.economycraft.chunkloading;
 
 import com.mojang.logging.LogUtils;
 import com.reazip.economycraft.EconomyConfig;
-import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
@@ -456,20 +455,41 @@ public final class SulfurCubeChunkLoader {
         double unitX = velocity.x / horizontalSpeed;
         double unitZ = velocity.z / horizontalSpeed;
 
-        for (double dist = 16.0; dist <= aheadBlocks; dist += 16.0) {
-            double sampleX = position.x + unitX * dist;
-            double sampleZ = position.z + unitZ * dist;
-            ChunkPos pos = ChunkPos.containing(BlockPos.containing(sampleX, position.y, sampleZ));
+        // Walk every chunk boundary the path crosses (Amanatides-Woo grid traversal) instead of sampling
+        // at a fixed stride. A stride of 16 blocks can step over a corner chunk on a diagonal path, and
+        // at radius 2 nothing else covers it because only a ticket's centre chunk is entity-ticking.
+        int chunkX = (int) Math.floor(position.x) >> 4;
+        int chunkZ = (int) Math.floor(position.z) >> 4;
+        int stepX = Double.compare(unitX, 0.0);
+        int stepZ = Double.compare(unitZ, 0.0);
+
+        double tDeltaX = stepX == 0 ? Double.POSITIVE_INFINITY : 16.0 / Math.abs(unitX);
+        double tDeltaZ = stepZ == 0 ? Double.POSITIVE_INFINITY : 16.0 / Math.abs(unitZ);
+        double tMaxX = stepX == 0 ? Double.POSITIVE_INFINITY
+                : (((stepX > 0 ? chunkX + 1 : chunkX) * 16.0) - position.x) / unitX;
+        double tMaxZ = stepZ == 0 ? Double.POSITIVE_INFINITY
+                : (((stepZ > 0 ? chunkZ + 1 : chunkZ) * 16.0) - position.z) / unitZ;
+
+        while (true) {
+            // unitX/unitZ are a unit vector, so t is a distance in blocks along the path.
+            if (tMaxX < tMaxZ) {
+                if (tMaxX > aheadBlocks) {
+                    break;
+                }
+                chunkX += stepX;
+                tMaxX += tDeltaX;
+            } else {
+                if (tMaxZ > aheadBlocks) {
+                    break;
+                }
+                chunkZ += stepZ;
+                tMaxZ += tDeltaZ;
+            }
+
+            ChunkPos pos = new ChunkPos(chunkX, chunkZ);
             if (!pos.equals(currentChunk) && pos.getChessboardDistance(currentChunk) > entityTickingRadius && !chunks.contains(pos)) {
                 chunks.add(pos);
             }
-        }
-
-        double endX = position.x + unitX * aheadBlocks;
-        double endZ = position.z + unitZ * aheadBlocks;
-        ChunkPos endPos = ChunkPos.containing(BlockPos.containing(endX, position.y, endZ));
-        if (!endPos.equals(currentChunk) && endPos.getChessboardDistance(currentChunk) > entityTickingRadius && !chunks.contains(endPos)) {
-            chunks.add(endPos);
         }
 
         return chunks;
