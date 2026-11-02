@@ -354,6 +354,10 @@ public final class SulfurCubeChunkLoader {
                 // Idle cube that cannot resume yet: keep it tracked and keep it idle, but leave
                 // lastPosition alone so the cube keeps asking for a slot on every later tick. Recording the
                 // position here would make the cube look stationary again and it would never retry.
+                // previousTickPosition is only used for speed, so it must still advance every tick;
+                // otherwise the whole distance travelled while waiting is read as one tick of speed
+                // once a slot opens.
+                tracker.previousTickPosition = position;
                 tracker.lastTickCount = gameTime;
                 return;
             }
@@ -365,10 +369,8 @@ public final class SulfurCubeChunkLoader {
             }
         }
 
-        Vec3 effectiveVelocity = resolveEffectiveVelocity(cube, position, tracker != null ? tracker.previousTickPosition : null);
-        if (tracker != null) {
-            tracker.previousTickPosition = position;
-        }
+        Vec3 effectiveVelocity = resolveEffectiveVelocity(cube, position, tracker.previousTickPosition);
+        tracker.previousTickPosition = position;
 
         tracker.lastTickCount = gameTime;
         if (moved) {
