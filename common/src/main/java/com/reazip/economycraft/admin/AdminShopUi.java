@@ -558,6 +558,10 @@ public final class AdminShopUi {
                 Draft itemDraft = toDraft(entry, viewer);
                 List<Component> lore = new ArrayList<>(draftLore(itemDraft,
                         removed ? List.of() : dynamicPriceLines(eco, itemDraft)));
+                if (!removed) {
+                    lore.add(MenuUiSupport.labeledValue("Player-sold stock",
+                            Long.toString(eco.getPlayerShopStock().get(entry.key())), MenuUiSupport.LABEL_PRIMARY_COLOR));
+                }
                 lore.add(MenuUiSupport.labeledValue("Click", removed ? "Put back in the shop" : "Edit",
                         MenuUiSupport.LABEL_SECONDARY_COLOR));
                 display.set(DataComponents.LORE, new ItemLore(lore));
@@ -939,6 +943,7 @@ public final class AdminShopUi {
         private static final int BUY = 10;
         private static final int SELL = 12;
         private static final int STACK = 14;
+        private static final int STOCK = 15;
         private static final int CATEGORY = 16;
         private static final int DYNAMIC_PRICE = 17;
         private static final int BACK = 18;
@@ -1002,6 +1007,13 @@ public final class AdminShopUi {
                     MenuUiSupport.hint("How many a shift-click buys or sells."),
                     MenuUiSupport.labeledValue("Now", String.valueOf(draft.stack()), MenuUiSupport.LABEL_PRIMARY_COLOR)));
 
+            long playerStock = eco.getPlayerShopStock().get(draft.key());
+            container.setItem(STOCK, MenuUiSupport.button(Items.HOPPER, "Player-sold Stock", ChatFormatting.AQUA,
+                    MenuUiSupport.hint("Direct /sell stock available in the shop."),
+                    MenuUiSupport.labeledValue("Now", String.valueOf(playerStock), MenuUiSupport.LABEL_PRIMARY_COLOR),
+                    MenuUiSupport.labeledValue("Click", "Set amount", MenuUiSupport.LABEL_SECONDARY_COLOR),
+                    MenuUiSupport.labeledValue("Right click", "Clear stock", MenuUiSupport.LABEL_SECONDARY_COLOR)));
+
             container.setItem(CATEGORY, MenuUiSupport.button(Items.BOOK, "Category", ChatFormatting.YELLOW,
                     MenuUiSupport.hint("Which page of the shop it lives on."),
                     MenuUiSupport.labeledValue("Now", draft.category(), MenuUiSupport.LABEL_PRIMARY_COLOR)));
@@ -1033,6 +1045,12 @@ public final class AdminShopUi {
             }
         }
 
+        private void setPlayerStock(ServerPlayer player, long amount) {
+            eco.getPlayerShopStock().set(draft.key(), amount);
+            EconomySounds.click(player);
+            openEditor(player, eco, origin, draft, returnCategory);
+        }
+
         @Override
         protected boolean onClick(int slot, int dragType, ClickKind kind, Player player) {
             if (slot < 0 || slot >= 27) return false;
@@ -1059,6 +1077,20 @@ public final class AdminShopUi {
                             draft.stack(), 1, 64,
                             (p, value) -> update(draft.withStack(value.intValue())),
                             p -> openEditor(p, eco, origin, draft, returnCategory));
+                }
+                case STOCK -> {
+                    if (dragType == 1) {
+                        ConfirmUi.open(viewer, "Clear player-sold stock?", draft.display(), "Clear stock",
+                                List.of(MenuUiSupport.line("This removes the direct-sale stock for this item.", ChatFormatting.RED)),
+                                p -> setPlayerStock(p, 0),
+                                p -> openEditor(p, eco, origin, draft, returnCategory));
+                    } else {
+                        EconomySounds.click(viewer);
+                        NumberInputUi.openCount(viewer, "Set player-sold stock", draft.display(), "Player-sold stock",
+                                eco.getPlayerShopStock().get(draft.key()), 0, EconomyManager.ABSOLUTE_MAX_BALANCE,
+                                (p, value) -> setPlayerStock(p, value.longValue()),
+                                p -> openEditor(p, eco, origin, draft, returnCategory));
+                    }
                 }
                 case CATEGORY -> {
                     EconomySounds.click(viewer);

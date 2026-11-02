@@ -17,7 +17,12 @@
     "standalone_admin": false
   },
   "shop": {
-    "enabled": true
+    "enabled": true,
+    "stock": {
+      "enabled": true,
+      "price_floor_margin": 0.1,
+      "pristine_only": true
+    }
   },
   "selling": {
     "enabled": true,

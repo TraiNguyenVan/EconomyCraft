@@ -109,6 +109,20 @@ class QuestLogicTest {
     }
 
     @Test
+    void playerStockFloorRoundsUpAndNeverFallsBelowThePayout() {
+        assertEquals(0L, QuestLogic.playerStockFloor(0L, 0.10));
+        assertEquals(6L, QuestLogic.playerStockFloor(5L, 0.10));
+        assertEquals(110L, QuestLogic.playerStockFloor(100L, 0.10));
+    }
+
+    @Test
+    void combinedStockSaturatesInsteadOfWrapping() {
+        assertEquals(7L, QuestLogic.combinedStock(3L, 4L));
+        assertEquals(Long.MAX_VALUE, QuestLogic.combinedStock(Long.MAX_VALUE, 1L));
+        assertEquals(4L, QuestLogic.combinedStock(-1L, 4L));
+    }
+
+    @Test
     void legacyAuctionDetailsNeedBothQuantityAndName() {
         assertEquals(new QuestLogic.LegacySale(64, "Iron Ingot"),
                 QuestLogic.parseLegacySaleDetail("64x Iron Ingot"));

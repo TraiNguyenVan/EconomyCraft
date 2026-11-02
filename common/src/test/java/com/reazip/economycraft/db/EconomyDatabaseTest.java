@@ -31,6 +31,33 @@ class EconomyDatabaseTest {
     }
 
     @Test
+    void playerShopStockKeepsRollingPaidPriceHighWater() throws Exception {
+        try (EconomyDatabase db = EconomyDatabase.createInMemory()) {
+            db.initialize();
+            db.depositPlayerShopStock("minecraft:diamond", 2, 100, 1_000);
+            db.depositPlayerShopStock("minecraft:diamond", 3, 60, 2_000);
+            db.depositPlayerShopStock("minecraft:diamond", 4, 60, 3_000);
+
+            assertEquals(9, db.getPlayerShopStock("minecraft:diamond"));
+            assertEquals(100, db.playerShopHighWater("minecraft:diamond", 0));
+            assertEquals(60, db.playerShopHighWater("minecraft:diamond", 1_500),
+                    "after the old maximum expires, the newer lower paid price remains available");
+            assertEquals(0, db.playerShopHighWater("minecraft:diamond", 3_001));
+
+            assertEquals(5, db.withdrawPlayerShopStock("minecraft:diamond", 5));
+            assertEquals(4, db.getPlayerShopStock("minecraft:diamond"));
+            assertEquals(4, db.withdrawPlayerShopStock("minecraft:diamond", 10));
+            assertEquals(0, db.getPlayerShopStock("minecraft:diamond"));
+
+            db.setPlayerShopStock("minecraft:diamond", 7);
+            assertEquals(7, db.getPlayerShopStock("minecraft:diamond"));
+            db.clearPlayerShopStock("minecraft:diamond");
+            assertEquals(0, db.getPlayerShopStock("minecraft:diamond"));
+            assertEquals(0, db.playerShopHighWater("minecraft:diamond", 0));
+        }
+    }
+
+    @Test
     void legacyImportMovesFilesIntoDocuments(@TempDir Path dataDir) throws Exception {
         Files.writeString(dataDir.resolve("balances.json"), "{\"uuid-1\":100}");
         Files.writeString(dataDir.resolve("tolls.json"), "{}");

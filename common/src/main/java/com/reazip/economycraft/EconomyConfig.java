@@ -3,6 +3,7 @@ package com.reazip.economycraft;
 import com.google.gson.*;
 import com.google.gson.annotations.SerializedName;
 import com.mojang.logging.LogUtils;
+import com.reazip.economycraft.config.ConfigClamp;
 import com.reazip.economycraft.config.FactionsSection;
 import com.reazip.economycraft.config.MotdBlock;
 import com.reazip.economycraft.config.ProfessionsSection;
@@ -76,6 +77,19 @@ public class EconomyConfig {
 
     public static class Shop {
         public boolean enabled = true;
+        public ShopStock stock = new ShopStock();
+    }
+
+    /** Settings for finite stock supplied by direct server sales. */
+    public static class ShopStock {
+        /** Whether direct /sell sales restock the shop and can be purchased from it. */
+        public boolean enabled = true;
+        /** Extra cost above the highest qualifying recent sell payout, preventing sell-buy arbitrage. */
+        @SerializedName("price_floor_margin")
+        public double priceFloorMargin = 0.10;
+        /** Only standard, pristine catalog stacks may enter the player-sold stock pool. */
+        @SerializedName("pristine_only")
+        public boolean pristineOnly = true;
     }
 
     public static class Selling {
@@ -258,6 +272,8 @@ public class EconomyConfig {
                 parsed.economy.dailyReward = 0;
             }
             parsed.economy.maxBalance = clampMaxBalance(parsed.economy.maxBalance);
+            parsed.shop.stock.priceFloorMargin = ConfigClamp.percentage("shop.stock.price_floor_margin",
+                    parsed.shop.stock.priceFloorMargin);
             parsed.display.balanceSeparator = validSeparator(parsed.display.balanceSeparator);
             parsed.display.currencySymbol = validCurrencySymbol(parsed.display.currencySymbol);
             parsed.display.currencyName = validCurrencyName(parsed.display.currencyName);
@@ -333,6 +349,7 @@ public class EconomyConfig {
         if (config.display == null) config.display = new Display();
         if (config.commands == null) config.commands = new Commands();
         if (config.shop == null) config.shop = new Shop();
+        if (config.shop.stock == null) config.shop.stock = new ShopStock();
         if (config.selling == null) config.selling = new Selling();
         if (config.dynamicPrices == null) config.dynamicPrices = new DynamicPrices();
         if (config.auction == null) config.auction = new Auction();

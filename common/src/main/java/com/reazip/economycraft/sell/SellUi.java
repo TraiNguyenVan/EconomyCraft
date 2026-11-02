@@ -8,6 +8,7 @@ import com.reazip.economycraft.HubUi;
 import com.reazip.economycraft.PriceRegistry;
 import com.reazip.economycraft.SellService;
 import com.reazip.economycraft.shop.ShopDisplay;
+import com.reazip.economycraft.quests.BuybackTransfers;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
 import com.reazip.economycraft.util.EconomyPermissions;
@@ -79,11 +80,12 @@ public final class SellUi {
             renderNavRow();
         }
 
-        private record SellPreview(int count, long total) {}
+        private record SellPreview(int count, long total, int restocked) {}
 
         private static final class PreviewAccumulator {
             int count;
             long total;
+            int restocked;
         }
 
         private void addPreview(PreviewAccumulator acc, ItemStack stack, Long unitSell) {
@@ -96,8 +98,19 @@ public final class SellUi {
             acc.count += stack.getCount();
         }
 
+        private boolean restocksShop(ItemStack stack, Long unitSell) {
+            if (!EconomyConfig.get().shop.stock.enabled || unitSell == null) return false;
+            PriceRegistry.PriceEntry entry = prices.resolve(stack);
+            if (entry == null) return false;
+            if (!EconomyConfig.get().shop.stock.pristineOnly) return true;
+            return entry.customItem() == null && !prices.isDamaged(stack) && prices.matches(stack, entry)
+                    && unitSell == entry.unitSell();
+        }
+
         private void previewStack(ItemStack stack, PreviewAccumulator acc) {
-            addPreview(acc, stack, SellService.sellableUnitSell(prices, stack));
+            Long unitSell = SellService.sellableUnitSell(prices, stack);
+            addPreview(acc, stack, unitSell);
+            if (restocksShop(stack, unitSell)) acc.restocked += stack.getCount();
         }
 
         private NonNullList<ItemStack> readShulkerContents(ItemStack box) {
@@ -136,6 +149,7 @@ public final class SellUi {
                     continue;
                 }
                 addPreview(acc, innerStack, unitSell);
+                if (restocksShop(innerStack, unitSell)) acc.restocked += innerStack.getCount();
             }
 
             long contentsValue = acc.total - before;
@@ -166,7 +180,7 @@ public final class SellUi {
 
                 previewStack(stack, acc);
             }
-            return new SellPreview(acc.count, acc.total);
+            return new SellPreview(acc.count, acc.total, acc.restocked);
         }
 
         private void renderNavRow() {
@@ -194,7 +208,8 @@ public final class SellUi {
             navContainer.setItem(NAV_CONFIRM, MenuUiSupport.confirmButton("Confirm",
                     MenuUiSupport.hint("Sells the items above"),
                     MenuUiSupport.labeledValue("Items", String.valueOf(preview.count()), MenuUiSupport.LABEL_PRIMARY_COLOR),
-                    MenuUiSupport.labeledValue("Total", EconomyCraft.formatMoney(preview.total()), MenuUiSupport.LABEL_PRIMARY_COLOR)));
+                    MenuUiSupport.labeledValue("Total", EconomyCraft.formatMoney(preview.total()), MenuUiSupport.LABEL_PRIMARY_COLOR),
+                    MenuUiSupport.labeledValue("Shop stock", String.valueOf(preview.restocked()), MenuUiSupport.LABEL_PRIMARY_COLOR)));
 
             MenuUiSupport.fillFooter(navContainer);
         }
@@ -245,6 +260,7 @@ public final class SellUi {
             long orderPayout;
             int serverSold;
             long serverPayout;
+            int restocked;
             int limitBlocked;
             int balanceBlocked;
             int shulkerBoxesKept;
@@ -268,8 +284,19 @@ public final class SellUi {
             }
 
             String detail = EconomyCraft.describeItem(split.serverRemaining(), stack.getHoverName().getString());
-            var result = manager.addMoney(player.getUUID(), potential, EconomySources.SHOP_SALE, detail, TransactionItems.keyOf(stack));
-            if (!result.successful()) {
+            boolean[] sold = {false};
+            boolean restock = restocksShop(stack, unitSell);
+            BuybackTransfers.run(manager, () -> {
+                var result = manager.addMoney(player.getUUID(), potential, EconomySources.SHOP_SALE, detail,
+                        TransactionItems.keyOf(stack));
+                if (!result.successful()) return;
+                if (restock) {
+                    manager.getPlayerShopStock().deposit(prices.resolve(stack).key(), split.serverRemaining(),
+                            unitSell, System.currentTimeMillis());
+                }
+                sold[0] = true;
+            });
+            if (!sold[0]) {
                 totals.balanceBlocked += split.serverRemaining();
                 return;
             }
@@ -279,6 +306,7 @@ public final class SellUi {
             }
             totals.serverSold += split.serverRemaining();
             totals.serverPayout += potential;
+            if (restock) totals.restocked += split.serverRemaining();
             stack.shrink(split.serverRemaining());
         }
 
@@ -333,6 +361,11 @@ public final class SellUi {
                                 " for " + EconomyCraft.formatMoneyChat(totalPayout) +
                                 (totals.orderGiven > 0 ? " (" + totals.orderGiven + " to open orders for a better price)" : "") + ".")
                         .withStyle(ChatFormatting.GREEN));
+                if (totals.restocked > 0) {
+                    player.sendSystemMessage(Component.literal(totals.restocked + " item"
+                                    + (totals.restocked == 1 ? " was" : "s were") + " added to shop stock.")
+                            .withStyle(ChatFormatting.AQUA));
+                }
             }
 
             if (totals.limitBlocked > 0) {

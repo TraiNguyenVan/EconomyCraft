@@ -179,8 +179,8 @@ public final class HubUi {
 
             if (config.shop.enabled && EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_SHOP)) {
                 container.setItem(SHOP, MenuUiSupport.button(Items.EMERALD, "Shop", ChatFormatting.GREEN,
-                        MenuUiSupport.hint("Buy and sell at fixed prices."),
-                        MenuUiSupport.hint("Stock never runs out.")));
+                        MenuUiSupport.hint("Buy available stock and sell at server-set prices."),
+                        MenuUiSupport.hint("Stock is supplied by quests and player sales.")));
             }
 
             if (config.auction.enabled && EconomyPermissions.checkCommand(viewer, Nodes.COMMAND_AUCTION)) {
