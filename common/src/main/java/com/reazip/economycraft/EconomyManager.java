@@ -91,7 +91,8 @@ public class EconomyManager {
             EconomySources.INCOME_TAX.asString(),
             EconomySources.IMPORT_TAX.asString(),
             EconomySources.DAILY_TAX.asString(),
-            EconomySources.CORRUPTION_TAX.asString()
+            EconomySources.CORRUPTION_TAX.asString(),
+            EconomySources.PLAYER_STOCK_PURCHASE.asString()
     );
     private static final String ECO_BALANCE_OBJECTIVE = "eco_balance";
     private static final int LEADERBOARD_SIZE = 5;
@@ -148,6 +149,7 @@ public class EconomyManager {
     private final com.reazip.economycraft.contracts.ContractManager contracts;
     private final QuestManager quests;
     private final QuestStock questStock;
+    private final com.reazip.economycraft.shop.PlayerShopStock playerShopStock;
     private final NotificationManager notifications;
     private final NegotiationStore negotiations;
     private final Map<UUID, String> displayed = new ConcurrentHashMap<>();
@@ -224,6 +226,7 @@ public class EconomyManager {
                 dataDir.resolve("contracts.json"), database);
         this.quests = new QuestManager(server, database);
         this.questStock = new QuestStock(server, database);
+        this.playerShopStock = new com.reazip.economycraft.shop.PlayerShopStock(database);
         this.notifications = new NotificationManager(server, database);
         this.negotiations = new NegotiationStore(database, dataDir.resolve("negotiations.json"));
         this.prices = new PriceRegistry(server);
@@ -925,6 +928,11 @@ public class EconomyManager {
     /** Finite stock received from completed quest bounties and sold through the shop. */
     public QuestStock getQuestStock() {
         return questStock;
+    }
+
+    /** Finite stock received directly through /sell and offered through the shop. */
+    public com.reazip.economycraft.shop.PlayerShopStock getPlayerShopStock() {
+        return playerShopStock;
     }
 
     public DeliveryManager getDeliveries() {

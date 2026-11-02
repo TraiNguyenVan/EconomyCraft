@@ -117,8 +117,30 @@ public final class EconomyDatabase implements AutoCloseable {
                 );
             """);
             createVillagerTables(st);
+            createPlayerShopTables(st);
         }
         initialized = true;
+    }
+
+    /** Player-sold shop stock and its exact paid-price history for the rolling price floor. */
+    private static void createPlayerShopTables(Statement st) throws SQLException {
+        st.execute("""
+            CREATE TABLE IF NOT EXISTS player_shop_stock (
+                market_key TEXT PRIMARY KEY,
+                count INTEGER NOT NULL CHECK (count >= 0)
+            );
+        """);
+        st.execute("""
+            CREATE TABLE IF NOT EXISTS player_shop_paid_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                market_key TEXT NOT NULL,
+                paid_unit INTEGER NOT NULL CHECK (paid_unit >= 0),
+                recorded_at INTEGER NOT NULL,
+                count INTEGER NOT NULL CHECK (count > 0)
+            );
+        """);
+        st.execute("CREATE INDEX IF NOT EXISTS idx_player_shop_paid_history_cutoff " +
+                "ON player_shop_paid_history(market_key, recorded_at);");
     }
 
     /**
@@ -283,6 +305,132 @@ public final class EconomyDatabase implements AutoCloseable {
             if (transactionWriteFailure == null) transactionWriteFailure = failure;
             throw failure;
         }
+    }
+
+    /** Returns the player-sold shop stock for {@code marketKey}, or zero when absent. */
+    public synchronized long getPlayerShopStock(String marketKey) {
+        ensureOpen();
+        try (PreparedStatement ps = connection.prepareStatement(
+                "SELECT count FROM player_shop_stock WHERE market_key = ?")) {
+            ps.setString(1, marketKey);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        } catch (SQLException e) {
+            throw playerShopFailure("read stock", marketKey, e);
+        }
+    }
+
+    /** Adds player-sold stock and records its paid unit price at {@code recordedAt}. */
+    public synchronized void depositPlayerShopStock(String marketKey, long count, long paidUnit, long recordedAt) {
+        if (count <= 0) throw new IllegalArgumentException("count must be positive");
+        if (paidUnit < 0) throw new IllegalArgumentException("paidUnit must not be negative");
+        runInTransaction(() -> {
+            try (PreparedStatement stock = connection.prepareStatement("""
+                    INSERT INTO player_shop_stock (market_key, count) VALUES (?, ?)
+                    ON CONFLICT(market_key) DO UPDATE SET count = count + excluded.count
+                    """);
+                 PreparedStatement history = connection.prepareStatement("""
+                    INSERT INTO player_shop_paid_history (market_key, paid_unit, recorded_at, count) VALUES (?, ?, ?, ?)
+                    """)) {
+                stock.setString(1, marketKey);
+                stock.setLong(2, count);
+                stock.executeUpdate();
+                history.setString(1, marketKey);
+                history.setLong(2, paidUnit);
+                history.setLong(3, recordedAt);
+                history.setLong(4, count);
+                history.executeUpdate();
+            } catch (SQLException e) {
+                throw playerShopFailure("deposit stock", marketKey, e);
+            }
+        });
+    }
+
+    /** Removes and returns up to {@code amount} units of player-sold stock. */
+    public synchronized long withdrawPlayerShopStock(String marketKey, long amount) {
+        if (amount <= 0) return 0L;
+        final long[] withdrawn = {0L};
+        runInTransaction(() -> {
+            long available = getPlayerShopStock(marketKey);
+            withdrawn[0] = Math.min(available, amount);
+            if (withdrawn[0] == 0) return;
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "UPDATE player_shop_stock SET count = count - ? WHERE market_key = ?")) {
+                ps.setLong(1, withdrawn[0]);
+                ps.setString(2, marketKey);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                throw playerShopFailure("withdraw stock", marketKey, e);
+            }
+        });
+        return withdrawn[0];
+    }
+
+    /** Replaces the player-sold stock count for {@code marketKey}. */
+    public synchronized void setPlayerShopStock(String marketKey, long count) {
+        if (count < 0) throw new IllegalArgumentException("count must not be negative");
+        try (PreparedStatement ps = connection.prepareStatement("""
+                INSERT INTO player_shop_stock (market_key, count) VALUES (?, ?)
+                ON CONFLICT(market_key) DO UPDATE SET count = excluded.count
+                """)) {
+            ps.setString(1, marketKey);
+            ps.setLong(2, count);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw playerShopFailure("set stock", marketKey, e);
+        }
+    }
+
+    /** Removes a market key's stock and its paid-price history. */
+    public synchronized void clearPlayerShopStock(String marketKey) {
+        runInTransaction(() -> {
+            try (PreparedStatement stock = connection.prepareStatement(
+                         "DELETE FROM player_shop_stock WHERE market_key = ?");
+                 PreparedStatement history = connection.prepareStatement(
+                         "DELETE FROM player_shop_paid_history WHERE market_key = ?")) {
+                stock.setString(1, marketKey);
+                stock.executeUpdate();
+                history.setString(1, marketKey);
+                history.executeUpdate();
+            } catch (SQLException e) {
+                throw playerShopFailure("clear stock", marketKey, e);
+            }
+        });
+    }
+
+    /**
+     * Prunes paid-price records older than {@code cutoffMillis} and returns the maximum paid unit
+     * price remaining for the market key, or zero when no qualifying deposit remains.
+     */
+    public synchronized long playerShopHighWater(String marketKey, long cutoffMillis) {
+        final long[] highWater = {0L};
+        runInTransaction(() -> {
+            try (PreparedStatement prune = connection.prepareStatement(
+                         "DELETE FROM player_shop_paid_history WHERE market_key = ? AND recorded_at < ?");
+                 PreparedStatement maximum = connection.prepareStatement(
+                         "SELECT COALESCE(MAX(paid_unit), 0) FROM player_shop_paid_history " +
+                                 "WHERE market_key = ? AND recorded_at >= ?")) {
+                prune.setString(1, marketKey);
+                prune.setLong(2, cutoffMillis);
+                prune.executeUpdate();
+                maximum.setString(1, marketKey);
+                maximum.setLong(2, cutoffMillis);
+                try (ResultSet rs = maximum.executeQuery()) {
+                    highWater[0] = rs.next() ? rs.getLong(1) : 0L;
+                }
+            } catch (SQLException e) {
+                throw playerShopFailure("read paid-price high-water", marketKey, e);
+            }
+        });
+        return highWater[0];
+    }
+
+    private IllegalStateException playerShopFailure(String operation, String marketKey, SQLException cause) {
+        IllegalStateException failure =
+                new IllegalStateException("Failed to " + operation + " for player shop key " + marketKey, cause);
+        if (inTransaction && transactionWriteFailure == null) transactionWriteFailure = failure;
+        return failure;
     }
 
     /**

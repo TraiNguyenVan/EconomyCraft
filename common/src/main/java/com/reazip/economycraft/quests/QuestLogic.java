@@ -63,6 +63,25 @@ public final class QuestLogic {
         return requested <= 0 || available <= 0 ? 0 : (int) Math.min(requested, available);
     }
 
+    /** Applies the configured spread above a player-paid unit, saturating safely. */
+    public static long playerStockFloor(long paidUnit, double margin) {
+        if (paidUnit <= 0) return 0;
+        try {
+            return Math.max(paidUnit, BigDecimal.valueOf(paidUnit)
+                    .multiply(BigDecimal.ONE.add(BigDecimal.valueOf(margin)))
+                    .setScale(0, RoundingMode.CEILING).longValueExact());
+        } catch (ArithmeticException overflow) {
+            return Long.MAX_VALUE;
+        }
+    }
+
+    /** Combines the two independent finite stock pools without overflowing. */
+    public static long combinedStock(long playerStock, long questStock) {
+        long player = Math.max(0, playerStock);
+        long quest = Math.max(0, questStock);
+        return player > Long.MAX_VALUE - quest ? Long.MAX_VALUE : player + quest;
+    }
+
     /** Market sale recorded as the seller's credit for the stated quantity. */
     public record MarketSale(long sellerProceeds, int quantity, long timeMillis) {}
 

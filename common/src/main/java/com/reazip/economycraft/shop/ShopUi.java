@@ -129,10 +129,20 @@ public final class ShopUi {
                 new ItemMenu(id, inv, eco, category, title, null, page, player, sort, true));
     }
 
-    private static boolean stockShopEnabled(EconomyManager eco) {
+    private static boolean questStockEnabled() {
         var quests = EconomyConfig.get().quests;
-        return EconomyConfig.get().shop.enabled && quests != null && quests.enabled
-                && quests.buyback != null && quests.buyback.enabled;
+        return quests != null && quests.enabled && quests.buyback != null && quests.buyback.enabled;
+    }
+
+    private static boolean stockShopEnabled(EconomyManager eco) {
+        if (!EconomyConfig.get().shop.enabled) return false;
+        return EconomyConfig.get().shop.stock.enabled || questStockEnabled();
+    }
+
+    private static long stock(EconomyManager eco, String key) {
+        long player = EconomyConfig.get().shop.stock.enabled ? eco.getPlayerShopStock().get(key) : 0L;
+        long quest = questStockEnabled() ? eco.getQuestStock().get(key) : 0L;
+        return QuestLogic.combinedStock(player, quest);
     }
 
     private static boolean hasStockInCategory(EconomyManager eco, String category) {
@@ -141,7 +151,7 @@ public final class ShopUi {
         return eco.getPrices().allEntries().stream().anyMatch(entry -> {
             String entryCategory = entry.category() == null ? "" : entry.category().toLowerCase(java.util.Locale.ROOT);
             return (prefix.isBlank() || entryCategory.equals(prefix) || entryCategory.startsWith(prefix + "."))
-                    && eco.getQuestStock().get(entry.key()) > 0;
+                    && stock(eco, entry.key()) > 0;
         });
     }
 
@@ -153,7 +163,7 @@ public final class ShopUi {
     private static List<String> stockedSubcategoryOptions(EconomyManager eco, String topCategory) {
         List<String> options = new ArrayList<>(stockedSubcategories(eco, topCategory));
         boolean hasDirectStock = stockShopEnabled(eco) && eco.getPrices().allByCategory(topCategory).stream()
-                .anyMatch(entry -> eco.getQuestStock().get(entry.key()) > 0);
+                .anyMatch(entry -> stock(eco, entry.key()) > 0);
         if (hasDirectStock) options.add(0, "");
         return options;
     }
@@ -450,7 +460,7 @@ public final class ShopUi {
             List<PriceRegistry.PriceEntry> candidates = searchQuery != null
                     ? eco.getPrices().searchAll(searchQuery, category)
                     : category == null ? eco.getPrices().allEntries() : eco.getPrices().allByCategory(category);
-            return candidates.stream().filter(entry -> eco.getQuestStock().get(entry.key()) > 0).toList();
+            return candidates.stream().filter(entry -> stock(eco, entry.key()) > 0).toList();
         }
 
         private static List<PriceRegistry.PriceEntry> applySort(EconomyManager eco, List<PriceRegistry.PriceEntry> list, SortMode sort) {
@@ -487,7 +497,7 @@ public final class ShopUi {
 
                 int stackSize = Math.max(1, entry.stack());
                 long unitBuy = stockUnitPrice(eco, entry);
-                long stock = eco.getQuestStock().get(entry.key());
+                long stock = stock(eco, entry.key());
                 int stackAmount = (int) Math.min(stackSize, Math.min(Integer.MAX_VALUE, stock));
                 boolean canSell = entry.unitSell() > 0 && EconomyConfig.get().selling.enabled;
                 boolean hasContents = MenuUiSupport.hasContainerContents(display);
@@ -644,7 +654,7 @@ public final class ShopUi {
                 return;
             }
 
-            long available = eco.getQuestStock().get(entry.key());
+            long available = stock(eco, entry.key());
             if (available <= 0) {
                 EconomySounds.failure(viewer);
                 viewer.sendSystemMessage(Component.literal("This item is out of stock.").withStyle(ChatFormatting.RED));
@@ -681,21 +691,32 @@ public final class ShopUi {
             }
 
             String detail = EconomyCraft.describeItem(purchaseAmount, base.getHoverName().getString());
+            long playerAvailable = EconomyConfig.get().shop.stock.enabled ? eco.getPlayerShopStock().get(entry.key()) : 0L;
+            long playerExpected = Math.min(playerAvailable, purchaseAmount);
+            long questExpected = purchaseAmount - playerExpected;
             boolean[] purchased = {false};
             BuybackTransfers.run(eco, () -> {
-                long taken = eco.getQuestStock().withdraw(entry.key(), purchaseAmount, false);
-                if (taken != purchaseAmount) {
-                    if (taken > 0) eco.getQuestStock().deposit(entry.key(), taken, false);
-                    return;
+                long playerTaken = playerExpected > 0 ? eco.getPlayerShopStock().withdraw(entry.key(), playerExpected) : 0L;
+                if (playerTaken != playerExpected) throw new IllegalStateException("Player stock changed during purchase.");
+                long questTaken = eco.getQuestStock().withdraw(entry.key(), questExpected, false);
+                if (questTaken != questExpected) throw new IllegalStateException("Quest stock changed during purchase.");
+                Long playerTotal = playerTaken > Integer.MAX_VALUE ? null
+                        : ShopDisplay.safeMultiply(unitPrice, (int) playerTaken);
+                Long questTotal = questTaken > Integer.MAX_VALUE ? null
+                        : ShopDisplay.safeMultiply(unitPrice, (int) questTaken);
+                if (playerTotal == null || questTotal == null) throw new IllegalStateException("Price too large.");
+                if (playerTotal > 0) {
+                    var result = eco.transferMoney(viewer.getUUID(), QuestManager.BOT_UUID, playerTotal, 0,
+                            EconomySources.PLAYER_STOCK_PURCHASE, detail, TransactionItems.keyOf(base), (int) playerTaken);
+                    if (!result.successful()) throw new IllegalStateException("Player-stock purchase debit failed.");
                 }
-                var result = eco.transferMoney(viewer.getUUID(), QuestManager.BOT_UUID, total, total,
-                        EconomySources.QUEST_BUYBACK, detail, TransactionItems.keyOf(base), purchaseAmount);
-                if (!result.successful()) {
-                    eco.getQuestStock().deposit(entry.key(), taken, false);
-                    return;
+                if (questTotal > 0) {
+                    var result = eco.transferMoney(viewer.getUUID(), QuestManager.BOT_UUID, questTotal, questTotal,
+                            EconomySources.QUEST_BUYBACK, detail, TransactionItems.keyOf(base), (int) questTaken);
+                    if (!result.successful()) throw new IllegalStateException("Quest-stock purchase debit failed.");
                 }
                 eco.getQuestStock().save();
-                eco.getQuests().onBuybackPurchased(entry.key());
+                if (questTaken > 0) eco.getQuests().onBuybackPurchased(entry.key());
                 purchased[0] = true;
             });
             if (!purchased[0]) {

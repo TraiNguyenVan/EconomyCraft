@@ -387,9 +387,13 @@ public class QuestManager {
         var quests = EconomyConfig.get().quests;
         long fallback = QuestLogic.questUnit(eco.getEffectiveBuyPrice(entry), entry.unitSell(),
                 quests.priceFactor, quests.sellFallbackMultiplier);
-        if (!EconomyConfig.get().transactionLog.enabled) return fallback;
-        return QuestLogic.marketUnit(marketSales(entry.key(), now, quests.marketLookbackDays), now,
+        long market = !EconomyConfig.get().transactionLog.enabled ? fallback
+                : QuestLogic.marketUnit(marketSales(entry.key(), now, quests.marketLookbackDays), now,
                 quests.marketLookbackDays, quests.marketMinimumSales, fallback);
+        long cutoff = now - Math.max(1, quests.marketLookbackDays) * 24L * 60L * 60L * 1000L;
+        long paidHighWater = eco.getPlayerShopStock().highWater(entry.key(), cutoff);
+        return Math.max(market, QuestLogic.playerStockFloor(paidHighWater,
+                EconomyConfig.get().shop.stock.priceFloorMargin));
     }
 
     private List<QuestLogic.MarketSale> marketSales(String key, long now, int days) {
