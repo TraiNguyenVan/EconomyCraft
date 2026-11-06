@@ -9,6 +9,7 @@
     "TollHopperMixin",
     "TabListDisplayNameMixin",
     "ProfessionPlaceMixin",
+    "MinerDropsMixin",
     "ProfessionHasteMixin",
     "ProfessionBreedMixin",
     "ProfessionCraftMixin",
