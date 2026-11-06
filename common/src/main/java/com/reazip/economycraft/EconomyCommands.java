@@ -1193,7 +1193,7 @@ public final class EconomyCommands {
             source.sendFailure(Component.literal("You can't afford to reserve " + EconomyCraft.formatMoneyChat(price)).withStyle(ChatFormatting.RED));
             return 0;
         }
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, price);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, price, null, player.getUUID(), eco);
 
         Component msg = Component.literal("Created request for " + amount + "x " + item.getHoverName().getString() +
                 (tax > 0 ? " (fulfiller receives " + EconomyCraft.formatMoney(price - tax) + ")" : ""))

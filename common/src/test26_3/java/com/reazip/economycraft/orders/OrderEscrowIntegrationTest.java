@@ -3,6 +3,7 @@ package com.reazip.economycraft.orders;
 import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.EconomySources;
+import com.reazip.economycraft.faction.FactionId;
 import net.minecraft.SharedConstants;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -238,6 +239,25 @@ class OrderEscrowIntegrationTest {
                 "the removal must be on disk with its refund, never before it");
         assertEquals(100_000L, reloaded.getBalance(REQUESTER, false),
                 "the refund must be on disk with the removal");
+    }
+
+    @Test
+    void capitalismRequesterGivesNonCapitalistFulfillerFullPayout() {
+        boolean enabled = EconomyConfig.get().factions.enabled;
+        try {
+            EconomyConfig.get().factions.enabled = true;
+            eco.getFactions().select(REQUESTER, FactionId.CAPITALISM);
+            eco.getFactions().select(SELLER, FactionId.COMMUNISM);
+            OrderRequest order = fundOrder(1_280L);
+            long startingBalance = setBalance(SELLER, 500L);
+            SellerFixture seller = fulfillerWithEmeralds(64);
+            OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64);
+            assertTrue(result.success());
+            assertEquals(1_280L, result.payout());
+            assertEquals(startingBalance + 1_280L, eco.getBalance(SELLER, false));
+        } finally {
+            EconomyConfig.get().factions.enabled = enabled;
+        }
     }
 
     @Test
