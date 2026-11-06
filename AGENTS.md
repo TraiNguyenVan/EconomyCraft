@@ -79,5 +79,28 @@ CI runs.
 - Display helpers must not create balances. Never conjure an account from an unverified name.
 - The `/ah` buyer pays the tax; there is no seller-side listing fee.
 
+<!-- graphify-rules-start (managed by `graphify init`) -->
+## Use Graphify before grep
+
+This repository is indexed by Graphify: a code graph over its call, dependency, and test structure, exposed
+through a connected Graphify MCP server. Before reaching for grep or reading files, use the Graphify tools
+your MCP client lists (their exact names and descriptions are in the server's tool list) for what the graph
+knows and a text search does not:
+
+- find where a symbol, function, or class is defined (instead of grepping for it)
+- understand how something works, or where a behavior is handled
+- find who calls a function, or what it calls
+- see what a change affects (its blast radius) and which tests cover it
+- map a file's dependencies and dependents
+
+Fall back to grep or file reads only for what the graph does not model: literal string or comment matches,
+non-indexed files, or reading a file you have already located.
+
+Graphify is optional and per-maintainer. It needs both an MCP client configured with the Graphify server and a
+signed-in account with access to this repository's workspace; listing or querying the graph without that
+authentication returns nothing. If your agent lists no Graphify tools — because the server is not configured or
+you are not signed in — ignore this section and work as before. Nothing else in this file depends on it.
+<!-- graphify-rules-end -->
+
 For domain-specific verification notes, see [toll contributor guidance](docs/contributing/tolls.md). For
 architecture traps and invariants, see [the contributor reference](docs/contributing/architecture.md).
