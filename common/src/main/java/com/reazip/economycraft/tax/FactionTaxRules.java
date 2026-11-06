@@ -23,8 +23,7 @@ import java.util.function.DoubleSupplier;
  *   <li><strong>Capitalism {@code Thị trường cạnh tranh}</strong> (spec 21, D8) — a purchase from a
  *       Capitalism <em>seller</em> is exempt. Keyed on the seller for auctions, deliberately not the buyer:
  *       the buff is a selling-price advantage, and D8 rejected introducing a seller-side levy to pay for it.
- *       An order is exempt when <em>either</em> side is Capitalism, so a Capitalism player pays no order tax
- *       whether they post the request or fulfil it.</li>
+ *       An order is exempt when <em>either</em> side is Capitalism, so the fulfiller receives the full reward whether a Capitalism player posts the request or fulfils it.</li>
  *   <li><strong>Capitalism {@code Nhà nước tư bản}</strong> (spec 23) — toll tax rate × 1.25.</li>
  *   <li><strong>Monarchy {@code Nhập khẩu}</strong> (spec 31, D7) — a 50 % chance of an extra tax equal to
  *       50 % of the item's own tax, on the import scopes only.</li>

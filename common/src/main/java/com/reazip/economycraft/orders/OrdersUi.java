@@ -9,7 +9,6 @@ import com.reazip.economycraft.negotiation.NegotiationEvents;
 import com.reazip.economycraft.negotiation.NegotiationStore;
 import com.reazip.economycraft.quests.QuestManager;
 import com.reazip.economycraft.tax.TaxPolicy;
-import com.reazip.economycraft.tax.TaxScope;
 import com.reazip.economycraft.util.ClickKind;
 import com.reazip.economycraft.util.CompatMenu;
 import com.reazip.economycraft.util.ContainerPreviewUi;
@@ -103,18 +102,18 @@ public final class OrdersUi {
 
     private static long orderTax(@Nullable EconomyManager eco, @Nullable UUID payer,
                                  @Nullable UUID requester, long base) {
-        if (eco == null) return TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, base);
-        return TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, base, payer, requester, eco);
+        return TaxPolicy.previewOrder(base, payer, requester, eco).amount();
     }
 
     private static void addRewardLore(List<Component> lore, long reward, int amount,
                                       @Nullable EconomyManager eco, @Nullable UUID payer,
                                       @Nullable UUID requester) {
-        lore.add(createRewardLore(reward, orderTax(eco, payer, requester, reward)));
+        lore.add(createRewardLore("Estimated reward", reward, orderTax(eco, payer, requester, reward)));
+        lore.add(MenuUiSupport.hint("Final tax may include a Monarchy surcharge."));
         if (amount > 1) {
             long rewardPerItem = OrderManager.rewardPerItem(reward, amount);
             if (rewardPerItem > 0) {
-                lore.add(createRewardLore("Reward per item", rewardPerItem,
+                lore.add(createRewardLore("Estimated reward per item", rewardPerItem,
                         orderTax(eco, payer, requester, rewardPerItem)));
             }
         }
@@ -248,7 +247,7 @@ public final class OrdersUi {
         EconomySounds.success(player);
         player.sendSystemMessage(Component.literal("Requested " + amount + "x "
                         + prototype.getHoverName().getString() + " for " + EconomyCraft.formatMoney(price)
-                        + (tax > 0 ? " (fulfiller receives " + EconomyCraft.formatMoney(price - tax) + ")" : ""))
+                        + (tax > 0 ? " (estimated fulfiller payout: " + EconomyCraft.formatMoney(price - tax) + ")" : ""))
                 .withStyle(ChatFormatting.GREEN));
         open(player, eco);
     }

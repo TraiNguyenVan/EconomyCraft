@@ -795,7 +795,7 @@ public final class OrderFulfillment {
         PriceRegistry.PriceEntry protoPrice = prices.resolve(proto);
         if (protoPrice == null) return List.of();
 
-        List<OrderRequest> out = new ArrayList<>();
+        List<java.util.Map.Entry<OrderRequest, Double>> ranked = new ArrayList<>();
         for (OrderRequest order : eco.getOrders().getRequests()) {
             if (order.amount <= 0 || order.item == null || order.item.isEmpty()) continue;
             if (!order.item.is(proto.getItem())) continue;
@@ -804,10 +804,11 @@ public final class OrderFulfillment {
             PriceRegistry.PriceEntry orderPrice = prices.resolve(order.item);
             if (orderPrice == null || !orderPrice.key().equals(protoPrice.key())) continue;
 
-            if (netRatePerUnit(eco, seller, order) > serverUnitSell) out.add(order);
+            double rate = netRatePerUnit(eco, seller, order);
+            if (rate > serverUnitSell) ranked.add(java.util.Map.entry(order, rate));
         }
-        out.sort((a, b) -> Double.compare(netRatePerUnit(eco, seller, b), netRatePerUnit(eco, seller, a)));
-        return out;
+        ranked.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+        return ranked.stream().map(java.util.Map.Entry::getKey).toList();
     }
 
     public static int countHeld(ServerPlayer player, ItemStack proto) {
@@ -840,7 +841,7 @@ public final class OrderFulfillment {
 
     /**
      * The reward a fulfiller would take home. {@code eco} supplies the faction rules and {@code payer}
-     * is the player who will deliver, so the preview matches what the settlement will actually credit.
+     * is the player who will deliver. A Monarchy surcharge may reduce the final payout.
      */
     public static long payoutFor(@org.jetbrains.annotations.Nullable EconomyManager eco,
                                  @org.jetbrains.annotations.Nullable UUID payer,
@@ -848,9 +849,7 @@ public final class OrderFulfillment {
         if (order == null) return 0;
         long payment = OrderManager.partialPayment(order, give);
         if (QuestManager.BOT_UUID.equals(order.requester) && order.serverCoversOrderTax) return payment;
-        long tax = eco == null
-                ? TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment)
-                : TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment, payer, order.requester, eco);
+        long tax = TaxPolicy.previewOrder(payment, payer, order.requester, eco).amount();
         return payment - tax;
     }
 
@@ -859,8 +858,8 @@ public final class OrderFulfillment {
         if (QuestManager.BOT_UUID.equals(order.requester) && order.serverCoversOrderTax) {
             return order.price / (double) order.amount;
         }
-        var quote = TaxPolicy.resolve(TaxScope.TRANSACTION_ORDER, order.price, seller, order.requester, eco);
-        return (order.price / (double) order.amount) * (1.0 - quote.rate());
+        var quote = TaxPolicy.previewOrder(order.price, seller, order.requester, eco);
+        return (order.price - (double) quote.amount()) / order.amount;
     }
 
     private static int removeItems(ServerPlayer player, ItemStack proto, int amount, boolean excludeArmor) {

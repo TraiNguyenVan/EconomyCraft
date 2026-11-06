@@ -228,6 +228,19 @@ class FactionRulesTest {
     }
 
     @Test
+    void orderPreviewIsStableAndSettlementStillRollsMonarchySurcharge() {
+        UUID fulfiller = memberOf(FactionId.MONARCHY);
+        UUID requester = memberOf(FactionId.COMMUNISM);
+        TaxExemption rules = alwaysRoll();
+        for (int i = 0; i < 10; i++) {
+            TaxQuote preview = TaxPolicy.previewOrder(1000L, 0.10, 0.15, fulfiller, requester, rules);
+            assertEquals(85L, preview.amount());
+        }
+        assertEquals(128L, TaxPolicy.evaluate(TaxScope.TRANSACTION_ORDER, 1000L, 0.10, 0.15,
+                fulfiller, requester, rules).amount());
+    }
+
+    @Test
     void nonCapitalismOrderStillPaysTax() {
         UUID requester = memberOf(FactionId.MONARCHY);
         UUID fulfiller = memberOf(FactionId.COMMUNISM);
@@ -244,10 +257,14 @@ class FactionRulesTest {
         UUID other = memberOf(FactionId.COMMUNISM);
 
         for (TaxScope scope : new TaxScope[]{TaxScope.TOLL, TaxScope.TRANSACTION_PAY,
-                TaxScope.TRANSACTION_CONTRACT, TaxScope.TRANSACTION_SHOP}) {
+                TaxScope.TRANSACTION_CONTRACT, TaxScope.TRANSACTION_SHOP, TaxScope.AUCTION_LISTING,
+                TaxScope.TRANSACTION_VILLAGER}) {
             TaxQuote quoted = quote(scope, 1000L, taxRate, other, capitalist, neverRoll());
             assertFalse(quoted.exempt(), "the order rule must not leak into " + scope);
             assertTrue(quoted.amount() > 0, scope + " should still be taxed");
+            TaxQuote reversed = quote(scope, 1000L, taxRate, capitalist, other, neverRoll());
+            assertFalse(reversed.exempt(), "the fulfiller exemption must not leak into " + scope);
+            assertTrue(reversed.amount() > 0, scope + " should still be taxed in reverse");
         }
     }
 

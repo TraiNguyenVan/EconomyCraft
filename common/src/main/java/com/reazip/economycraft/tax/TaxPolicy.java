@@ -71,6 +71,20 @@ public final class TaxPolicy {
         return evaluate(scope, base, taxRate, discountRate, player, counterparty, exemption);
     }
 
+    /** Deterministic order quote: apply faction rules and Merchant discounts without rolling a surcharge. */
+    public static TaxQuote previewOrder(long base, @Nullable UUID payer, @Nullable UUID requester,
+                                        @Nullable EconomyManager eco) {
+        double discount = eco != null && payer != null ? MerchantEffects.discountRate(payer, eco) : 0.0;
+        return previewOrder(base, EconomyConfig.get().taxRate, discount, payer, requester,
+                FactionTaxRules.forEconomy(eco));
+    }
+
+    /** Pure order preview with explicit rules, for callers that already have them. */
+    public static TaxQuote previewOrder(long base, double rate, double discount, @Nullable UUID payer,
+                                        @Nullable UUID requester, @Nullable TaxExemption exemption) {
+        return evaluate(TaxScope.TRANSACTION_ORDER, base, rate, discount, payer, requester, exemption, false);
+    }
+
     /**
      * The pure core every resolver ends in: a rate, a discount, the two parties and the faction rules.
      *
@@ -84,6 +98,12 @@ public final class TaxPolicy {
     public static TaxQuote evaluate(TaxScope scope, long base, double taxRate, double discountRate,
                                     @Nullable UUID payer, @Nullable UUID counterparty,
                                     @Nullable TaxExemption exemption) {
+        return evaluate(scope, base, taxRate, discountRate, payer, counterparty, exemption, true);
+    }
+
+    private static TaxQuote evaluate(TaxScope scope, long base, double taxRate, double discountRate,
+                                     @Nullable UUID payer, @Nullable UUID counterparty,
+                                     @Nullable TaxExemption exemption, boolean includeSurcharge) {
         if (exemption != null && exemption.exempts(scope, payer, counterparty)) {
             return new TaxQuote(base, 0.0, 0L, 0L, true, scope.source());
         }
@@ -95,7 +115,7 @@ public final class TaxPolicy {
 
         TaxQuote quoted = quote(scope, base, rate, discountRate);
 
-        if (exemption == null) return quoted;
+        if (exemption == null || !includeSurcharge) return quoted;
         long surcharge = exemption.surcharge(scope, payer, quoted);
         if (surcharge <= 0L) return quoted;
 
