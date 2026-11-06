@@ -131,7 +131,6 @@ public final class ProfessionHooks {
                 case MINER -> {
                     int worth = eco.getBlockTags().minerProgressFor(broken);
                     award(eco, player, worth);
-                    MinerEffects.applyDoubleOreDrop(eco, player, pos, broken);
                 }
                 case FARMER -> {
                     if (FarmerEffects.isLog(broken)) {

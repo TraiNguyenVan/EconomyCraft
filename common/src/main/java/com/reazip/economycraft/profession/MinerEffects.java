@@ -4,13 +4,16 @@ import com.reazip.economycraft.EconomyConfig;
 import com.reazip.economycraft.EconomyCraft;
 import com.reazip.economycraft.EconomyManager;
 import com.reazip.economycraft.config.ProfessionsSection;
-import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.entity.Entity;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Miner profession gameplay effects (Phase 6, spec lines 51-55):
@@ -40,33 +43,42 @@ public final class MinerEffects {
     /**
      * {@code Khéo tay} (spec 54): rolls for a doubled ore drop when mining an ore block.
      */
-    public static void applyDoubleOreDrop(EconomyManager eco, ServerPlayer player, BlockPos pos, BlockState broken) {
-        if (player == null || pos == null || broken == null || eco == null) return;
-        if (!EconomyConfig.get().professions.enabled) return;
+    public static List<ItemStack> doubleOreDrops(Entity entity, BlockState broken, List<ItemStack> drops) {
+        if (!(entity instanceof ServerPlayer player) || broken == null || drops.isEmpty()) return drops;
+        if (!EconomyConfig.get().professions.enabled) return drops;
 
         try {
-            if (eco.getProfessions().professionOf(player.getUUID()) != ProfessionId.MINER) return;
-            if (!eco.getBlockTags().isOre(broken)) return;
+            EconomyManager eco = EconomyCraft.getManager(player.level().getServer());
+            if (eco.getProfessions().professionOf(player.getUUID()) != ProfessionId.MINER) return drops;
+            if (!eco.getBlockTags().isOre(broken)) return drops;
 
             ProfessionsSection.MinerSettings settings = EconomyConfig.get().professions.miner;
             ProfessionLevel level = eco.getProfessions().baseLevelOf(player.getUUID());
             double rustMultiplier = ProfessionEffects.resolveMultiplier(player, ProfessionId.MINER);
 
             double chance = effectiveDoubleDropChance(settings, level, rustMultiplier);
-            if (chance <= 0.0D) return;
+            if (chance <= 0.0D) return drops;
 
             if (player.getRandom().nextDouble() < chance) {
-                Block.dropResources(broken, player.level(), pos);
+                List<ItemStack> doubled = copyDrops(drops);
                 player.sendSystemMessage(
                         Component.literal("⛏ ")
                                 .withColor(0x55FFFF)
                                 .append(Component.literal("Khéo tay: x2 quặng!").withColor(0xFFFFFF)),
                         true
                 );
+                return doubled;
             }
         } catch (Exception ignored) {
             // Drop doubling must never crash the block-break path
         }
+        return drops;
+    }
+
+    static List<ItemStack> copyDrops(List<ItemStack> drops) {
+        List<ItemStack> doubled = new ArrayList<>(drops);
+        for (ItemStack stack : drops) doubled.add(stack.copy());
+        return doubled;
     }
 
     /**

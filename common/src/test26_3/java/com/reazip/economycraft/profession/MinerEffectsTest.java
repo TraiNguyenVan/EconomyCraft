@@ -1,6 +1,22 @@
 package com.reazip.economycraft.profession;
 
 import com.reazip.economycraft.config.ProfessionsSection;
+import com.reazip.economycraft.EconomyConfig;
+import com.reazip.economycraft.EconomyCraft;
+import com.reazip.economycraft.EconomyManager;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import org.mockito.MockedStatic;
+
+import java.util.List;
+import java.util.UUID;
+
 import net.minecraft.SharedConstants;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.registries.VanillaRegistries;
@@ -10,6 +26,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Tests for the Miner profession's arithmetic, mechanics, and rust scaling (Phase 6, spec lines 51-55).
@@ -60,6 +77,64 @@ class MinerEffectsTest {
         assertEquals(0.0D, MinerEffects.effectiveDoubleDropChance(settings, null, 1.0D), 1e-9D);
         assertEquals(0.0D, MinerEffects.effectiveDoubleDropChance(null, ProfessionLevel.MASTER, 1.0D), 1e-9D);
         assertEquals(0.0D, MinerEffects.effectiveDoubleDropChance(settings, ProfessionLevel.RUSTED, 1.0D), 1e-9D);
+    }
+
+    @Test
+    void doublesOriginalStacksAndPreservesComponents() {
+        ItemStack silkDrop = new ItemStack(Items.IRON_ORE);
+        ItemStack fortuneDrop = new ItemStack(Items.RAW_IRON, 4);
+        fortuneDrop.set(DataComponents.CUSTOM_NAME, Component.literal("Named ore"));
+        List<ItemStack> original = List.of(silkDrop, fortuneDrop);
+
+        List<ItemStack> doubled = MinerEffects.copyDrops(original);
+        assertEquals(4, doubled.size());
+        assertSame(silkDrop, doubled.get(0));
+        assertNotSame(silkDrop, doubled.get(2));
+        assertEquals(Items.IRON_ORE, doubled.get(2).getItem());
+        assertEquals(4, doubled.get(3).getCount());
+        assertEquals(fortuneDrop.get(DataComponents.CUSTOM_NAME), doubled.get(3).get(DataComponents.CUSTOM_NAME));
+        doubled.get(3).setCount(1);
+        assertEquals(4, fortuneDrop.getCount());
+        assertTrue(MinerEffects.copyDrops(List.of()).isEmpty());
+    }
+
+    @Test
+    void bonusRequiresMinerOreAndSuccessfulChance() {
+        MinecraftServer server = mock(MinecraftServer.class);
+        ServerLevel level = mock(ServerLevel.class);
+        ServerPlayer player = mock(ServerPlayer.class);
+        RandomSource random = mock(RandomSource.class);
+        EconomyManager economy = mock(EconomyManager.class);
+        ProfessionStore professions = mock(ProfessionStore.class);
+        UUID id = UUID.randomUUID();
+        EconomyConfig config = new EconomyConfig();
+        config.professions.miner.doubleDropChanceMaster = 1.0D;
+        when(player.level()).thenReturn(level);
+        when(level.getServer()).thenReturn(server);
+        when(player.getUUID()).thenReturn(id);
+        when(player.getRandom()).thenReturn(random);
+        when(economy.getProfessions()).thenReturn(professions);
+        when(economy.getBlockTags()).thenReturn(BlockTags.fromConfig(config.professions));
+        when(professions.professionOf(id)).thenReturn(ProfessionId.MINER);
+        when(professions.baseLevelOf(id)).thenReturn(ProfessionLevel.MASTER);
+        when(professions.levelOf(id)).thenReturn(ProfessionLevel.MASTER);
+        List<ItemStack> drops = List.of(new ItemStack(Items.RAW_IRON, 4));
+        try (MockedStatic<EconomyCraft> craft = mockStatic(EconomyCraft.class);
+             MockedStatic<EconomyConfig> configs = mockStatic(EconomyConfig.class)) {
+            craft.when(() -> EconomyCraft.getManager(server)).thenReturn(economy);
+            configs.when(EconomyConfig::get).thenReturn(config);
+            assertEquals(8, MinerEffects.doubleOreDrops(player, Blocks.IRON_ORE.defaultBlockState(), drops)
+                    .stream().mapToInt(ItemStack::getCount).sum());
+            assertSame(drops, MinerEffects.doubleOreDrops(player, Blocks.STONE.defaultBlockState(), drops));
+            assertTrue(MinerEffects.doubleOreDrops(player, Blocks.IRON_ORE.defaultBlockState(), List.of()).isEmpty());
+            config.professions.miner.doubleDropChanceMaster = 0.05D;
+            when(random.nextDouble()).thenReturn(0.9D);
+            assertSame(drops, MinerEffects.doubleOreDrops(player, Blocks.IRON_ORE.defaultBlockState(), drops));
+            config.professions.miner.doubleDropChanceMaster = 1.0D;
+            when(professions.professionOf(id)).thenReturn(ProfessionId.FARMER);
+            assertSame(drops, MinerEffects.doubleOreDrops(player, Blocks.IRON_ORE.defaultBlockState(), drops));
+            assertSame(drops, MinerEffects.doubleOreDrops(null, Blocks.IRON_ORE.defaultBlockState(), drops));
+        }
     }
 
     // --- Bảo hộ lao động (Lava Regeneration) ---
