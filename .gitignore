@@ -25,3 +25,6 @@
 # Python bytecode, from the spec-kit verification scripts
 __pycache__/
 *.pyc
+
+# Locally generated graphify knowledge graph (rebuild with: graphify extract . --code-only)
+/graphify-out/
