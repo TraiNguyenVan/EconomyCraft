@@ -249,11 +249,12 @@ class OrderEscrowIntegrationTest {
             eco.getFactions().select(REQUESTER, FactionId.CAPITALISM);
             eco.getFactions().select(SELLER, FactionId.COMMUNISM);
             OrderRequest order = fundOrder(1_280L);
+            long startingBalance = setBalance(SELLER, 500L);
             SellerFixture seller = fulfillerWithEmeralds(64);
             OrderFulfillment.Result result = OrderFulfillment.fulfill(eco, seller.seller(), order.id, 64);
             assertTrue(result.success());
             assertEquals(1_280L, result.payout());
-            assertEquals(1_280L, eco.getBalance(SELLER, false));
+            assertEquals(startingBalance + 1_280L, eco.getBalance(SELLER, false));
         } finally {
             EconomyConfig.get().factions.enabled = enabled;
         }
