@@ -206,14 +206,47 @@ class FactionRulesTest {
     }
 
     @Test
-    void capitalismSellerExemptionDoesNotLeakIntoOtherScopes() {
-        double taxRate = 0.10;
-        UUID seller = memberOf(FactionId.CAPITALISM);
-        UUID buyer = memberOf(FactionId.CAPITALISM);
+    void capitalismOrderRequesterGrantsTaxExemptionOnFulfillment() {
+        UUID requester = memberOf(FactionId.CAPITALISM);
+        UUID fulfiller = memberOf(FactionId.COMMUNISM);
 
-        for (TaxScope scope : new TaxScope[]{TaxScope.TOLL, TaxScope.TRANSACTION_ORDER, TaxScope.TRANSACTION_PAY}) {
-            TaxQuote quoted = quote(scope, 1000L, taxRate, buyer, seller, neverRoll());
-            assertFalse(quoted.exempt(), "D8 is an auction-buy rule only, but " + scope + " was exempt");
+        TaxQuote quoted = quote(TaxScope.TRANSACTION_ORDER, 5000L, 0.10, fulfiller, requester, neverRoll());
+        assertTrue(quoted.exempt(), "an order posted by a Capitalism player is tax-free");
+        assertEquals(0L, quoted.amount());
+        assertEquals(5000L, quoted.net(), "the fulfiller receives the full reward");
+    }
+
+    @Test
+    void capitalismFulfillerGrantsTaxExemptionOnAnotherPlayersOrder() {
+        UUID requester = memberOf(FactionId.COMMUNISM);
+        UUID fulfiller = memberOf(FactionId.CAPITALISM);
+
+        TaxQuote quoted = quote(TaxScope.TRANSACTION_ORDER, 5000L, 0.10, fulfiller, requester, neverRoll());
+        assertTrue(quoted.exempt(), "a Capitalism player pays no tax when fulfilling an order");
+        assertEquals(0L, quoted.amount());
+        assertEquals(5000L, quoted.net());
+    }
+
+    @Test
+    void nonCapitalismOrderStillPaysTax() {
+        UUID requester = memberOf(FactionId.MONARCHY);
+        UUID fulfiller = memberOf(FactionId.COMMUNISM);
+
+        TaxQuote quoted = quote(TaxScope.TRANSACTION_ORDER, 1000L, 0.10, fulfiller, requester, neverRoll());
+        assertFalse(quoted.exempt());
+        assertEquals(100L, quoted.amount());
+    }
+
+    @Test
+    void capitalismOrderExemptionDoesNotLeakIntoOtherScopes() {
+        double taxRate = 0.10;
+        UUID capitalist = memberOf(FactionId.CAPITALISM);
+        UUID other = memberOf(FactionId.COMMUNISM);
+
+        for (TaxScope scope : new TaxScope[]{TaxScope.TOLL, TaxScope.TRANSACTION_PAY,
+                TaxScope.TRANSACTION_CONTRACT, TaxScope.TRANSACTION_SHOP}) {
+            TaxQuote quoted = quote(scope, 1000L, taxRate, other, capitalist, neverRoll());
+            assertFalse(quoted.exempt(), "the order rule must not leak into " + scope);
             assertTrue(quoted.amount() > 0, scope + " should still be taxed");
         }
     }

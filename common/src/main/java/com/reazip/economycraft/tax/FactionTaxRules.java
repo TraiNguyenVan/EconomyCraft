@@ -21,8 +21,10 @@ import java.util.function.DoubleSupplier;
  *   <li><strong>Communism {@code Đầu tư công}</strong> (spec 12) — a 50 % chance the <em>toll tax</em> is
  *       waived. The toll owner still receives the fee, because the fee is the base and never a tax.</li>
  *   <li><strong>Capitalism {@code Thị trường cạnh tranh}</strong> (spec 21, D8) — a purchase from a
- *       Capitalism <em>seller</em> is exempt. Keyed on the seller, deliberately not the buyer: the buff is a
- *       selling-price advantage, and D8 rejected introducing a seller-side levy to pay for it.</li>
+ *       Capitalism <em>seller</em> is exempt. Keyed on the seller for auctions, deliberately not the buyer:
+ *       the buff is a selling-price advantage, and D8 rejected introducing a seller-side levy to pay for it.
+ *       An order is exempt when <em>either</em> side is Capitalism, so a Capitalism player pays no order tax
+ *       whether they post the request or fulfil it.</li>
  *   <li><strong>Capitalism {@code Nhà nước tư bản}</strong> (spec 23) — toll tax rate × 1.25.</li>
  *   <li><strong>Monarchy {@code Nhập khẩu}</strong> (spec 31, D7) — a 50 % chance of an extra tax equal to
  *       50 % of the item's own tax, on the import scopes only.</li>
@@ -73,6 +75,12 @@ public final class FactionTaxRules implements TaxExemption {
         if (scope == TaxScope.TRANSACTION_AUCTION_BUY && counterparty != null
                 && chosenFactionOf(counterparty) == FactionId.CAPITALISM) {
             return true;
+        }
+        // Orders are two-sided: either the player asking for the goods or the player delivering them
+        // can make the tax disappear.
+        if (scope == TaxScope.TRANSACTION_ORDER) {
+            if (counterparty != null && chosenFactionOf(counterparty) == FactionId.CAPITALISM) return true;
+            if (payer != null && chosenFactionOf(payer) == FactionId.CAPITALISM) return true;
         }
         if (payer == null) return false;
 

@@ -27,7 +27,7 @@ EconomyCraft offers four factions, each with distinct benefits and drawbacks. Ch
 ## 2. Capitalism
 - **Icon:** `$` | **Color:** Yellow
 - **Benefits:**
-  - **Competitive Market:** When you list an item on the `/ah` auction house, its buyer is exempt from the transaction tax, making your listing more competitive.
+  - **Competitive Market:** When you list an item on the `/ah` auction house, its buyer is exempt from the transaction tax, making your listing more competitive. Orders are also tax-free when either the player posting the request or the player fulfilling it is a Capitalism member, so you pay no order tax whether you buy or sell.
 - **Drawbacks:**
   - **Capitalist State:** A daily faction tax starts at 2.5% and scales with the faction's share of wealth. The rate cannot increase or decrease by more than 25% per day. Toll transaction tax is increased by 25%.
 

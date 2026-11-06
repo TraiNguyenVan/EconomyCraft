@@ -18,8 +18,8 @@
  *       thresholds). Buffs: 50 % chance of no toll <em>tax</em> on toll payment. The {@code Tài trợ} subsidy
  *       buff is read-only in the spec and is deliberately not implemented.</li>
  *   <li><strong>Capitalism</strong> — daily tax at a rate that scales with how much wealth Capitalism holds
- *       (D14). Buff: a purchase from a Capitalism seller's {@code /ah} listing is tax-exempt for the buyer
- *       (D8). Debuff: toll tax +25 %.</li>
+ *       (D14). Buffs: a purchase from a Capitalism seller's {@code /ah} listing is tax-exempt for the buyer
+ *       (D8), and an order is tax-exempt when either side is Capitalism. Debuff: toll tax +25 %.</li>
  *   <li><strong>Monarchy</strong> — daily tax plus an equal corruption payment. Buffs: halved claim cost,
  *       +15 % damage inside your own claim (both claim-dependent, so they live behind the ShopGuard bridge).
  *       Debuff: 50 % chance of an import tax.</li>

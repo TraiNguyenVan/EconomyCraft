@@ -101,20 +101,29 @@ public final class OrdersUi {
         return createRewardLore("Reward", reward, tax);
     }
 
-    private static void addRewardLore(List<Component> lore, long reward, long tax, int amount) {
-        lore.add(createRewardLore(reward, tax));
+    private static long orderTax(@Nullable EconomyManager eco, @Nullable UUID payer,
+                                 @Nullable UUID requester, long base) {
+        if (eco == null) return TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, base);
+        return TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, base, payer, requester, eco);
+    }
+
+    private static void addRewardLore(List<Component> lore, long reward, int amount,
+                                      @Nullable EconomyManager eco, @Nullable UUID payer,
+                                      @Nullable UUID requester) {
+        lore.add(createRewardLore(reward, orderTax(eco, payer, requester, reward)));
         if (amount > 1) {
             long rewardPerItem = OrderManager.rewardPerItem(reward, amount);
             if (rewardPerItem > 0) {
-                long taxPerItem = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, rewardPerItem);
-                lore.add(createRewardLore("Reward per item", rewardPerItem, taxPerItem));
+                lore.add(createRewardLore("Reward per item", rewardPerItem,
+                        orderTax(eco, payer, requester, rewardPerItem)));
             }
         }
     }
 
-    private static void addBountyRewardLore(List<Component> lore, OrderRequest request, long reward, int amount) {
+    private static void addBountyRewardLore(List<Component> lore, OrderRequest request, long reward, int amount,
+                                            @Nullable EconomyManager eco, @Nullable UUID payer) {
         if (request == null || !QuestManager.BOT_UUID.equals(request.requester) || !request.serverCoversOrderTax) {
-            addRewardLore(lore, reward, TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, reward), amount);
+            addRewardLore(lore, reward, amount, eco, payer, request == null ? null : request.requester);
             return;
         }
         lore.add(MenuUiSupport.labeledValue("Reward", EconomyCraft.formatMoney(reward), MenuUiSupport.LABEL_PRIMARY_COLOR));
@@ -193,13 +202,12 @@ public final class OrdersUi {
     }
 
     private static List<Component> requestLore(ServerPlayer player, EconomyManager eco, int amount, long price) {
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, price);
         long balance = eco.getBalance(player.getUUID(), true);
 
         List<Component> lore = new ArrayList<>();
         lore.add(MenuUiSupport.labeledValue("Amount", String.valueOf(amount), MenuUiSupport.LABEL_PRIMARY_COLOR));
         lore.add(MenuUiSupport.labeledValue("You pay", EconomyCraft.formatMoney(price), MenuUiSupport.LABEL_PRIMARY_COLOR));
-        addRewardLore(lore, price, tax, amount);
+        addRewardLore(lore, price, amount, eco, null, player.getUUID());
         lore.add(MenuUiSupport.hint("The full amount is reserved when you post."));
         if (balance < price) {
             lore.add(MenuUiSupport.line("Your balance (" + EconomyCraft.formatMoney(balance) + ") is lower than this.",
@@ -236,7 +244,7 @@ public final class OrdersUi {
             return;
         }
 
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, price);
+        long tax = orderTax(eco, null, player.getUUID(), price);
         EconomySounds.success(player);
         player.sendSystemMessage(Component.literal("Requested " + amount + "x "
                         + prototype.getHoverName().getString() + " for " + EconomyCraft.formatMoney(price)
@@ -371,7 +379,7 @@ public final class OrdersUi {
                 String reqName = questBoard ? "Quest Board" : MenuUiSupport.resolvePlayerName(server, r.requester);
 
                 List<Component> lore = new ArrayList<>();
-                addBountyRewardLore(lore, r, r.price, r.amount);
+                addBountyRewardLore(lore, r, r.price, r.amount, eco, viewer.getUUID());
                 addBountyLore(lore, r);
                 addNoteLore(lore, r);
                 lore.add(MenuUiSupport.labeledValue("Amount", amountProgress(r),
@@ -586,7 +594,7 @@ public final class OrdersUi {
             String requesterName = MenuUiSupport.resolvePlayerName(server, req.requester);
             item.setCount(1);
             List<Component> itemLore = new ArrayList<>();
-            addBountyRewardLore(itemLore, req, req.price, req.amount);
+            addBountyRewardLore(itemLore, req, req.price, req.amount, parent.eco(), parent.viewer().getUUID());
             addBountyLore(itemLore, req);
             addNoteLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", amountProgress(req), MenuUiSupport.LABEL_PRIMARY_COLOR));
@@ -799,7 +807,8 @@ public final class OrdersUi {
             requestedItem.setCount(1);
             int selected = selectedCount();
             List<Component> itemLore = new ArrayList<>();
-            addBountyRewardLore(itemLore, displayRequest, displayRequest.price, displayRequest.amount);
+            addBountyRewardLore(itemLore, displayRequest, displayRequest.price, displayRequest.amount,
+                    parent.eco(), parent.viewer().getUUID());
             addBountyLore(itemLore, displayRequest);
             addNoteLore(itemLore, displayRequest);
             itemLore.add(MenuUiSupport.labeledValue("Remaining", String.valueOf(displayRequest.amount),
@@ -815,7 +824,7 @@ public final class OrdersUi {
                         ChatFormatting.RED));
             } else {
                 long payout = selected > 0 && selected <= current.amount
-                        ? OrderFulfillment.payoutFor(current, selected)
+                        ? OrderFulfillment.payoutFor(parent.eco(), parent.viewer().getUUID(), current, selected)
                         : 0;
                 navContainer.setItem(NAV_CONFIRM, MenuUiSupport.confirmButton("Deliver selected items",
                         MenuUiSupport.labeledValue("Quantity", selected + " of " + current.amount,
@@ -982,9 +991,8 @@ public final class OrdersUi {
             container.setItem(MenuUiSupport.ROW_CONFIRM, MenuUiSupport.confirmButton("Confirm"));
 
             ItemStack item = req.item.copy();
-            long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, req.price);
             List<Component> itemLore = new ArrayList<>();
-            addRewardLore(itemLore, req.price, tax, req.amount);
+            addRewardLore(itemLore, req.price, req.amount, parent.eco(), null, req.requester);
             addNoteLore(itemLore, req);
             itemLore.add(MenuUiSupport.labeledValue("Amount", amountProgress(req), MenuUiSupport.LABEL_PRIMARY_COLOR));
             itemLore.add(MenuUiSupport.hint(ExpirationUtil.expiresInLabel(req.expiresAt)));

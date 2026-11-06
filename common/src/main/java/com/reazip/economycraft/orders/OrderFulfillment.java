@@ -435,7 +435,7 @@ public final class OrderFulfillment {
         boolean taxCoveredBounty = botOrder && claim.order().serverCoversOrderTax;
         long botTax = 0L;
         if (botOrder) {
-            botTax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, claim.payment(), fulfillerId, eco);
+            botTax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, claim.payment(), fulfillerId, requester, eco);
             if (botTax < 0 || (taxCoveredBounty && claim.order().escrow < botTax)) {
                 orders.rollbackClaim(claim.order(), claim.given(), claim.payment(), claim.escrowUsed(), claim.exhausted());
                 return new Result(Status.REQUESTER_CANT_PAY, 0, 0, 0, 0, claim.order().amount, itemProto, requester);
@@ -613,7 +613,7 @@ public final class OrderFulfillment {
             return new PaymentOutcome(true, true, payout, null);
         }
 
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment, fulfillerId, eco);
+        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment, fulfillerId, requester, eco);
         long payout = payment - tax;
         long shortfall = payment - escrowUsed;
 
@@ -804,9 +804,9 @@ public final class OrderFulfillment {
             PriceRegistry.PriceEntry orderPrice = prices.resolve(order.item);
             if (orderPrice == null || !orderPrice.key().equals(protoPrice.key())) continue;
 
-            if (netRatePerUnit(order) > serverUnitSell) out.add(order);
+            if (netRatePerUnit(eco, seller, order) > serverUnitSell) out.add(order);
         }
-        out.sort((a, b) -> Double.compare(netRatePerUnit(b), netRatePerUnit(a)));
+        out.sort((a, b) -> Double.compare(netRatePerUnit(eco, seller, b), netRatePerUnit(eco, seller, a)));
         return out;
     }
 
@@ -831,18 +831,36 @@ public final class OrderFulfillment {
     }
 
     public static long payoutFor(OrderRequest order, int give) {
+        return payoutFor(null, null, order, give);
+    }
+
+    public static long payoutFor(@org.jetbrains.annotations.Nullable EconomyManager eco, OrderRequest order, int give) {
+        return payoutFor(eco, null, order, give);
+    }
+
+    /**
+     * The reward a fulfiller would take home. {@code eco} supplies the faction rules and {@code payer}
+     * is the player who will deliver, so the preview matches what the settlement will actually credit.
+     */
+    public static long payoutFor(@org.jetbrains.annotations.Nullable EconomyManager eco,
+                                 @org.jetbrains.annotations.Nullable UUID payer,
+                                 OrderRequest order, int give) {
+        if (order == null) return 0;
         long payment = OrderManager.partialPayment(order, give);
-        if (order != null && QuestManager.BOT_UUID.equals(order.requester) && order.serverCoversOrderTax) return payment;
-        long tax = TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment);
+        if (QuestManager.BOT_UUID.equals(order.requester) && order.serverCoversOrderTax) return payment;
+        long tax = eco == null
+                ? TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment)
+                : TaxPolicy.tax(TaxScope.TRANSACTION_ORDER, payment, payer, order.requester, eco);
         return payment - tax;
     }
 
-    private static double netRatePerUnit(OrderRequest order) {
+    private static double netRatePerUnit(EconomyManager eco, UUID seller, OrderRequest order) {
         if (order == null || order.amount <= 0) return 0;
         if (QuestManager.BOT_UUID.equals(order.requester) && order.serverCoversOrderTax) {
             return order.price / (double) order.amount;
         }
-        return TaxPolicy.netRate(TaxScope.TRANSACTION_ORDER, order.price / (double) order.amount);
+        var quote = TaxPolicy.resolve(TaxScope.TRANSACTION_ORDER, order.price, seller, order.requester, eco);
+        return (order.price / (double) order.amount) * (1.0 - quote.rate());
     }
 
     private static int removeItems(ServerPlayer player, ItemStack proto, int amount, boolean excludeArmor) {
