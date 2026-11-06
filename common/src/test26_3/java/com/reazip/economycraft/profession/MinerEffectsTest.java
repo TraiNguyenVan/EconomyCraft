@@ -109,6 +109,7 @@ class MinerEffectsTest {
         UUID id = UUID.randomUUID();
         EconomyConfig config = new EconomyConfig();
         config.professions.miner.doubleDropChanceMaster = 1.0D;
+        config.professions.miner.oreTags = List.of("minecraft:iron_ore");
         when(player.level()).thenReturn(level);
         when(level.getServer()).thenReturn(server);
         when(player.getUUID()).thenReturn(id);
